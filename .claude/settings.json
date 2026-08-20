@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "deny": [
+      "Write(dist/**)",
+      "Write(node_modules/**)",
+      "Write(coverage/**)",
+      "Edit(src/generated/**)",
+      "Write(src/generated/**)",
+      "Edit(prisma/migrations/**)",
+      "Write(prisma/migrations/**)",
+      "Bash(git push origin main*)",
+      "Bash(git push -u origin main*)",
+      "Bash(git push origin HEAD:main*)"
+    ],
+    "ask": [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git reset --hard*)"
+    ]
+  }
+}

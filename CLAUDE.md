@@ -33,6 +33,12 @@ Backend API for the app (frontend lives in `../react`). Per-area conventions liv
 
 ## Code Style (universal)
 
+- Never run `git add`/`git commit` on your own initiative — leave reviewing and
+  staging changes to the developer. Only stage/commit when explicitly asked, or
+  when running a skill whose job is specifically to stage, commit, and push
+- Never commit or push directly to `main`. Always work on a feature/chore branch
+  and push that branch; if currently on `main`, create a branch first before
+  making any changes. Opening a PR is always a separate, explicit ask
 - TypeScript full strict is ON — declare DTO/entity fields with `!` (they are instantiated by ValidationPipe/serialization, not constructors)
 - All code comments in English
 - Routes are versioned automatically: controllers get `/api/v1/...` from main.ts — never hardcode the prefix
@@ -45,7 +51,7 @@ Backend API for the app (frontend lives in `../react`). Per-area conventions liv
 ## Gotchas
 
 - **Node 22 only** — Prisma 7 does not support odd Node versions (23). Always `nvm use` first
-- Jest scripts carry `NODE_OPTIONS=--experimental-vm-modules` — required by Prisma 7's WASM client, do not remove
+- Jest scripts carry `NODE_OPTIONS=--experimental-vm-modules` — required by Prisma 7's WASM client, do not remove. Set via `cross-env` (devDependency) so it also works on native Windows npm, which runs scripts through `cmd.exe` and doesn't understand inline `VAR=value` syntax — don't revert to the bare form
 - Import supertest as default: `import request from 'supertest'` (esModuleInterop; namespace import is not callable)
 - PG18 docker image mounts data at `/var/lib/postgresql` (NOT `.../data` as in PG<=17)
 - Prisma 7: datasource `url` lives in `prisma.config.ts`, not in `schema.prisma`
