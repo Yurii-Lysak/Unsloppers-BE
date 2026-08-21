@@ -1,6 +1,6 @@
 # NestJS Backend Starter
 
-Backend API for the app (frontend lives in `../react`). Per-area conventions live in `.claude/rules/` and load automatically when working with matching files.
+Backend API for the app (frontend lives in `../frontend`). Per-area conventions live in `.claude/rules/` and load automatically when working with matching files.
 
 ## Tech Stack
 

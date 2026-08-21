@@ -71,7 +71,7 @@ test/                # e2e
 - Users CRUD: `POST|GET /api/v1/users`, `GET|PATCH|DELETE /api/v1/users/:id`
 - Swagger: `http://localhost:3001/api/docs`
 
-CORS is open for `http://localhost:4200` (frontend in `../react`).
+CORS is open for `http://localhost:4200` (frontend in `../frontend`).
 
 ## Conventions
 
