@@ -1,44 +1,27 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { AppModule } from './../src/app.module';
 import { UserEntity } from './../src/modules/users/entities/user.entity';
-import { PrismaService } from './../src/prisma/prisma.service';
+import { createTestApp, TestApp } from './support/app-harness';
 
 describe('Users CRUD (e2e)', () => {
-  let app: INestApplication<App>;
-  let prisma: PrismaService;
+  let testApp: TestApp;
+  let server: App;
 
-  const emailPrefix = `e2e-${Date.now()}`;
-  const email = `${emailPrefix}@example.com`;
+  const email = 'e2e-user@example.com';
   const missingId = '00000000-0000-0000-0000-000000000000';
   let createdId: string;
 
   beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleFixture.createNestApplication();
-    // Mirror the global pipe configured in main.ts bootstrap
-    app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, transform: true }),
-    );
-    await app.init();
-
-    prisma = app.get(PrismaService);
+    testApp = await createTestApp();
+    server = testApp.server;
   });
 
   afterAll(async () => {
-    await prisma.user.deleteMany({
-      where: { email: { startsWith: emailPrefix } },
-    });
-    await app.close();
+    await testApp.close();
   });
 
   it('POST /users creates a user', async () => {
-    const res = await request(app.getHttpServer())
+    const res = await request(server)
       .post('/users')
       .send({ email, name: 'E2E User' })
       .expect(201);
@@ -51,40 +34,35 @@ describe('Users CRUD (e2e)', () => {
   });
 
   it('POST /users with the same email returns 409', () => {
-    return request(app.getHttpServer())
-      .post('/users')
-      .send({ email })
-      .expect(409);
+    return request(server).post('/users').send({ email }).expect(409);
   });
 
   it('POST /users with an invalid email returns 400', () => {
-    return request(app.getHttpServer())
+    return request(server)
       .post('/users')
       .send({ email: 'not-an-email' })
       .expect(400);
   });
 
   it('GET /users returns the list including the created user', async () => {
-    const res = await request(app.getHttpServer()).get('/users').expect(200);
+    const res = await request(server).get('/users').expect(200);
 
     const body = res.body as UserEntity[];
     expect(body.some((u) => u.id === createdId)).toBe(true);
   });
 
   it('GET /users/:id returns the user', async () => {
-    const res = await request(app.getHttpServer())
-      .get(`/users/${createdId}`)
-      .expect(200);
+    const res = await request(server).get(`/users/${createdId}`).expect(200);
 
     expect((res.body as UserEntity).email).toBe(email);
   });
 
   it('GET /users/:id with an unknown id returns 404', () => {
-    return request(app.getHttpServer()).get(`/users/${missingId}`).expect(404);
+    return request(server).get(`/users/${missingId}`).expect(404);
   });
 
   it('PATCH /users/:id updates the name', async () => {
-    const res = await request(app.getHttpServer())
+    const res = await request(server)
       .patch(`/users/${createdId}`)
       .send({ name: 'Renamed User' })
       .expect(200);
@@ -93,12 +71,10 @@ describe('Users CRUD (e2e)', () => {
   });
 
   it('DELETE /users/:id returns 204', () => {
-    return request(app.getHttpServer())
-      .delete(`/users/${createdId}`)
-      .expect(204);
+    return request(server).delete(`/users/${createdId}`).expect(204);
   });
 
   it('GET /users/:id after deletion returns 404', () => {
-    return request(app.getHttpServer()).get(`/users/${createdId}`).expect(404);
+    return request(server).get(`/users/${createdId}`).expect(404);
   });
 });
