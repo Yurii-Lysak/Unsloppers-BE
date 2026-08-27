@@ -4,6 +4,8 @@ import { envValidationSchema } from './config/env.validation';
 import { HealthModule } from './modules/health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './modules/users/users.module';
+import { ContractsModule } from './modules/contracts/contracts.module';
+import { RegistryModule } from './modules/registry/registry.module';
 
 @Module({
   imports: [
@@ -12,6 +14,8 @@ import { UsersModule } from './modules/users/users.module';
       validationSchema: envValidationSchema,
     }),
     PrismaModule,
+    ContractsModule,
+    RegistryModule,
     HealthModule,
     UsersModule,
   ],
