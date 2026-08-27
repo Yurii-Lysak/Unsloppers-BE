@@ -16,5 +16,133 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  employee Employee?
+
   @@map("users")
+}
+
+// Story 1.20 — minimal Wave-0 shape (1:1 with User); later stories (1.1, 1.6)
+// add fields as they're needed. An Employee has no lifecycle independent of
+// its User, hence Cascade.
+model Employee {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  gradeHistory          GradeHistory[]
+  positionHistory       PositionHistory[]
+  departmentHistory     DepartmentHistory[]
+  employmentTypeHistory EmploymentTypeHistory[]
+  timelineEvents        TimelineEvent[]
+
+  @@map("employees")
+}
+
+// Four effective-dated history tables (AD-7). `effectiveTo IS NULL` = current
+// row. The only legal write path is the Prisma Client Extension in
+// `src/prisma/extensions/temporal-history.extension.ts` — no service may
+// write here directly (enforced by the extension, not by the schema).
+//
+// `@@unique([employeeId])` below is a PLACEHOLDER: Prisma's schema DSL
+// cannot express a partial/filtered unique index. The migration step
+// hand-edits the generated SQL to narrow this into
+// `UNIQUE ("employeeId") WHERE "effectiveTo" IS NULL` — the real DB-level
+// backstop for "at most one open row per employee". Do not remove this
+// annotation; it is what causes Prisma to emit the index to narrow.
+//
+// `value` is untyped `String` on purpose — Wave-0 does not validate against
+// a per-dimension domain/enum (that's a later story's concern).
+//
+// `onDelete: Restrict` on `employeeId`: history rows must never be silently
+// cascade-deleted when an Employee row is removed.
+//
+// `@@index([employeeId])` (iteration 2 patch): a plain, non-partial index
+// alongside the placeholder unique one above — ordinary `findMany({ where:
+// { employeeId } })` reads (used by the extension itself and throughout the
+// test suite) can't use the partial unique index, and would sequential-scan
+// as tables grow without this.
+model GradeHistory {
+  id            String    @id @default(uuid())
+  employeeId    String
+  value         String
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime? @db.Date
+  createdAt     DateTime  @default(now())
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId])
+  @@index([employeeId])
+  @@map("grade_history")
+}
+
+model PositionHistory {
+  id            String    @id @default(uuid())
+  employeeId    String
+  value         String
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime? @db.Date
+  createdAt     DateTime  @default(now())
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId])
+  @@index([employeeId])
+  @@map("position_history")
+}
+
+model DepartmentHistory {
+  id            String    @id @default(uuid())
+  employeeId    String
+  value         String
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime? @db.Date
+  createdAt     DateTime  @default(now())
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId])
+  @@index([employeeId])
+  @@map("department_history")
+}
+
+model EmploymentTypeHistory {
+  id            String    @id @default(uuid())
+  employeeId    String
+  value         String
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime? @db.Date
+  createdAt     DateTime  @default(now())
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId])
+  @@index([employeeId])
+  @@map("employment_type_history")
+}
+
+// Minimal Wave-0 shape (Design Notes): substrate for AD-7's manual-conflict
+// detection only. C4 (`TimelineEventWriter`) stays a no-op stub (Story 1.19)
+// until Epic 7 lands the real `timeline` module — nothing in production
+// populates this table yet. `onDelete: Restrict` mirrors the history tables'
+// policy (not explicitly mandated by the spec, but Employees are never
+// hard-deleted in Wave-0 regardless).
+model TimelineEvent {
+  id            String    @id @default(uuid())
+  employeeId    String
+  type          String
+  effectiveDate DateTime  @db.Date
+  oldValue      Json?
+  newValue      Json?
+  source        String
+  authorId      String?
+  createdAt     DateTime  @default(now())
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId, type, effectiveDate, source])
+  @@map("timeline_events")
 }
