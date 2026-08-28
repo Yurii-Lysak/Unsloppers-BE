@@ -1,0 +1,174 @@
+{
+  "version": 1,
+  "description": "Bootcamp seed population — 24 test accounts (Aug 2026 pivot from 500+ PRD target). Source: docs/bootcamp-seed-accounts-source.csv",
+  "identities": [
+    {
+      "id": 1,
+      "email": "tt.site-admin@altexsoft.com",
+      "name": "Site Administrator",
+      "hash": "ED91D45C3099D23C6CCCC3A2BF40FBBF3443153CA598EE5615506FE86C042CB0",
+      "countryCode": "UA"
+    },
+    {
+      "id": 2,
+      "email": "artem.shamraiev@altexsoft.com",
+      "name": "Anton Savchenko",
+      "hash": "003A364284BF05183DDA09AE95C440F84EADA264FE6A8F42BDBACF2D06C1F2BE",
+      "countryCode": "CA"
+    },
+    {
+      "id": 3,
+      "email": "alex.geraschenko@altexsoft.com",
+      "name": "Orest Hnatiuk",
+      "hash": "23D5787ABA94E60E2279719143F351CBC05EAF0424A154E381ABFCFA48362429",
+      "countryCode": "UA"
+    },
+    {
+      "id": 4,
+      "email": "nataliia.musiienko@altexsoft.com",
+      "name": "Taliia Muss",
+      "hash": "7895F91EA8F763C54E81344A282B598F49BA7F76808AB5E46A268A13FE7AF7F6",
+      "countryCode": "UA"
+    },
+    {
+      "id": 5,
+      "email": "viktor.bondar@altexsoft.com",
+      "name": "Viktor Bondar",
+      "hash": "58ED7FDE0DF9771724D23C0614619956AC55F7D1EF0DEB43DBA9A728042C60FD",
+      "countryCode": "ES"
+    },
+    {
+      "id": 6,
+      "email": "olena.romaniuk@altexsoft.com",
+      "name": "Olena Romaniuk",
+      "hash": "764315A6E5F6A129A62CD658C433A9F257C6004226FE1BB0416939E6BAFED889",
+      "countryCode": "UA"
+    },
+    {
+      "id": 7,
+      "email": "andrii.fedorchuk@altexsoft.com",
+      "name": "Andrii Fedorchuk",
+      "hash": "2070DB049B81A57BB147DB253A6F4A34E280775A3679B3E9F970C1CBEF027AEE",
+      "countryCode": "UA"
+    },
+    {
+      "id": 8,
+      "email": "oksana.hordiienko@altexsoft.com",
+      "name": "Oksana Hordiienko",
+      "hash": "66155930F486C9C37F7B2476E38D5344C98C7CC7462278D69F0F300004DE2688",
+      "countryCode": "UA"
+    },
+    {
+      "id": 9,
+      "email": "olena.lysak@altexsoft.com",
+      "name": "Olena Lysak",
+      "hash": "BFC6D0BBB1620BCC864895156C240B747F950B054520A9C965747474648F7223",
+      "countryCode": "ES"
+    },
+    {
+      "id": 10,
+      "email": "diana.savchuk@altexsoft.com",
+      "name": "Diana Savchuk",
+      "hash": "5F78D7AC0946047E1D31F4524D4D47ADDCDA346373B813480B363D5888BE4CD0",
+      "countryCode": "CA"
+    },
+    {
+      "id": 11,
+      "email": "andrii.kravets@altexsoft.com",
+      "name": "Andrii Kravets",
+      "hash": "41CB107B0AA7F05594352A84C4BAF28313348DECD5F9A7246A58B3B9EED265AA",
+      "countryCode": "GE"
+    },
+    {
+      "id": 12,
+      "email": "andrii.lysenko@altexsoft.com",
+      "name": "Andrii Lysenko",
+      "hash": "12DCF34EEBCC33AF3F48C94AA74AB26FA4FE2D1F97EF857D7C378936C49A5A47",
+      "countryCode": "GE"
+    },
+    {
+      "id": 13,
+      "email": "chidi.igwe@altexsoft.com",
+      "name": "Chidi Igwe",
+      "hash": "BA0F9B2DD6080342AC65D3AEC3C21113D47F16FBED5229C23737175167EC033C",
+      "countryCode": "GE"
+    },
+    {
+      "id": 14,
+      "email": "oleh.boiko@altexsoft.com",
+      "name": "Oleh Boiko",
+      "hash": "83B38C62CF6942DD1034CE018DF82B320416478D8065205BFF7D7C4C86E1F818",
+      "countryCode": "US"
+    },
+    {
+      "id": 15,
+      "email": "oleksandr.dorosh@altexsoft.com",
+      "name": "Oleksandr Dorosh",
+      "hash": "F4B96ACBCF0584675D63B6E94FD5BE77FCC183E2CE6ECCC9C487B50A8D80C93C",
+      "countryCode": "US"
+    },
+    {
+      "id": 16,
+      "email": "oleksii.semenov@altexsoft.com",
+      "name": "Oleksii Semenov",
+      "hash": "B19803859696574C65F47FCD0E27296DD2F0463190371607883DBBB48548C83E",
+      "countryCode": "US"
+    },
+    {
+      "id": 17,
+      "email": "vagif.mammadaliyev@altexsoft.com",
+      "name": "Vagif Mammadaliyev",
+      "hash": "C0B935EC2D18CA0756075D19ECF602B25698FD44E522295D7488F913E991E767",
+      "countryCode": "MY"
+    },
+    {
+      "id": 18,
+      "email": "vasyl.kravchenko@altexsoft.com",
+      "name": "Vasyl Kravchenko",
+      "hash": "07F4E7A8B1780CB7E4686B3CC45183BBFE4466CF88397FC66DB47FA49AF489BF",
+      "countryCode": "MY"
+    },
+    {
+      "id": 19,
+      "email": "vladyslav.umanets@altexsoft.com",
+      "name": "Vladyslav Umanets",
+      "hash": "836BC2FCFCA7426A2A603F3FA3BC10324066EE3A0B34F8B3C257FF38EEA10B9E",
+      "countryCode": "MY"
+    },
+    {
+      "id": 20,
+      "email": "danylo.hordiienko@altexsoft.com",
+      "name": "Danylo Hordiienko",
+      "hash": "EC743F675979918EA51E41E4DD3BA9284AAD04A8283CD4C7E9CDADB60D833E91",
+      "countryCode": "DE"
+    },
+    {
+      "id": 21,
+      "email": "dmytro.danylenko@altexsoft.com",
+      "name": "Dmytro Danylenko",
+      "hash": "F0741FFAB09E8C767BEA28FED35167A1E0C96FD36D78E1DDED85D00A88B9D317",
+      "countryCode": "UA"
+    },
+    {
+      "id": 22,
+      "email": "artem.bondarenko@altexsoft.com",
+      "name": "Artem Bondarenko",
+      "hash": "D003D63A54B1E5F03AA273C74A7A8CD09E44A5E70E1209C86223B1532B659F3E",
+      "countryCode": "UA"
+    },
+    {
+      "id": 23,
+      "email": "adam.keem@altexsoft.com",
+      "name": "Adam Keem",
+      "hash": "495396FBCFFF7AB92275BFC1C6D3E4AB8301D999171C8F30BF8E8A24E57C3DE6",
+      "countryCode": "UA"
+    },
+    {
+      "id": 24,
+      "email": "tesr.user@altex.com",
+      "name": "Test User",
+      "hash": "85E46686B3CF6F9DEC09E48705FF3FFA58FCBB83DC7BEE417D6C611DA466AF66",
+      "countryCode": "UA"
+    }
+  ]
+}

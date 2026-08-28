@@ -11,8 +11,19 @@ describe('UsersService', () => {
     id: '4f1e6f2e-8bcb-4a9f-b1b6-6c9f2d3a1e00',
     email: 'user@example.com',
     name: 'John Doe',
+    hash: 'seed-only-hash',
+    countryCode: null,
     createdAt: new Date(),
     updatedAt: new Date(),
+  };
+
+  const publicUser = {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    countryCode: user.countryCode,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
   };
 
   const prisma = {
@@ -47,7 +58,7 @@ describe('UsersService', () => {
 
       await expect(
         service.create({ email: user.email, name: user.name ?? undefined }),
-      ).resolves.toEqual(user);
+      ).resolves.toEqual(publicUser);
       expect(prisma.user.create).toHaveBeenCalledWith({
         data: { email: user.email, name: user.name },
       });
@@ -66,7 +77,7 @@ describe('UsersService', () => {
     it('returns users ordered by createdAt desc', async () => {
       prisma.user.findMany.mockResolvedValue([user]);
 
-      await expect(service.findAll()).resolves.toEqual([user]);
+      await expect(service.findAll()).resolves.toEqual([publicUser]);
       expect(prisma.user.findMany).toHaveBeenCalledWith({
         orderBy: { createdAt: 'desc' },
       });
@@ -77,7 +88,7 @@ describe('UsersService', () => {
     it('returns a user by id', async () => {
       prisma.user.findUnique.mockResolvedValue(user);
 
-      await expect(service.findOne(user.id)).resolves.toEqual(user);
+      await expect(service.findOne(user.id)).resolves.toEqual(publicUser);
     });
 
     it('throws NotFoundException when user does not exist', async () => {
@@ -96,7 +107,7 @@ describe('UsersService', () => {
 
       await expect(
         service.update(user.id, { name: 'Jane Doe' }),
-      ).resolves.toEqual(updated);
+      ).resolves.toEqual({ ...publicUser, name: 'Jane Doe' });
     });
 
     it('throws NotFoundException when user does not exist (P2025)', async () => {

@@ -1,15 +1,15 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { User } from '../../../generated/prisma/client';
 import { UsersController } from '../users.controller';
 import { UsersService } from '../users.service';
 
 describe('UsersController', () => {
   let controller: UsersController;
 
-  const user: User = {
+  const user = {
     id: '4f1e6f2e-8bcb-4a9f-b1b6-6c9f2d3a1e00',
     email: 'user@example.com',
     name: 'John Doe',
+    countryCode: null,
     createdAt: new Date(),
     updatedAt: new Date(),
   };

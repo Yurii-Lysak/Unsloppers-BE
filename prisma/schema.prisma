@@ -9,12 +9,20 @@ datasource db {
   provider = "postgresql"
 }
 
+// Story 1.16 — `hash`/`countryCode` are TimeTracker-sourced fields, stored
+// verbatim from the Accounting endpoint (docs/api-external-openapi.json) and
+// kept in sync with the latest fetch on every seed rerun. Nullable because
+// the existing `users` CRUD module (src/modules/users) can create a `User`
+// without going through the seed path at all — TimeTracker is the only
+// identity source for these two fields, never a hand-authored value.
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(uuid())
+  email       String   @unique
+  name        String?
+  hash        String?
+  countryCode String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   employee Employee?
 
