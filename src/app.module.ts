@@ -17,11 +17,9 @@ import { TimetrackerModule } from './modules/timetracker/timetracker.module';
     PrismaModule,
     ContractsModule,
     RegistryModule,
-    // Registered here (not just imported ad hoc by prisma/seed.ts) so
-    // `NestFactory.createApplicationContext(AppModule)` resolves
-    // `TimetrackerService` via normal DI (Story 1.16 Design Notes) — the
-    // module itself has no controller and nothing in the running app calls
-    // it at request time (spec "Never").
+    // Registered for Epic 13 TimeTracker sync — not used by the bundled bootcamp
+    // seed manifest (Story 1.16, Aug 2026 pivot). No controller; nothing calls
+    // it at request time today.
     TimetrackerModule,
     HealthModule,
     UsersModule,

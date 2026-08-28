@@ -6,14 +6,24 @@ export class TimetrackerValidationError extends Error {
   }
 }
 
-/**
- * Thrown when the deduplicated Accounting identity count falls outside the
- * expected [500, 2000] band — the spec's "Ask First" thresholds. Both sides
- * halt before any write starts; there is no automated pad/truncate.
- */
-export class PopulationSizeError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'PopulationSizeError';
+/** Thrown when the bundled bootcamp seed manifest cannot be read or parsed. */
+export class SeedManifestError extends Error {
+  constructor(message: string, cause?: unknown) {
+    super(message, cause != null ? { cause } : undefined);
+    this.name = 'SeedManifestError';
   }
 }
+
+/**
+ * Thrown when the seed manifest has no identities to write — the only
+ * population-size guard after the bootcamp pivot from 500+ to a fixed list.
+ */
+export class EmptySeedPopulationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'EmptySeedPopulationError';
+  }
+}
+
+/** @deprecated Renamed to {@link EmptySeedPopulationError}; kept for test imports during transition. */
+export class PopulationSizeError extends EmptySeedPopulationError {}

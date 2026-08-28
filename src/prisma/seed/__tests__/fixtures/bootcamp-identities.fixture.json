@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "description": "Unit-test fixture (3 identities)",
+  "identities": [
+    {
+      "id": 1,
+      "email": "user1@example.com",
+      "name": "User One",
+      "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "countryCode": "US"
+    },
+    {
+      "id": 2,
+      "email": "user2@example.com",
+      "name": "User Two",
+      "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "countryCode": "UA"
+    },
+    {
+      "id": 3,
+      "email": "user3@example.com",
+      "name": "User Three",
+      "hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "countryCode": "GE"
+    }
+  ]
+}
