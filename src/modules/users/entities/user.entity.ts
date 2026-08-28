@@ -1,7 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { User } from '../../../generated/prisma/client';
 
-export class UserEntity implements User {
+/** API-facing user shape — `hash` is persisted for seed sync but never exposed (Story 1.16 review 2C). */
+export type PublicUser = Omit<User, 'hash'>;
+
+export class UserEntity implements PublicUser {
   @ApiProperty({ format: 'uuid' })
   id!: string;
 
@@ -10,6 +13,15 @@ export class UserEntity implements User {
 
   @ApiPropertyOptional({ example: 'John Doe', nullable: true, type: String })
   name!: string | null;
+
+  @ApiPropertyOptional({
+    example: 'US',
+    description:
+      'TimeTracker-sourced (Story 1.16 seed); null for users created outside the seed path.',
+    nullable: true,
+    type: String,
+  })
+  countryCode!: string | null;
 
   @ApiProperty()
   createdAt!: Date;

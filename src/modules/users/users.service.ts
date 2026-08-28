@@ -7,37 +7,43 @@ import { Prisma, User } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { PublicUser } from './entities/user.entity';
 
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(createUserDto: CreateUserDto): Promise<User> {
+  async create(createUserDto: CreateUserDto): Promise<PublicUser> {
     try {
-      return await this.prisma.user.create({ data: createUserDto });
+      const user = await this.prisma.user.create({ data: createUserDto });
+      return this.toPublicUser(user);
     } catch (error) {
       this.rethrowKnownErrors(error);
     }
   }
 
-  findAll(): Promise<User[]> {
-    return this.prisma.user.findMany({ orderBy: { createdAt: 'desc' } });
+  async findAll(): Promise<PublicUser[]> {
+    const users = await this.prisma.user.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+    return users.map((user) => this.toPublicUser(user));
   }
 
-  async findOne(id: string): Promise<User> {
+  async findOne(id: string): Promise<PublicUser> {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) {
       throw new NotFoundException(`User with id "${id}" not found`);
     }
-    return user;
+    return this.toPublicUser(user);
   }
 
-  async update(id: string, updateUserDto: UpdateUserDto): Promise<User> {
+  async update(id: string, updateUserDto: UpdateUserDto): Promise<PublicUser> {
     try {
-      return await this.prisma.user.update({
+      const user = await this.prisma.user.update({
         where: { id },
         data: updateUserDto,
       });
+      return this.toPublicUser(user);
     } catch (error) {
       this.rethrowKnownErrors(error);
     }
@@ -49,6 +55,18 @@ export class UsersService {
     } catch (error) {
       this.rethrowKnownErrors(error);
     }
+  }
+
+  /** Strips seed-only `hash` before any HTTP response (Story 1.16 review decision 2C). */
+  private toPublicUser(user: User): PublicUser {
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      countryCode: user.countryCode,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
   }
 
   // Maps known Prisma error codes to HTTP exceptions; rethrows everything else
