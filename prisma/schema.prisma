@@ -242,9 +242,9 @@ model EmploymentTypeHistory {
   @@map("employment_type_history")
 }
 
-// Minimal Wave-0 substrate extended by Story 7.1: C4 (`TimelineEventWriter`
-// in the `timeline` module) persists system-generated rows when history
-// writes land. Manual-conflict detection still queries this table.
+// Story 7.1/7.2 — C4 persists system/manual rows; soft-delete + partial unique
+// index (active rows only) live in migration SQL — see
+// `timeline_events_active_key` WHERE deleted_at IS NULL.
 model TimelineEvent {
   id            String    @id @default(uuid())
   employeeId    String
@@ -255,10 +255,14 @@ model TimelineEvent {
   source                String
   authorId              String?
   systemWriteSkippedAt  DateTime?
+  deletedAt             DateTime?
+  deletedById           String?
+  updatedAt             DateTime  @updatedAt
+  updatedById           String?
   createdAt             DateTime  @default(now())
 
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
 
-  @@unique([employeeId, type, effectiveDate, source])
+  @@index([employeeId, type, effectiveDate, source])
   @@map("timeline_events")
 }

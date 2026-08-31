@@ -34,7 +34,8 @@ describe('access matrix', () => {
 
   describe('spec rule 3 — the colleague view is a whitelist', () => {
     const denied = sections.filter(
-      (section) => !COLLEAGUE_WHITELIST.includes(section),
+      (section) =>
+        !(COLLEAGUE_WHITELIST as readonly ProfileSection[]).includes(section),
     );
 
     it.each(denied)('%s is absent for a colleague', (section) => {
@@ -85,6 +86,11 @@ describe('access matrix', () => {
   describe('documented exceptions stay attached to their cell', () => {
     it('keeps the PM read-only carve-out on management notes', () => {
       expect(ACCESS_MATRIX.S7.managerLine.exception).toContain('PM');
+    });
+
+    it('keeps the S9 write narrowing on manager line', () => {
+      expect(ACCESS_MATRIX.S9.managerLine.exception).toContain('PP');
+      expect(ACCESS_MATRIX.S9.managerLine.exception).toContain('ProjectLine');
     });
 
     it('keeps the mentor-field rule on the colleague identity card', () => {

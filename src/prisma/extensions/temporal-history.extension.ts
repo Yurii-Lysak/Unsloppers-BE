@@ -290,15 +290,15 @@ async function handleHistoryCreate(
 
   // 2. Manual-conflict check — outside the Serializable transaction so
   // markSystemWriteSkipped commits before ManualConflictSuppressedError
-  // is thrown (Story 7.1 real C4 persistence).
-  const manualConflict = await client.timelineEvent.findUnique({
+  // is thrown (Story 7.1 real C4 persistence). Active manual rows only
+  // (Story 7.2 soft-delete excludes deleted rows from the partial key).
+  const manualConflict = await client.timelineEvent.findFirst({
     where: {
-      employeeId_type_effectiveDate_source: {
-        employeeId,
-        type,
-        effectiveDate: effectiveFrom,
-        source: 'manual',
-      },
+      employeeId,
+      type,
+      effectiveDate: effectiveFrom,
+      source: 'manual',
+      deletedAt: null,
     },
   });
 
@@ -359,7 +359,7 @@ async function handleHistoryCreate(
           value,
           'system',
           undefined,
-          tx as TimelineEventWriteContext,
+          tx as unknown as TimelineEventWriteContext,
         );
 
         return created;
