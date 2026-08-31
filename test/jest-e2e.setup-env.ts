@@ -7,6 +7,5 @@
  */
 import 'dotenv/config';
 
-process.env.JWT_SECRET ??=
-  'test-only-jwt-secret-that-is-at-least-32-chars';
+process.env.JWT_SECRET ??= 'test-only-jwt-secret-that-is-at-least-32-chars';
 process.env.JWT_TTL_SECONDS ??= '3600';

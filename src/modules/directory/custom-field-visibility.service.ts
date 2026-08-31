@@ -5,6 +5,18 @@ import {
 } from '../contracts/access-resolver.contract';
 import { FieldVisibility } from '../contracts/field-registry.contract';
 
+/** Roles that may see management-tier custom fields (PRD 3.3.5 / AD-2). */
+const MANAGEMENT_VISIBILITY_ROLES: readonly AccessRole[] = [
+  'ReportingLine',
+  'ProjectLine',
+  'PP',
+  'FullAccess',
+];
+
+function hasManagementVisibility(role: AccessRole): boolean {
+  return MANAGEMENT_VISIBILITY_ROLES.includes(role);
+}
+
 @Injectable()
 export class CustomFieldVisibilityService {
   constructor(private readonly accessResolver: AccessResolver) {}
@@ -13,14 +25,9 @@ export class CustomFieldVisibilityService {
   isVisibleToRole(role: AccessRole, visibility: FieldVisibility): boolean {
     switch (visibility) {
       case 'management':
-        return role === 'ManagerLine' || role === 'PP' || role === 'HRAdmin';
+        return hasManagementVisibility(role);
       case 'employee':
-        return (
-          role === 'ManagerLine' ||
-          role === 'PP' ||
-          role === 'HRAdmin' ||
-          role === 'Self'
-        );
+        return hasManagementVisibility(role) || role === 'Self';
       case 'colleague':
         return true;
       default: {

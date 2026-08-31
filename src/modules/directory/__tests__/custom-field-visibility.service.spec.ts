@@ -45,7 +45,7 @@ describe('CustomFieldVisibilityService', () => {
 
   it('requires S16 RW for writes', async () => {
     accessResolver.resolveAudience.mockResolvedValue({
-      role: 'ManagerLine',
+      role: 'ReportingLine',
       sections: { S16: 'R' },
     });
 
