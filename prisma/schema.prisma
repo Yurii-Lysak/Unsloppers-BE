@@ -56,6 +56,13 @@ model Employee {
   manager       Employee?  @relation("ReportsTo", fields: [managerId], references: [id], onDelete: SetNull)
   directReports Employee[] @relation("ReportsTo")
 
+  // Story 1.3 — assigned People Partner for PP access resolution (C1). Singular
+  // FK: at most one active PP per employee. `onDelete: SetNull` clears the
+  // assignment when the PP's Employee row is deleted rather than blocking delete.
+  peoplePartnerId String?
+  peoplePartner     Employee?  @relation("PeoplePartnerAssignment", fields: [peoplePartnerId], references: [id], onDelete: SetNull)
+  ppAssignments     Employee[] @relation("PeoplePartnerAssignment")
+
   // Story 1.2 — the three legs of a ProjectAssignment row that can name this
   // Employee: the assigned employee, and the project's PM/DM. Three distinct
   // relation names disambiguate the 3 FKs Prisma would otherwise see as
@@ -65,6 +72,7 @@ model Employee {
   dmProjectAssignments ProjectAssignment[] @relation("ProjectAssignmentDm")
 
   @@index([managerId])
+  @@index([peoplePartnerId])
   @@map("employees")
 }
 
