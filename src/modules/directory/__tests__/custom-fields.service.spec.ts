@@ -1,4 +1,8 @@
-import { ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { FieldRegistry } from '../../contracts/field-registry.contract';
 import { PermissionChecker } from '../../contracts/permission-checker.contract';
@@ -18,6 +22,7 @@ describe('CustomFieldsService', () => {
   const fieldRegistryService = {
     listDefinitions: jest.fn(),
     getDefinition: jest.fn(),
+    assertEmployeeExists: jest.fn(),
   };
   const visibility = {
     canViewFieldDefinition: jest.fn(),
@@ -124,5 +129,119 @@ describe('CustomFieldsService', () => {
     ).resolves.toEqual(
       expect.objectContaining({ id: 'field-1', name: 'Preferred office' }),
     );
+  });
+
+  it('forbids getDefinition when the field is not visible', async () => {
+    permissionChecker.hasPermission.mockResolvedValue(false);
+    fieldRegistryService.getDefinition.mockResolvedValue({
+      id: 'field-1',
+      name: 'Performance flag',
+      type: 'boolean',
+      visibility: 'management',
+      options: [],
+    });
+    visibility.canViewFieldDefinition.mockResolvedValue(false);
+
+    await expect(service.getDefinition('viewer-1', 'field-1')).rejects.toThrow(
+      ForbiddenException,
+    );
+  });
+
+  it('forbids setValue without write permission', async () => {
+    permissionChecker.hasPermission.mockResolvedValue(false);
+    fieldRegistryService.getDefinition.mockResolvedValue({
+      id: 'field-1',
+      name: 'Desk preference',
+      type: 'text',
+      visibility: 'colleague',
+      options: [],
+    });
+    visibility.canWriteFieldForSubject.mockResolvedValue(false);
+
+    await expect(
+      service.setValue('viewer-1', 'employee-1', 'field-1', { value: 'A' }),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('returns stored value after setValue', async () => {
+    permissionChecker.hasPermission.mockResolvedValue(true);
+    fieldRegistryService.getDefinition.mockResolvedValue({
+      id: 'field-1',
+      name: 'Score',
+      type: 'number',
+      visibility: 'management',
+      options: [],
+    });
+    fieldRegistry.setValue.mockResolvedValue(undefined);
+    fieldRegistry.query.mockResolvedValue([
+      { employeeId: 'employee-1', fieldId: 'field-1', value: 42 },
+    ]);
+
+    await expect(
+      service.setValue('viewer-1', 'employee-1', 'field-1', { value: 42 }),
+    ).resolves.toEqual({
+      employeeId: 'employee-1',
+      fieldId: 'field-1',
+      value: 42,
+    });
+  });
+
+  it('requires value property on setValue', async () => {
+    permissionChecker.hasPermission.mockResolvedValue(true);
+    fieldRegistryService.getDefinition.mockResolvedValue({
+      id: 'field-1',
+      name: 'Score',
+      type: 'number',
+      visibility: 'management',
+      options: [],
+    });
+
+    await expect(
+      service.setValue('viewer-1', 'employee-1', 'field-1', {}),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('returns 404 path when employee is missing on value list', async () => {
+    fieldRegistryService.assertEmployeeExists.mockRejectedValue(
+      new NotFoundException('Employee "missing" not found'),
+    );
+
+    await expect(
+      service.listValuesForEmployee('viewer-1', 'missing'),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('filters management values from colleagues in listValuesForEmployee', async () => {
+    permissionChecker.hasPermission.mockResolvedValue(false);
+    fieldRegistryService.assertEmployeeExists.mockResolvedValue(undefined);
+    fieldRegistryService.listDefinitions.mockResolvedValue([
+      {
+        id: 'field-1',
+        name: 'Performance flag',
+        type: 'boolean',
+        visibility: 'management',
+        options: [],
+      },
+      {
+        id: 'field-2',
+        name: 'Desk preference',
+        type: 'text',
+        visibility: 'colleague',
+        options: [],
+      },
+    ]);
+    visibility.canViewFieldForSubject.mockImplementation(
+      (_viewerId: string, _employeeId: string, visibilityLevel: string) =>
+        Promise.resolve(visibilityLevel === 'colleague'),
+    );
+    fieldRegistry.query.mockResolvedValue([
+      { employeeId: 'employee-1', fieldId: 'field-2', value: 'Open plan' },
+    ]);
+
+    await expect(
+      service.listValuesForEmployee('viewer-1', 'employee-1'),
+    ).resolves.toEqual([
+      { employeeId: 'employee-1', fieldId: 'field-2', value: 'Open plan' },
+    ]);
   });
 });

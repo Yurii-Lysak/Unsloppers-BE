@@ -54,7 +54,13 @@ export class CustomFieldVisibilityService {
     return this.isVisibleToRole(audience.role, visibility);
   }
 
-  /** For definition pickers: field visible when S16 grants read and visibility matches role. */
+  /**
+   * For directory definition lists: S16 must grant read and the visibility tier
+   * must be visible in peer/directory context. Self-role resolution over-permits
+   * employee-tier metadata (every user is Self to themselves), so employee-tier
+   * definitions require a management role here — subject-scoped reads use
+   * `canViewFieldForSubject` instead.
+   */
   async canViewFieldDefinition(
     viewerId: string,
     visibility: FieldVisibility,
@@ -66,7 +72,25 @@ export class CustomFieldVisibilityService {
     if (audience.sections.S16 === 'none') {
       return false;
     }
-    return this.isVisibleToRole(audience.role, visibility);
+    return this.isVisibleToRoleForDefinitionList(audience.role, visibility);
+  }
+
+  private isVisibleToRoleForDefinitionList(
+    role: AccessRole,
+    visibility: FieldVisibility,
+  ): boolean {
+    switch (visibility) {
+      case 'management':
+        return hasManagementVisibility(role);
+      case 'employee':
+        return hasManagementVisibility(role);
+      case 'colleague':
+        return true;
+      default: {
+        const _exhaustive: never = visibility;
+        return _exhaustive;
+      }
+    }
   }
 
   async canWriteFieldForSubject(
