@@ -252,4 +252,137 @@ describe('Timeline manual edits (e2e)', () => {
 
     expect(listRes.body as TimelineEventEntity[]).toHaveLength(1);
   });
+
+  it('preserves a date-corrected manual entry when sync retries the inferred date', async () => {
+    const subject = await createEmployeeUser(
+      testApp,
+      'timeline-conflict-subject@example.com',
+    );
+    const pp = await createEmployeeUser(
+      testApp,
+      'timeline-conflict-pp@example.com',
+    );
+
+    await testApp.prisma.employee.update({
+      where: { id: subject.employeeId },
+      data: { peoplePartnerId: pp.employeeId },
+    });
+
+    await testApp.prisma.gradeHistory.create({
+      data: {
+        employeeId: subject.employeeId,
+        value: 'Middle',
+        effectiveFrom: new Date('2020-01-01T00:00:00.000Z'),
+      },
+    });
+
+    const inferredDate = new Date('2026-01-10T00:00:00.000Z');
+    await testApp.prisma.timelineEvent.create({
+      data: {
+        employeeId: subject.employeeId,
+        type: 'grade',
+        effectiveDate: inferredDate,
+        source: 'system',
+        oldValue: 'Middle',
+        newValue: 'Senior',
+      },
+    });
+
+    const agent = await loginAs(testApp, pp.email);
+
+    const createRes = await agent
+      .post(`/api/v1/employees/${subject.employeeId}/timeline`)
+      .send({
+        type: 'grade',
+        effectiveDate: '2026-01-10',
+        oldValue: 'Middle',
+        newValue: 'Senior',
+      })
+      .expect(201);
+
+    const manualEvent = createRes.body as TimelineEventEntity;
+
+    await agent
+      .patch(
+        `/api/v1/employees/${subject.employeeId}/timeline/${manualEvent.id}`,
+      )
+      .send({ effectiveDate: '2026-01-15' })
+      .expect(200);
+
+    await expect(
+      testApp.prisma.gradeHistory.create({
+        data: {
+          employeeId: subject.employeeId,
+          value: 'Senior',
+          effectiveFrom: inferredDate,
+        },
+      }),
+    ).rejects.toThrow();
+
+    const listRes = await agent
+      .get(`/api/v1/employees/${subject.employeeId}/timeline`)
+      .expect(200);
+
+    const gradeEvents = (listRes.body as TimelineEventEntity[]).filter(
+      (event) => event.type === 'grade' && event.source === 'manual',
+    );
+    expect(gradeEvents).toHaveLength(1);
+    expect(gradeEvents[0].effectiveDate).toContain('2026-01-15');
+    expect(gradeEvents[0].systemWriteSkippedAt).not.toBeNull();
+  });
+
+  it('does not suppress unrelated manual backfills on future system writes', async () => {
+    const subject = await createEmployeeUser(
+      testApp,
+      'timeline-unrelated-subject@example.com',
+    );
+    const pp = await createEmployeeUser(
+      testApp,
+      'timeline-unrelated-pp@example.com',
+    );
+
+    await testApp.prisma.employee.update({
+      where: { id: subject.employeeId },
+      data: { peoplePartnerId: pp.employeeId },
+    });
+
+    const agent = await loginAs(testApp, pp.email);
+
+    await agent
+      .post(`/api/v1/employees/${subject.employeeId}/timeline`)
+      .send({
+        type: 'department',
+        effectiveDate: '2018-06-01',
+        oldValue: 'Engineering',
+        newValue: 'Platform',
+      })
+      .expect(201);
+
+    await testApp.prisma.gradeHistory.create({
+      data: {
+        employeeId: subject.employeeId,
+        value: 'Middle',
+        effectiveFrom: new Date('2026-09-01T00:00:00.000Z'),
+      },
+    });
+
+    const listRes = await agent
+      .get(`/api/v1/employees/${subject.employeeId}/timeline`)
+      .expect(200);
+
+    const events = listRes.body as TimelineEventEntity[];
+    expect(
+      events.some(
+        (event) => event.type === 'grade' && event.source === 'system',
+      ),
+    ).toBe(true);
+    expect(
+      events.some(
+        (event) =>
+          event.type === 'department' &&
+          event.source === 'manual' &&
+          String(event.effectiveDate).includes('2018-06-01'),
+      ),
+    ).toBe(true);
+  });
 });

@@ -107,6 +107,69 @@ describe('TimelineEventWriter integration (real Postgres)', () => {
     expect(updated.systemWriteSkippedAt).toBeInstanceOf(Date);
   });
 
+  it('date-corrected manual conflict persists systemWriteSkippedAt via real C4', async () => {
+    const user = await prisma.user.create({
+      data: { email: `${emailPrefix}-date-corrected@example.com` },
+    });
+    const employee = await prisma.employee.create({
+      data: { userId: user.id },
+    });
+
+    await prisma.gradeHistory.create({
+      data: {
+        employeeId: employee.id,
+        value: 'Middle',
+        effectiveFrom: new Date('2020-01-01T00:00:00.000Z'),
+      },
+    });
+
+    const inferredDate = new Date('2026-01-10T00:00:00.000Z');
+    const correctedDate = new Date('2026-01-15T00:00:00.000Z');
+
+    await prisma.timelineEvent.create({
+      data: {
+        employeeId: employee.id,
+        type: 'grade',
+        effectiveDate: inferredDate,
+        source: 'system',
+        oldValue: 'Middle',
+        newValue: 'Senior',
+      },
+    });
+
+    const manualEvent = await prisma.timelineEvent.create({
+      data: {
+        employeeId: employee.id,
+        type: 'grade',
+        effectiveDate: correctedDate,
+        source: 'manual',
+        oldValue: 'Middle',
+        newValue: 'Senior',
+      },
+    });
+
+    await expect(
+      prisma.gradeHistory.create({
+        data: {
+          employeeId: employee.id,
+          value: 'Senior',
+          effectiveFrom: inferredDate,
+        },
+      }),
+    ).rejects.toThrow();
+
+    const updated = await prisma.timelineEvent.findUniqueOrThrow({
+      where: { id: manualEvent.id },
+    });
+    expect(updated.systemWriteSkippedAt).toBeInstanceOf(Date);
+
+    const historyRows = await prisma.gradeHistory.findMany({
+      where: { employeeId: employee.id },
+    });
+    expect(historyRows).toHaveLength(1);
+    expect(historyRows[0].value).toBe('Middle');
+  });
+
   it('duplicate system timeline event rolls back the history write', async () => {
     const user = await prisma.user.create({
       data: { email: `${emailPrefix}-dup@example.com` },

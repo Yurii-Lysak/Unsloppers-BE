@@ -288,18 +288,13 @@ async function handleHistoryCreate(
     }
   }
 
-  // 2. Manual-conflict check — outside the Serializable transaction so
-  // markSystemWriteSkipped commits before ManualConflictSuppressedError
-  // is thrown (Story 7.1 real C4 persistence). Active manual rows only
-  // (Story 7.2 soft-delete excludes deleted rows from the partial key).
-  const manualConflict = await client.timelineEvent.findFirst({
-    where: {
-      employeeId,
-      type,
-      effectiveDate: effectiveFrom,
-      source: 'manual',
-      deletedAt: null,
-    },
+  const incomingOldValue = preOpenRow ? preOpenRow.value : null;
+  const manualConflict = await findManualConflict(client, {
+    employeeId,
+    type,
+    effectiveFrom,
+    oldValue: incomingOldValue,
+    newValue: value,
   });
 
   if (manualConflict) {
@@ -372,4 +367,76 @@ async function handleHistoryCreate(
     }
     throw error;
   }
+}
+
+interface ManualConflictLookup {
+  employeeId: string;
+  type: string;
+  effectiveFrom: Date;
+  oldValue: string | null;
+  newValue: string;
+}
+
+/**
+ * Story 7.3 (D2 / FR-30) — resolve manual vs system conflicts.
+ * 1. Exact `(employeeId, type, effectiveDate)` manual match (Story 1.20).
+ * 2. Transition fallback when a system anchor exists at the incoming date
+ *    and an active manual row carries the same transition values at a
+ *    corrected effective date (PP date correction path).
+ */
+async function findManualConflict(
+  client: PrismaClient,
+  lookup: ManualConflictLookup,
+): Promise<{ id: string } | null> {
+  const { employeeId, type, effectiveFrom, oldValue, newValue } = lookup;
+
+  const exactMatch = await client.timelineEvent.findFirst({
+    where: {
+      employeeId,
+      type,
+      effectiveDate: effectiveFrom,
+      source: 'manual',
+      deletedAt: null,
+    },
+    select: { id: true },
+  });
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  const systemAnchor = await client.timelineEvent.findFirst({
+    where: {
+      employeeId,
+      type,
+      effectiveDate: effectiveFrom,
+      source: 'system',
+      deletedAt: null,
+    },
+    select: { id: true },
+  });
+  if (!systemAnchor) {
+    return null;
+  }
+
+  return client.timelineEvent.findFirst({
+    where: {
+      employeeId,
+      type,
+      source: 'manual',
+      deletedAt: null,
+      oldValue: jsonEqualsFilter(oldValue),
+      newValue: jsonEqualsFilter(newValue),
+      effectiveDate: { not: effectiveFrom },
+    },
+    select: { id: true },
+  });
+}
+
+function jsonEqualsFilter(
+  value: string | null,
+): Prisma.JsonNullableFilter<'TimelineEvent'> {
+  if (value === null) {
+    return { equals: Prisma.DbNull };
+  }
+  return { equals: value };
 }
