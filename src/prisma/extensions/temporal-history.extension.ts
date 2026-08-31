@@ -359,7 +359,7 @@ async function handleHistoryCreate(
           value,
           'system',
           undefined,
-          tx as TimelineEventWriteContext,
+          tx as unknown as TimelineEventWriteContext,
         );
 
         return created;

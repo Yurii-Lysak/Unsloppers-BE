@@ -1,4 +1,8 @@
 import { join } from 'node:path';
+import {
+  BUILT_IN_ROLE_NAMES,
+  PERMISSION_KEYS,
+} from '../../../modules/contracts/permission-keys';
 import { PrismaService } from '../../prisma.service';
 import {
   EmptySeedPopulationError,
@@ -110,6 +114,17 @@ function makePrismaMock() {
     },
   );
 
+  const employeesByUserId = new Map<string, { id: string; userId: string }>();
+  const roles = new Map<
+    string,
+    {
+      id: string;
+      name: string;
+      isBuiltIn: boolean;
+      permissions: { permissionKey: string }[];
+    }
+  >();
+
   const employeeUpsert = jest.fn(
     ({
       where,
@@ -119,8 +134,186 @@ function makePrismaMock() {
       create: { userId: string };
     }) => {
       const id = `employee-${where.userId}`;
-      return Promise.resolve({ id, userId: create.userId });
+      const row = { id, userId: create.userId };
+      employeesByUserId.set(create.userId, row);
+      return Promise.resolve(row);
     },
+  );
+
+  const employeeFindUnique = jest.fn(
+    ({ where }: { where: { userId?: string; id?: string } }) => {
+      if (where.userId) {
+        return Promise.resolve(employeesByUserId.get(where.userId) ?? null);
+      }
+      if (where.id) {
+        for (const employee of employeesByUserId.values()) {
+          if (employee.id === where.id) {
+            return Promise.resolve(employee);
+          }
+        }
+        return Promise.resolve(null);
+      }
+      return Promise.resolve(null);
+    },
+  );
+  const employeeFindFirst = jest.fn(
+    ({ where }: { where: { user: { email: string } } }) => {
+      const user = [...users.values()].find(
+        entry => entry.email === where.user.email,
+      );
+      if (!user) {
+        return Promise.resolve(null);
+      }
+      return Promise.resolve(employeesByUserId.get(user.id) ?? null);
+    },
+  );
+
+  const functionalRoleFindFirst = jest.fn(
+    ({
+      where,
+    }: {
+      where: { name?: { equals: string; mode: 'insensitive' } };
+    }) => {
+      const target = where.name?.equals.toLowerCase();
+      if (!target) {
+        return Promise.resolve(null);
+      }
+      for (const role of roles.values()) {
+        if (role.name.toLowerCase() === target) {
+          return Promise.resolve(role);
+        }
+      }
+      return Promise.resolve(null);
+    },
+  );
+
+  const functionalRoleCreate = jest.fn(
+    ({
+      data,
+    }: {
+      data: {
+        name: string;
+        isBuiltIn: boolean;
+        permissions: { create: { permissionKey: string }[] };
+      };
+    }) => {
+      const created = {
+        id: `role-${roles.size + 1}`,
+        name: data.name,
+        isBuiltIn: data.isBuiltIn,
+        permissions: data.permissions.create.map(entry => ({
+          permissionKey: entry.permissionKey,
+        })),
+      };
+      roles.set(data.name, created);
+      return Promise.resolve(created);
+    },
+  );
+
+  const functionalRoleUpdate = jest.fn(
+    ({
+      where,
+      data,
+    }: {
+      where: { id: string };
+      data: { isBuiltIn: boolean };
+    }) => {
+      for (const role of roles.values()) {
+        if (role.id === where.id) {
+          role.isBuiltIn = data.isBuiltIn;
+          return Promise.resolve(role);
+        }
+      }
+      return Promise.reject(new Error('role not found'));
+    },
+  );
+
+  const functionalRoleFindFirstOrThrow = jest.fn(
+    ({
+      where,
+    }: {
+      where: { name?: { equals: string; mode: 'insensitive' } };
+    }) => {
+      const target = where.name?.equals.toLowerCase();
+      for (const role of roles.values()) {
+        if (role.name.toLowerCase() === target) {
+          return Promise.resolve(role);
+        }
+      }
+      return Promise.reject(new Error('role not found'));
+    },
+  );
+
+  const functionalRoleUpsert = jest.fn(
+    ({
+      where,
+      create,
+      update,
+    }: {
+      where: { name: string };
+      create: {
+        name: string;
+        isBuiltIn: boolean;
+        permissions: { create: { permissionKey: string }[] };
+      };
+      update: { isBuiltIn: boolean };
+    }) => {
+      const existing = roles.get(where.name);
+      if (existing) {
+        existing.isBuiltIn = update.isBuiltIn;
+        return Promise.resolve(existing);
+      }
+      const created = {
+        id: `role-${roles.size + 1}`,
+        name: create.name,
+        isBuiltIn: create.isBuiltIn,
+        permissions: create.permissions.create.map(entry => ({
+          permissionKey: entry.permissionKey,
+        })),
+      };
+      roles.set(where.name, created);
+      return Promise.resolve(created);
+    },
+  );
+
+  const functionalRoleFindUnique = jest.fn(
+    ({ where }: { where: { id?: string; name?: string } }) => {
+      if (where.id) {
+        for (const role of roles.values()) {
+          if (role.id === where.id) {
+            return Promise.resolve(role);
+          }
+        }
+        return Promise.resolve(null);
+      }
+      if (where.name) {
+        return Promise.resolve(roles.get(where.name) ?? null);
+      }
+      return Promise.resolve(null);
+    },
+  );
+
+  const functionalRoleFindUniqueOrThrow = jest.fn(
+    ({ where }: { where: { name: string } }) => {
+      const role = roles.get(where.name);
+      if (!role) {
+        return Promise.reject(new Error('role not found'));
+      }
+      return Promise.resolve(role);
+    },
+  );
+
+  const functionalRolePermissionCreate = jest.fn(
+    ({ data }: { data: { roleId: string; permissionKey: string } }) =>
+      Promise.resolve({ id: 'perm-1', ...data }),
+  );
+
+  const functionalRolePermissionDeleteMany = jest.fn(() =>
+    Promise.resolve({ count: 0 }),
+  );
+
+  const functionalRoleAssignmentUpsert = jest.fn(() =>
+    Promise.resolve({ id: 'assign-1' }),
   );
 
   const grade = historyDelegate('grade');
@@ -134,7 +327,27 @@ function makePrismaMock() {
       updateMany: userUpdateMany,
       upsert: userUpsert,
     },
-    employee: { upsert: employeeUpsert },
+    employee: {
+      upsert: employeeUpsert,
+      findFirst: employeeFindFirst,
+      findUnique: employeeFindUnique,
+    },
+    functionalRole: {
+      upsert: functionalRoleUpsert,
+      findFirst: functionalRoleFindFirst,
+      findFirstOrThrow: functionalRoleFindFirstOrThrow,
+      create: functionalRoleCreate,
+      update: functionalRoleUpdate,
+      findUnique: functionalRoleFindUnique,
+      findUniqueOrThrow: functionalRoleFindUniqueOrThrow,
+    },
+    functionalRolePermission: {
+      create: functionalRolePermissionCreate,
+      deleteMany: functionalRolePermissionDeleteMany,
+    },
+    functionalRoleAssignment: {
+      upsert: functionalRoleAssignmentUpsert,
+    },
     gradeHistory: grade,
     positionHistory: position,
     departmentHistory: department,
@@ -144,12 +357,15 @@ function makePrismaMock() {
   return {
     prisma,
     users,
+    roles,
     userFindUnique,
     userUpsert,
     gradeCreate: grade.create,
     positionCreate: position.create,
     departmentCreate: department.create,
     employmentTypeCreate: employmentType.create,
+    functionalRoleCreate,
+    functionalRoleAssignmentUpsert,
   };
 }
 
@@ -174,6 +390,8 @@ describe('SeedService', () => {
     ).run(now);
 
     expect(summary.identitiesUpserted).toBe(3);
+    expect(summary.functionalRolesUpserted).toBe(5);
+    expect(summary.hrAdminAssignments).toBe(1);
     expect(userUpsert).toHaveBeenCalledTimes(3);
     expect(gradeCreate).toHaveBeenCalledTimes(3);
     expect(positionCreate).toHaveBeenCalledTimes(3);
@@ -190,7 +408,8 @@ describe('SeedService', () => {
   });
 
   it('is idempotent: rerunning updates in place and does not duplicate history', async () => {
-    const { prisma, userUpsert, gradeCreate } = makePrismaMock();
+    const { prisma, userUpsert, gradeCreate, functionalRoleAssignmentUpsert } =
+      makePrismaMock();
     const service = new SeedService(prisma, initialPassword, fixturePath);
 
     await service.run(now);
@@ -198,6 +417,49 @@ describe('SeedService', () => {
 
     expect(userUpsert).toHaveBeenCalledTimes(6);
     expect(gradeCreate).toHaveBeenCalledTimes(3);
+    expect(functionalRoleAssignmentUpsert).toHaveBeenCalledTimes(2);
+  });
+
+  it('seeds D11 built-in role permission sets and HR Admin bootstrap assignment', async () => {
+    const {
+      prisma,
+      roles,
+      functionalRoleCreate,
+      functionalRoleAssignmentUpsert,
+    } = makePrismaMock();
+
+    await new SeedService(prisma, initialPassword, fixturePath).run(now);
+
+    const hrAdmin = [...roles.values()].find(
+      role => role.name === BUILT_IN_ROLE_NAMES.HR_ADMIN,
+    );
+    expect(hrAdmin?.permissions.map(entry => entry.permissionKey).sort()).toEqual(
+      [
+        PERMISSION_KEYS.CHANGE_ORGANISATIONAL_RELATIONSHIPS,
+        PERMISSION_KEYS.MANAGE_CUSTOM_FIELDS,
+        PERMISSION_KEYS.MANAGE_DEPARTMENTS,
+        PERMISSION_KEYS.MANAGE_FUNCTIONAL_ROLES,
+      ].sort(),
+    );
+
+    const unitManager = [...roles.values()].find(
+      role => role.name === BUILT_IN_ROLE_NAMES.UNIT_MANAGER,
+    );
+    expect(unitManager?.permissions.map(entry => entry.permissionKey)).toContain(
+      PERMISSION_KEYS.FULFIL_RESOURCING_REQUESTS,
+    );
+
+    expect(functionalRoleCreate).toHaveBeenCalledTimes(5);
+    expect(functionalRoleAssignmentUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          employeeId_roleId: {
+            employeeId: 'employee-user-1',
+            roleId: hrAdmin?.id,
+          },
+        },
+      }),
+    );
   });
 
   it('empty manifest: halts before writing', async () => {
