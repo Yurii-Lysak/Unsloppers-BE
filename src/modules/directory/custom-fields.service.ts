@@ -1,4 +1,8 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
 import { FieldRegistry } from '../contracts/field-registry.contract';
 import { PermissionChecker } from '../contracts/permission-checker.contract';
 import { CreateCustomFieldDto } from './dto/create-custom-field.dto';
@@ -115,12 +119,21 @@ export class CustomFieldsService {
       );
     }
 
-    await this.fieldRegistry.setValue(employeeId, fieldId, dto.value ?? null);
+    if (!('value' in dto)) {
+      throw new BadRequestException('value is required');
+    }
+
+    await this.fieldRegistry.setValue(employeeId, fieldId, dto.value);
+
+    const stored = await this.fieldRegistry.query({
+      employeeIds: [employeeId],
+      fieldIds: [fieldId],
+    });
 
     return {
       employeeId,
       fieldId,
-      value: dto.value ?? null,
+      value: stored[0]?.value ?? null,
     };
   }
 
@@ -128,29 +141,16 @@ export class CustomFieldsService {
     viewerId: string,
     employeeId: string,
   ): Promise<CustomFieldValueEntity[]> {
-    const definitions = await this.listDefinitions(viewerId);
-    if (definitions.length === 0) {
-      return [];
-    }
+    await this.fieldRegistryService.assertEmployeeExists(employeeId);
 
-    const rows = await this.fieldRegistry.query({
-      employeeIds: [employeeId],
-      fieldIds: definitions.map((definition) => definition.id),
-    });
+    const canManage = await this.permissionChecker.hasPermission(
+      viewerId,
+      MANAGE_CUSTOM_FIELDS_PERMISSION,
+    );
+    const allDefinitions = await this.fieldRegistryService.listDefinitions();
 
-    const visible: CustomFieldValueEntity[] = [];
-    for (const row of rows) {
-      const definition = definitions.find(
-        (candidate) => candidate.id === row.fieldId,
-      );
-      if (!definition) {
-        continue;
-      }
-
-      const canManage = await this.permissionChecker.hasPermission(
-        viewerId,
-        MANAGE_CUSTOM_FIELDS_PERMISSION,
-      );
+    const visibleDefinitions: CustomFieldDefinitionEntity[] = [];
+    for (const definition of allDefinitions) {
       if (
         canManage ||
         (await this.visibility.canViewFieldForSubject(
@@ -159,11 +159,18 @@ export class CustomFieldsService {
           definition.visibility,
         ))
       ) {
-        visible.push(row);
+        visibleDefinitions.push(definition);
       }
     }
 
-    return visible;
+    if (visibleDefinitions.length === 0) {
+      return [];
+    }
+
+    return this.fieldRegistry.query({
+      employeeIds: [employeeId],
+      fieldIds: visibleDefinitions.map((definition) => definition.id),
+    });
   }
 
   private async assertCanManageFields(viewerId: string): Promise<void> {

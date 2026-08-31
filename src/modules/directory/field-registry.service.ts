@@ -34,15 +34,22 @@ export class FieldRegistryService extends FieldRegistry {
     visibility: FieldVisibility,
     options: string[] = [],
   ): Promise<string> {
-    this.assertSelectOptions(type, options);
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      throw new BadRequestException('Field name is required');
+    }
+
+    const normalizedOptions = this.normalizeSelectOptions(type, options);
 
     try {
       const created = await this.prisma.customFieldDefinition.create({
         data: {
-          name: name.trim(),
+          name: trimmedName,
           type: type,
           visibility: visibility,
-          options: SELECT_TYPES.includes(type) ? options : Prisma.JsonNull,
+          options: SELECT_TYPES.includes(type)
+            ? normalizedOptions
+            : Prisma.JsonNull,
         },
       });
       return created.id;
@@ -103,6 +110,10 @@ export class FieldRegistryService extends FieldRegistry {
   }
 
   async query(options: FieldQueryOptions): Promise<FieldQueryResultDto[]> {
+    if (options.employeeIds?.length === 0 || options.fieldIds?.length === 0) {
+      return [];
+    }
+
     const rows = await this.prisma.customFieldValue.findMany({
       where: {
         ...(options.employeeIds?.length
@@ -156,9 +167,17 @@ export class FieldRegistryService extends FieldRegistry {
     return options.filter((item): item is string => typeof item === 'string');
   }
 
-  private assertSelectOptions(type: FieldValueType, options: string[]): void {
+  private normalizeSelectOptions(
+    type: FieldValueType,
+    options: string[],
+  ): string[] {
     if (!SELECT_TYPES.includes(type)) {
-      return;
+      if (options.length > 0) {
+        throw new BadRequestException(
+          'Options are only allowed for select and multi_select fields',
+        );
+      }
+      return [];
     }
     if (options.length === 0) {
       throw new BadRequestException(
@@ -172,6 +191,7 @@ export class FieldRegistryService extends FieldRegistry {
     if (new Set(normalized).size !== normalized.length) {
       throw new BadRequestException('Select options must be unique');
     }
+    return normalized;
   }
 
   private validateValueForDefinition(
@@ -196,8 +216,14 @@ export class FieldRegistryService extends FieldRegistry {
         }
         return;
       case 'date':
-        if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) {
-          throw new BadRequestException('Expected an ISO date string');
+        if (
+          typeof value !== 'string' ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
+          Number.isNaN(Date.parse(`${value}T00:00:00.000Z`))
+        ) {
+          throw new BadRequestException(
+            'Expected an ISO date string (YYYY-MM-DD)',
+          );
         }
         return;
       case 'boolean':
@@ -221,6 +247,9 @@ export class FieldRegistryService extends FieldRegistry {
         }
         if (value.some((item) => !options.includes(item))) {
           throw new BadRequestException('Value must use defined options only');
+        }
+        if (new Set(value).size !== value.length) {
+          throw new BadRequestException('Multi-select values must be unique');
         }
         return;
       }
@@ -262,11 +291,13 @@ export class FieldRegistryService extends FieldRegistry {
           ...empty,
           valueNumber: new Prisma.Decimal(value as number),
         };
-      case 'date':
+      case 'date': {
+        const [year, month, day] = (value as string).split('-').map(Number);
         return {
           ...empty,
-          valueDate: new Date(value as string),
+          valueDate: new Date(Date.UTC(year, month - 1, day)),
         };
+      }
       case 'boolean':
         return { ...empty, valueBoolean: value as boolean };
       case 'select':
@@ -300,9 +331,10 @@ export class FieldRegistryService extends FieldRegistry {
       case 'number':
         return row.valueNumber === null ? null : row.valueNumber.toNumber();
       case 'date':
-        return row.valueDate === null
-          ? null
-          : row.valueDate.toISOString().slice(0, 10);
+        if (row.valueDate === null) {
+          return null;
+        }
+        return row.valueDate.toISOString().slice(0, 10);
       case 'boolean':
         return row.valueBoolean;
       case 'select':
@@ -311,7 +343,20 @@ export class FieldRegistryService extends FieldRegistry {
         if (row.valueText === null) {
           return null;
         }
-        return JSON.parse(row.valueText) as string[];
+        try {
+          const parsed: unknown = JSON.parse(row.valueText);
+          if (
+            !Array.isArray(parsed) ||
+            parsed.some((item) => typeof item !== 'string')
+          ) {
+            return null;
+          }
+          return parsed.filter(
+            (item): item is string => typeof item === 'string',
+          );
+        } catch {
+          return null;
+        }
       default: {
         const _exhaustive: never = type;
         void _exhaustive;
@@ -320,7 +365,7 @@ export class FieldRegistryService extends FieldRegistry {
     }
   }
 
-  private async assertEmployeeExists(employeeId: string): Promise<void> {
+  async assertEmployeeExists(employeeId: string): Promise<void> {
     const employee = await this.prisma.employee.findUnique({
       where: { id: employeeId },
       select: { id: true },

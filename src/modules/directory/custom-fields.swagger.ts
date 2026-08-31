@@ -1,5 +1,6 @@
 import { applyDecorators } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
@@ -11,6 +12,7 @@ import { CustomFieldValueEntity } from './entities/custom-field-value.entity';
 export const SwaggerCreateCustomField = () =>
   applyDecorators(
     ApiCreatedResponse({ type: CustomFieldDefinitionEntity }),
+    ApiBadRequestResponse({ description: 'Invalid field definition payload' }),
     ApiForbiddenResponse({
       description: 'Missing manage custom fields permission',
     }),
@@ -31,6 +33,7 @@ export const SwaggerGetCustomField = () =>
 export const SwaggerSetCustomFieldValue = () =>
   applyDecorators(
     ApiOkResponse({ type: CustomFieldValueEntity }),
+    ApiBadRequestResponse({ description: 'Invalid value payload' }),
     ApiNotFoundResponse({ description: 'Employee or field not found' }),
     ApiForbiddenResponse({ description: 'Write not permitted' }),
   );
