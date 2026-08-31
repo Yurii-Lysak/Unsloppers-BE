@@ -163,6 +163,8 @@ describe('temporal-history.extension (I/O matrix, real Postgres)', () => {
         null,
         'L1',
         'system',
+        undefined,
+        expect.anything(),
       );
     });
 
@@ -202,6 +204,8 @@ describe('temporal-history.extension (I/O matrix, real Postgres)', () => {
         'L1',
         'L2',
         'system',
+        undefined,
+        expect.anything(),
       );
     });
 
@@ -236,6 +240,8 @@ describe('temporal-history.extension (I/O matrix, real Postgres)', () => {
         'SAME',
         'SAME',
         'system',
+        undefined,
+        expect.anything(),
       );
     });
 

@@ -247,9 +247,10 @@ model TimelineEvent {
   effectiveDate DateTime  @db.Date
   oldValue      Json?
   newValue      Json?
-  source        String
-  authorId      String?
-  createdAt     DateTime  @default(now())
+  source                String
+  authorId              String?
+  systemWriteSkippedAt  DateTime?
+  createdAt             DateTime  @default(now())
 
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
 
