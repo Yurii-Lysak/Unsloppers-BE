@@ -4,7 +4,6 @@ import { AccessResolver } from '../access-resolver.contract';
 import { FieldRegistry } from '../field-registry.contract';
 import { FieldRegistryStub } from '../stubs/field-registry.stub';
 import { ProjectAssignment } from '../project-assignment.contract';
-import { ProjectAssignmentStub } from '../stubs/project-assignment.stub';
 import { TimelineEventWriter } from '../timeline-event-writer.contract';
 import { TimelineEventWriterStub } from '../stubs/timeline-event-writer.stub';
 import { ExternalIdentityMapping } from '../external-identity-mapping.contract';
@@ -30,7 +29,6 @@ describe('ContractsModule', () => {
 
   it.each([
     [FieldRegistry, FieldRegistryStub],
-    [ProjectAssignment, ProjectAssignmentStub],
     [TimelineEventWriter, TimelineEventWriterStub],
     [ExternalIdentityMapping, ExternalIdentityMappingStub],
     [ActionItemCreation, ActionItemCreationStub],
@@ -45,6 +43,10 @@ describe('ContractsModule', () => {
 
   it('leaves C1 unbound for the access module to implement', () => {
     expect(() => module.get(AccessResolver)).toThrow();
+  });
+
+  it('leaves C3 unbound for the access module to implement', () => {
+    expect(() => module.get(ProjectAssignment)).toThrow();
   });
 
   it('PermissionCheckerStub denies every permission by default', async () => {

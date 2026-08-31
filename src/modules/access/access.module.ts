@@ -1,6 +1,8 @@
 import { Global, Module } from '@nestjs/common';
 import { AccessResolver } from '../contracts/access-resolver.contract';
 import { AccessResolverService } from './access-resolver.service';
+import { ProjectAssignment } from '../contracts/project-assignment.contract';
+import { ProjectAssignmentService } from './project-assignment.service';
 
 /**
  * `access` — implements C1 `AccessResolver` for real, taking over the DI
@@ -10,13 +12,20 @@ import { AccessResolverService } from './access-resolver.service';
  * explicitly; still exported because @Global() alone does not make it
  * injectable elsewhere.
  *
+ * Story 1.2 — also implements C3 `ProjectAssignment` for real, unbinding it
+ * from `ContractsModule`'s Wave-0 stub (`access` is C3's owner per
+ * `interface-contracts.md`), mirroring Story 1.1's C1 move above.
+ *
  * Deliberate, recognized exception to `nest-modules.md`'s standard module
  * anatomy — no controller, no DTO/entities/swagger folder, mirroring
  * `registry.module.ts`. Do not "fix" it to match `users`.
  */
 @Global()
 @Module({
-  providers: [{ provide: AccessResolver, useClass: AccessResolverService }],
-  exports: [AccessResolver],
+  providers: [
+    { provide: AccessResolver, useClass: AccessResolverService },
+    { provide: ProjectAssignment, useClass: ProjectAssignmentService },
+  ],
+  exports: [AccessResolver, ProjectAssignment],
 })
 export class AccessModule {}
