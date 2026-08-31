@@ -26,10 +26,11 @@ beforeEach(async () => { await testApp.resetDatabase(); });
 
 ## Bootstrap config is NOT inherited
 
-`main.ts` settings do not apply to the test app. The harness re-applies the global
-`ValidationPipe`, but the prefix and versioning are still absent:
+`main.ts` settings do not apply to the test app. The harness calls `configureApp`
+(prefix `/api`, URI versioning `/v1`, cookies, CORS, Swagger).
 
-- Routes are unprefixed in e2e: request `/users`, not `/api/v1/users`
+- Request `/api/v1/users` and `/api/v1/auth/login`, not unprefixed `/users`
+- Protected routes need a session cookie — use `loginAsOperator` from `test/support/login.ts`
 
 ## Data isolation
 

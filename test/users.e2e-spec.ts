@@ -1,11 +1,11 @@
 import request from 'supertest';
-import { App } from 'supertest/types';
 import { UserEntity } from './../src/modules/users/entities/user.entity';
 import { createTestApp, TestApp } from './support/app-harness';
+import { loginAsOperator } from './support/login';
 
 describe('Users CRUD (e2e)', () => {
   let testApp: TestApp;
-  let server: App;
+  let agent: ReturnType<typeof request.agent>;
 
   const email = 'e2e-user@example.com';
   const missingId = '00000000-0000-0000-0000-000000000000';
@@ -13,16 +13,16 @@ describe('Users CRUD (e2e)', () => {
 
   beforeAll(async () => {
     testApp = await createTestApp();
-    server = testApp.server;
+    agent = await loginAsOperator(testApp);
   });
 
   afterAll(async () => {
     await testApp.close();
   });
 
-  it('POST /users creates a user', async () => {
-    const res = await request(server)
-      .post('/users')
+  it('POST /api/v1/users creates a user', async () => {
+    const res = await agent
+      .post('/api/v1/users')
       .send({ email, name: 'E2E User' })
       .expect(201);
 
@@ -33,48 +33,48 @@ describe('Users CRUD (e2e)', () => {
     createdId = body.id;
   });
 
-  it('POST /users with the same email returns 409', () => {
-    return request(server).post('/users').send({ email }).expect(409);
+  it('POST /api/v1/users with the same email returns 409', () => {
+    return agent.post('/api/v1/users').send({ email }).expect(409);
   });
 
-  it('POST /users with an invalid email returns 400', () => {
-    return request(server)
-      .post('/users')
+  it('POST /api/v1/users with an invalid email returns 400', () => {
+    return agent
+      .post('/api/v1/users')
       .send({ email: 'not-an-email' })
       .expect(400);
   });
 
-  it('GET /users returns the list including the created user', async () => {
-    const res = await request(server).get('/users').expect(200);
+  it('GET /api/v1/users returns the list including the created user', async () => {
+    const res = await agent.get('/api/v1/users').expect(200);
 
     const body = res.body as UserEntity[];
     expect(body.some((u) => u.id === createdId)).toBe(true);
   });
 
-  it('GET /users/:id returns the user', async () => {
-    const res = await request(server).get(`/users/${createdId}`).expect(200);
+  it('GET /api/v1/users/:id returns the user', async () => {
+    const res = await agent.get(`/api/v1/users/${createdId}`).expect(200);
 
     expect((res.body as UserEntity).email).toBe(email);
   });
 
-  it('GET /users/:id with an unknown id returns 404', () => {
-    return request(server).get(`/users/${missingId}`).expect(404);
+  it('GET /api/v1/users/:id with an unknown id returns 404', () => {
+    return agent.get(`/api/v1/users/${missingId}`).expect(404);
   });
 
-  it('PATCH /users/:id updates the name', async () => {
-    const res = await request(server)
-      .patch(`/users/${createdId}`)
+  it('PATCH /api/v1/users/:id updates the name', async () => {
+    const res = await agent
+      .patch(`/api/v1/users/${createdId}`)
       .send({ name: 'Renamed User' })
       .expect(200);
 
     expect((res.body as UserEntity).name).toBe('Renamed User');
   });
 
-  it('DELETE /users/:id returns 204', () => {
-    return request(server).delete(`/users/${createdId}`).expect(204);
+  it('DELETE /api/v1/users/:id returns 204', () => {
+    return agent.delete(`/api/v1/users/${createdId}`).expect(204);
   });
 
-  it('GET /users/:id after deletion returns 404', () => {
-    return request(server).get(`/users/${createdId}`).expect(404);
+  it('GET /api/v1/users/:id after deletion returns 404', () => {
+    return agent.get(`/api/v1/users/${createdId}`).expect(404);
   });
 });

@@ -1,8 +1,10 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import { PrismaPg } from '@prisma/adapter-pg';
+import type { OpenAPIObject } from '@nestjs/swagger';
 import { App } from 'supertest/types';
 import { AppModule } from '../../src/app.module';
+import { configureApp } from '../../src/bootstrap';
 import { Clock } from '../../src/clock/clock.service';
 import { PrismaClient } from '../../src/generated/prisma/client';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -61,6 +63,7 @@ export interface TestApp {
   readonly server: App;
   /** The Postgres schema this app is pinned to. */
   readonly schema: string;
+  readonly openApiDocument: OpenAPIObject;
   /** Empties every application table, keeping the migration history. */
   resetDatabase(): Promise<void>;
   close(): Promise<void>;
@@ -84,8 +87,9 @@ export async function createTestApp(
   const moduleRef = await builder.compile();
 
   const app: INestApplication<App> = moduleRef.createNestApplication();
-  // main.ts bootstrap is not inherited by the test app — mirror the global pipe.
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  // main.ts bootstrap is not inherited by the test app — mirror production
+  // prefix, versioning, cookies, CORS, and Swagger (Story 1.18).
+  const openApiDocument = configureApp(app);
   await app.init();
 
   const prisma = app.get(PrismaService);
@@ -100,6 +104,7 @@ export async function createTestApp(
     prisma,
     server: app.getHttpServer(),
     schema,
+    openApiDocument,
     resetDatabase,
     close: async () => {
       await app.close();

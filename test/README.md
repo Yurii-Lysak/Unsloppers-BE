@@ -72,14 +72,14 @@ describe('something (e2e)', () => {
   });
 
   it('does the thing', () => {
-    return request(testApp.server).get('/users').expect(200);
+    return request(testApp.server).get('/api/v1/health').expect(200);
   });
 });
 ```
 
-`createTestApp` re-applies the global `ValidationPipe` that `main.ts` installs,
-because the test app does not inherit the bootstrap. Routes remain unprefixed:
-request `/users`, not `/api/v1/users`.
+`createTestApp` calls `configureApp` (the same bootstrap as `main.ts`): `/api`
+prefix, `/v1` versioning, cookies, CORS, Swagger. Request `/api/v1/users`, not
+`/users`. Protected routes need a session — see `test/support/login.ts`.
 
 Fixed values like `user@example.com` are fine — the schema belongs to this
 worker. The old convention of prefixing every value with `Date.now()` is no

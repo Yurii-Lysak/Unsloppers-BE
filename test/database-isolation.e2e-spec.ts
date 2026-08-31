@@ -1,5 +1,5 @@
-import request from 'supertest';
 import { createTestApp, TestApp } from './support/app-harness';
+import { loginAsOperator } from './support/login';
 
 /**
  * Proves the isolation mechanism itself. Without these assertions a broken
@@ -43,17 +43,19 @@ describe('per-worker database isolation (e2e)', () => {
   });
 
   it('writes rows into that schema rather than public', async () => {
-    await request(testApp.server)
-      .post('/users')
+    const agent = await loginAsOperator(testApp);
+    await agent
+      .post('/api/v1/users')
       .send({ email: 'isolation@example.com' })
       .expect(201);
 
-    await expect(countRows(testApp, 'users')).resolves.toBe(1);
+    await expect(countRows(testApp, 'users')).resolves.toBe(2);
   });
 
   it('empties the tables on resetDatabase', async () => {
-    await request(testApp.server)
-      .post('/users')
+    const agent = await loginAsOperator(testApp);
+    await agent
+      .post('/api/v1/users')
       .send({ email: 'to-be-cleared@example.com' })
       .expect(201);
 
@@ -73,8 +75,9 @@ describe('per-worker database isolation (e2e)', () => {
   });
 
   it('hands every new app an empty schema', async () => {
-    await request(testApp.server)
-      .post('/users')
+    const agent = await loginAsOperator(testApp);
+    await agent
+      .post('/api/v1/users')
       .send({ email: 'leftover@example.com' })
       .expect(201);
 
@@ -88,15 +91,17 @@ describe('per-worker database isolation (e2e)', () => {
   });
 
   it('lets a fixed email be reused, because the schema is private to the worker', async () => {
-    await request(testApp.server)
-      .post('/users')
+    const agent = await loginAsOperator(testApp);
+    await agent
+      .post('/api/v1/users')
       .send({ email: 'fixed@example.com' })
       .expect(201);
 
     await testApp.resetDatabase();
 
-    await request(testApp.server)
-      .post('/users')
+    const again = await loginAsOperator(testApp);
+    await again
+      .post('/api/v1/users')
       .send({ email: 'fixed@example.com' })
       .expect(201);
   });
