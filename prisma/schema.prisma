@@ -56,8 +56,52 @@ model Employee {
   manager       Employee?  @relation("ReportsTo", fields: [managerId], references: [id], onDelete: SetNull)
   directReports Employee[] @relation("ReportsTo")
 
+  // Story 1.3 — assigned People Partner for PP access resolution (C1). Singular
+  // FK: at most one active PP per employee. `onDelete: SetNull` clears the
+  // assignment when the PP's Employee row is deleted rather than blocking delete.
+  peoplePartnerId String?
+  peoplePartner     Employee?  @relation("PeoplePartnerAssignment", fields: [peoplePartnerId], references: [id], onDelete: SetNull)
+  ppAssignments     Employee[] @relation("PeoplePartnerAssignment")
+
+  // Story 1.2 — the three legs of a ProjectAssignment row that can name this
+  // Employee: the assigned employee, and the project's PM/DM. Three distinct
+  // relation names disambiguate the 3 FKs Prisma would otherwise see as
+  // ambiguous references to the same model (mirrors "ReportsTo" above).
+  projectAssignments   ProjectAssignment[] @relation("ProjectAssignmentEmployee")
+  pmProjectAssignments ProjectAssignment[] @relation("ProjectAssignmentPm")
+  dmProjectAssignments ProjectAssignment[] @relation("ProjectAssignmentDm")
+
   @@index([managerId])
+  @@index([peoplePartnerId])
   @@map("employees")
+}
+
+// Story 1.2 — C3 ProjectAssignment's real persistence (contracts.md's
+// ratified shape). Backs AccessResolverService's `ProjectLine` role: a
+// confirmed, fresh, still-active row grants the PM/DM (and everyone above
+// them via the reports-to walk) Manager-equivalent access to `employeeId`.
+// `onDelete: Restrict` on all three Employee FKs: assignment rows must never
+// be silently cascade-deleted when an Employee row is removed.
+model ProjectAssignment {
+  id          String    @id @default(uuid())
+  employeeId  String
+  projectId   String
+  pmId        String
+  dmId        String
+  startDate   DateTime  @db.Date
+  endDate     DateTime? @db.Date
+  confirmed   Boolean   @default(false)
+  confirmedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  employee Employee @relation("ProjectAssignmentEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  pm       Employee @relation("ProjectAssignmentPm", fields: [pmId], references: [id], onDelete: Restrict)
+  dm       Employee @relation("ProjectAssignmentDm", fields: [dmId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId])
+  @@index([projectId])
+  @@map("project_assignments")
 }
 
 // Story 3.2 — runtime custom field definitions (AD-6). Options are stored as a
@@ -198,12 +242,9 @@ model EmploymentTypeHistory {
   @@map("employment_type_history")
 }
 
-// Minimal Wave-0 shape (Design Notes): substrate for AD-7's manual-conflict
-// detection only. C4 (`TimelineEventWriter`) stays a no-op stub (Story 1.19)
-// until Epic 7 lands the real `timeline` module — nothing in production
-// populates this table yet. `onDelete: Restrict` mirrors the history tables'
-// policy (not explicitly mandated by the spec, but Employees are never
-// hard-deleted in Wave-0 regardless).
+// Minimal Wave-0 substrate extended by Story 7.1: C4 (`TimelineEventWriter`
+// in the `timeline` module) persists system-generated rows when history
+// writes land. Manual-conflict detection still queries this table.
 model TimelineEvent {
   id            String    @id @default(uuid())
   employeeId    String
@@ -211,9 +252,10 @@ model TimelineEvent {
   effectiveDate DateTime  @db.Date
   oldValue      Json?
   newValue      Json?
-  source        String
-  authorId      String?
-  createdAt     DateTime  @default(now())
+  source                String
+  authorId              String?
+  systemWriteSkippedAt  DateTime?
+  createdAt             DateTime  @default(now())
 
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
 

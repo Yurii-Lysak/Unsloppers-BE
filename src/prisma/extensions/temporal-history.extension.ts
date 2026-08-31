@@ -1,5 +1,8 @@
 import { Prisma, PrismaClient } from '../../generated/prisma/client';
-import { TimelineEventWriter } from '../../modules/contracts/timeline-event-writer.contract';
+import {
+  TimelineEventWriter,
+  TimelineEventWriteContext,
+} from '../../modules/contracts/timeline-event-writer.contract';
 
 /**
  * Story 1.20 (AD-7) — Prisma Client Extension enforcing the structural
@@ -9,9 +12,10 @@ import { TimelineEventWriter } from '../../modules/contracts/timeline-event-writ
  * This is the ONLY legal write path to `GradeHistory`, `PositionHistory`,
  * `DepartmentHistory`, `EmploymentTypeHistory`:
  *  - `create` validates the input, checks ordering against the currently
- *    open row (if any), checks for a conflicting manual `TimelineEvent`,
- *    closes the prior open row, inserts the new row, and calls C4 — all
- *    inside one Serializable-isolation transaction.
+ *    open row (if any), checks for a conflicting manual `TimelineEvent`
+ *    (outside the Serializable transaction so skip metadata commits), closes
+ *    the prior open row, inserts the new row, and calls C4 — the history
+ *    mutations and `recordTimelineEvent` share one Serializable transaction.
  *  - Every other operation (`update`, `updateMany`, `delete`, `deleteMany`,
  *    `upsert`, `createMany`, `createManyAndReturn`, `updateManyAndReturn`,
  *    `findUnique`, `findUniqueOrThrow`) is rejected outright: history rows
@@ -261,6 +265,51 @@ async function handleHistoryCreate(
     );
   }
 
+  const preDelegate = (client as unknown as Record<string, HistoryDelegate>)[
+    property
+  ];
+
+  // 1. Find + validate order of the currently open row (if any) —
+  // BEFORE the manual-conflict check, so a backdated write that
+  // happens to date-match a manual entry is correctly flagged as
+  // out-of-order, not silently swallowed as a conflict suppression.
+  const preOpenRow = await preDelegate.findFirst({
+    where: { employeeId, effectiveTo: null },
+  });
+
+  if (preOpenRow) {
+    const openEffectiveFrom = toDateOnly(preOpenRow.effectiveFrom);
+    if (effectiveFrom.getTime() <= openEffectiveFrom.getTime()) {
+      throw new OutOfOrderEffectiveDateError(
+        model,
+        effectiveFrom,
+        openEffectiveFrom,
+      );
+    }
+  }
+
+  // 2. Manual-conflict check — outside the Serializable transaction so
+  // markSystemWriteSkipped commits before ManualConflictSuppressedError
+  // is thrown (Story 7.1 real C4 persistence).
+  const manualConflict = await client.timelineEvent.findUnique({
+    where: {
+      employeeId_type_effectiveDate_source: {
+        employeeId,
+        type,
+        effectiveDate: effectiveFrom,
+        source: 'manual',
+      },
+    },
+  });
+
+  if (manualConflict) {
+    await timelineEventWriter.markSystemWriteSkipped(
+      manualConflict.id,
+      new Date().toISOString(),
+    );
+    throw new ManualConflictSuppressedError(manualConflict.id);
+  }
+
   try {
     return await client.$transaction(
       async (tx) => {
@@ -268,11 +317,7 @@ async function handleHistoryCreate(
           property
         ];
 
-        // 1. Find + validate order of the currently open row (if any) —
-        // BEFORE the manual-conflict check, so a backdated write that
-        // happens to date-match a manual entry is correctly flagged as
-        // out-of-order, not silently swallowed as a conflict suppression.
-        // Purely a read so far — no DB mutation has happened yet.
+        // Re-read under Serializable isolation for concurrent-write safety.
         const openRow = await delegate.findFirst({
           where: { employeeId, effectiveTo: null },
         });
@@ -286,29 +331,6 @@ async function handleHistoryCreate(
               openEffectiveFrom,
             );
           }
-        }
-
-        // 2. Manual-conflict check — suppress the write entirely (no close,
-        // no insert, no timeline row) if a manual TimelineEvent already
-        // covers this (employeeId, type, effectiveDate). Still no mutation
-        // yet.
-        const manualConflict = await tx.timelineEvent.findUnique({
-          where: {
-            employeeId_type_effectiveDate_source: {
-              employeeId,
-              type,
-              effectiveDate: effectiveFrom,
-              source: 'manual',
-            },
-          },
-        });
-
-        if (manualConflict) {
-          await timelineEventWriter.markSystemWriteSkipped(
-            manualConflict.id,
-            new Date().toISOString(),
-          );
-          throw new ManualConflictSuppressedError(manualConflict.id);
         }
 
         // 3. Close the currently open row (if any).
@@ -336,6 +358,8 @@ async function handleHistoryCreate(
           openRow ? openRow.value : null,
           value,
           'system',
+          undefined,
+          tx as TimelineEventWriteContext,
         );
 
         return created;

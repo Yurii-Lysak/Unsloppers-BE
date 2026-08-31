@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import {
   TimelineEventWriter,
   TimelineEventSource,
+  TimelineEventWriteContext,
 } from '../timeline-event-writer.contract';
 
 /** Wave-0 stub — logs and no-ops, so callers can integrate before `timeline` (Epic 7) lands. */
@@ -17,6 +18,8 @@ export class TimelineEventWriterStub extends TimelineEventWriter {
     _newValue: unknown,
     source: TimelineEventSource,
     authorId?: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Wave-0 stub; tx ignored until timeline module lands
+    tx?: TimelineEventWriteContext,
   ): Promise<void> {
     this.logger.debug(
       `Wave-0 stub no-op: recordTimelineEvent(employeeId=${employeeId}, type=${type}, ` +
@@ -28,6 +31,8 @@ export class TimelineEventWriterStub extends TimelineEventWriter {
   markSystemWriteSkipped(
     manualEventId: string,
     skippedAt: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Wave-0 stub; tx ignored until timeline module lands
+    tx?: TimelineEventWriteContext,
   ): Promise<void> {
     this.logger.debug(
       `Wave-0 stub no-op: markSystemWriteSkipped(manualEventId=${manualEventId}, skippedAt=${skippedAt})`,

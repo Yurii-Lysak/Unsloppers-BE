@@ -1,10 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { FieldRegistry } from './field-registry.contract';
 import { FieldRegistryStub } from './stubs/field-registry.stub';
-import { ProjectAssignment } from './project-assignment.contract';
-import { ProjectAssignmentStub } from './stubs/project-assignment.stub';
-import { TimelineEventWriter } from './timeline-event-writer.contract';
-import { TimelineEventWriterStub } from './stubs/timeline-event-writer.stub';
 import { ExternalIdentityMapping } from './external-identity-mapping.contract';
 import { ExternalIdentityMappingStub } from './stubs/external-identity-mapping.stub';
 import { ActionItemCreation } from './action-item-creation.contract';
@@ -18,9 +14,14 @@ import { PermissionCheckerStub } from './stubs/permission-checker.stub';
  * importing this module explicitly; providers are still listed in `exports`
  * because @Global() alone does not make them injectable elsewhere.
  *
- * C1 `AccessResolver` is deliberately left unbound here — the `access`
- * module implements it directly (Story 1.1), mirroring how C7
- * `CurrentUserProvider` is left for `auth` to implement.
+ * C1 `AccessResolver` and C4 `TimelineEventWriter` are deliberately left
+ * unbound here — the `access` and `timeline` modules implement them
+ * directly (Stories 1.1 and 7.1), mirroring how C7 `CurrentUserProvider`
+ * is left for `auth` to implement.
+ *
+ * C3 `ProjectAssignment` is likewise left unbound as of Story 1.2 — the
+ * `access` module implements it directly (its CAP-1-owner per
+ * `interface-contracts.md`), mirroring the C1 move above.
  *
  * This module is a deliberate, recognized exception to `nest-modules.md`'s
  * standard module anatomy — no controller, no DTO/entities/swagger folder.
@@ -30,8 +31,6 @@ import { PermissionCheckerStub } from './stubs/permission-checker.stub';
 @Module({
   providers: [
     { provide: FieldRegistry, useClass: FieldRegistryStub },
-    { provide: ProjectAssignment, useClass: ProjectAssignmentStub },
-    { provide: TimelineEventWriter, useClass: TimelineEventWriterStub },
     {
       provide: ExternalIdentityMapping,
       useClass: ExternalIdentityMappingStub,
@@ -41,8 +40,6 @@ import { PermissionCheckerStub } from './stubs/permission-checker.stub';
   ],
   exports: [
     FieldRegistry,
-    ProjectAssignment,
-    TimelineEventWriter,
     ExternalIdentityMapping,
     ActionItemCreation,
     PermissionChecker,
