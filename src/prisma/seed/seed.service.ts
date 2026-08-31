@@ -13,10 +13,14 @@ import {
 } from './seed.helpers';
 import { BootcampIdentity, loadBootcampSeedManifest } from './seed.manifest';
 import { buildSyntheticProfile } from './seed.synthetic';
+import { seedFunctionalRoles } from './seed.functional-roles';
+import { FunctionalRoleAssignmentService } from '../../modules/access/functional-role-assignment.service';
 
 export interface SeedSummary {
   identitiesUpserted: number;
   duplicateEmailsSkipped: number;
+  functionalRolesUpserted: number;
+  hrAdminAssignments: number;
 }
 
 /**
@@ -68,14 +72,24 @@ export class SeedService {
       identitiesUpserted += 1;
     }
 
+    const assignmentService = new FunctionalRoleAssignmentService(this.prisma);
+    const functionalRoleSeed = await seedFunctionalRoles(
+      this.prisma,
+      assignmentService,
+      this.manifestPath,
+      this.logger,
+    );
+
     this.logger.log(
       `Seed complete: ${identitiesUpserted} identities upserted, ${duplicateEmails.length} duplicate ` +
-        `email(s) deduped.`,
+        `email(s) deduped, ${functionalRoleSeed.rolesUpserted} built-in functional roles upserted.`,
     );
 
     return {
       identitiesUpserted,
       duplicateEmailsSkipped: duplicateEmails.length,
+      functionalRolesUpserted: functionalRoleSeed.rolesUpserted,
+      hrAdminAssignments: functionalRoleSeed.hrAdminAssignments,
     };
   }
 
@@ -117,6 +131,21 @@ export class SeedService {
       where: { userId: user.id },
       update: {},
       create: { userId: user.id },
+    });
+
+    await this.prisma.externalIdentity.upsert({
+      where: {
+        system_externalId: {
+          system: 'timetracker',
+          externalId: String(identity.id),
+        },
+      },
+      update: { employeeId: employee.id },
+      create: {
+        system: 'timetracker',
+        externalId: String(identity.id),
+        employeeId: employee.id,
+      },
     });
 
     await this.seedInitialHistory(employee.id, identity.email, now);

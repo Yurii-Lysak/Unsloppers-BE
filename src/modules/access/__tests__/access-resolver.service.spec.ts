@@ -544,7 +544,7 @@ describe('AccessResolverService', () => {
     });
 
     it('grants PP via HR line when HR_DEPARTMENT_VALUE is a non-default config value', async () => {
-      configService.get.mockImplementation((key: string) =>
+      (configService.get as jest.Mock).mockImplementation((key: string) =>
         key === 'HR_DEPARTMENT_VALUE' ? 'PeopleOps' : undefined,
       );
       const module: TestingModule = await Test.createTestingModule({

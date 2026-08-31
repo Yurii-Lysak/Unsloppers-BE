@@ -71,6 +71,9 @@ model Employee {
   pmProjectAssignments ProjectAssignment[] @relation("ProjectAssignmentPm")
   dmProjectAssignments ProjectAssignment[] @relation("ProjectAssignmentDm")
 
+  externalIdentities ExternalIdentity[]
+  functionalRoleAssignments FunctionalRoleAssignment[]
+
   @@index([managerId])
   @@index([peoplePartnerId])
   @@map("employees")
@@ -242,9 +245,9 @@ model EmploymentTypeHistory {
   @@map("employment_type_history")
 }
 
-// Minimal Wave-0 substrate extended by Story 7.1: C4 (`TimelineEventWriter`
-// in the `timeline` module) persists system-generated rows when history
-// writes land. Manual-conflict detection still queries this table.
+// Story 7.1/7.2 — C4 persists system/manual rows; soft-delete + partial unique
+// index (active rows only) live in migration SQL — see
+// `timeline_events_active_key` WHERE deleted_at IS NULL.
 model TimelineEvent {
   id            String    @id @default(uuid())
   employeeId    String
@@ -255,10 +258,79 @@ model TimelineEvent {
   source                String
   authorId              String?
   systemWriteSkippedAt  DateTime?
+  deletedAt             DateTime?
+  deletedById           String?
+  updatedAt             DateTime  @updatedAt
+  updatedById           String?
   createdAt             DateTime  @default(now())
 
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
 
-  @@unique([employeeId, type, effectiveDate, source])
+  @@index([employeeId, type, effectiveDate, source])
   @@map("timeline_events")
+}
+
+// Story 13.1 / C5 — cross-system identity mapping (Wave-1 shape; Story 13.4 may refine).
+enum ExternalIdentitySystem {
+  peopleforce
+  timetracker
+}
+
+model ExternalIdentity {
+  id           String                 @id @default(uuid())
+  system       ExternalIdentitySystem
+  externalId   String
+  employeeId   String
+  supersededBy String?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([system, externalId])
+  @@index([employeeId])
+  @@map("external_identities")
+}
+
+// Story 1.4 — functional roles and feature permissions (C8). Permission keys are
+// strings validated against contracts/permission-keys.ts, not a Prisma enum.
+model FunctionalRole {
+  id        String   @id @default(uuid())
+  /// Case-insensitive uniqueness enforced by functional_roles_name_lower_key (see migration).
+  name      String
+  isBuiltIn Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  permissions FunctionalRolePermission[]
+  assignments FunctionalRoleAssignment[]
+
+  @@map("functional_roles")
+}
+
+model FunctionalRolePermission {
+  id            String @id @default(uuid())
+  roleId        String
+  permissionKey String
+
+  role FunctionalRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionKey])
+  @@index([roleId])
+  @@map("functional_role_permissions")
+}
+
+model FunctionalRoleAssignment {
+  id         String   @id @default(uuid())
+  employeeId String
+  roleId     String
+  createdAt  DateTime @default(now())
+
+  employee Employee       @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  role     FunctionalRole @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId, roleId])
+  @@index([employeeId])
+  @@index([roleId])
+  @@map("functional_role_assignments")
 }
