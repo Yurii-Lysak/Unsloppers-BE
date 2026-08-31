@@ -1,8 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { FieldRegistry } from './field-registry.contract';
 import { FieldRegistryStub } from './stubs/field-registry.stub';
-import { ExternalIdentityMapping } from './external-identity-mapping.contract';
-import { ExternalIdentityMappingStub } from './stubs/external-identity-mapping.stub';
 import { ActionItemCreation } from './action-item-creation.contract';
 import { ActionItemCreationStub } from './stubs/action-item-creation.stub';
 import { PermissionChecker } from './permission-checker.contract';
@@ -23,6 +21,9 @@ import { PermissionCheckerStub } from './stubs/permission-checker.stub';
  * `access` module implements it directly (its CAP-1-owner per
  * `interface-contracts.md`), mirroring the C1 move above.
  *
+ * C5 `ExternalIdentityMapping` is left for `integrations` to implement
+ * (Story 13.1), mirroring the C1/C4 moves above.
+ *
  * This module is a deliberate, recognized exception to `nest-modules.md`'s
  * standard module anatomy — no controller, no DTO/entities/swagger folder.
  * Do not "fix" it to match `users`.
@@ -31,18 +32,9 @@ import { PermissionCheckerStub } from './stubs/permission-checker.stub';
 @Module({
   providers: [
     { provide: FieldRegistry, useClass: FieldRegistryStub },
-    {
-      provide: ExternalIdentityMapping,
-      useClass: ExternalIdentityMappingStub,
-    },
     { provide: ActionItemCreation, useClass: ActionItemCreationStub },
     { provide: PermissionChecker, useClass: PermissionCheckerStub },
   ],
-  exports: [
-    FieldRegistry,
-    ExternalIdentityMapping,
-    ActionItemCreation,
-    PermissionChecker,
-  ],
+  exports: [FieldRegistry, ActionItemCreation, PermissionChecker],
 })
 export class ContractsModule {}

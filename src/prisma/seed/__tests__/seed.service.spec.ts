@@ -123,6 +123,10 @@ function makePrismaMock() {
     },
   );
 
+  const externalIdentityUpsert = jest.fn(() =>
+    Promise.resolve({ id: 'map-1' }),
+  );
+
   const grade = historyDelegate('grade');
   const position = historyDelegate('position');
   const department = historyDelegate('department');
@@ -135,6 +139,7 @@ function makePrismaMock() {
       upsert: userUpsert,
     },
     employee: { upsert: employeeUpsert },
+    externalIdentity: { upsert: externalIdentityUpsert },
     gradeHistory: grade,
     positionHistory: position,
     departmentHistory: department,
@@ -150,6 +155,7 @@ function makePrismaMock() {
     positionCreate: position.create,
     departmentCreate: department.create,
     employmentTypeCreate: employmentType.create,
+    externalIdentityUpsert,
   };
 }
 
@@ -165,6 +171,7 @@ describe('SeedService', () => {
       positionCreate,
       departmentCreate,
       employmentTypeCreate,
+      externalIdentityUpsert,
     } = makePrismaMock();
 
     const summary = await new SeedService(
@@ -175,6 +182,7 @@ describe('SeedService', () => {
 
     expect(summary.identitiesUpserted).toBe(3);
     expect(userUpsert).toHaveBeenCalledTimes(3);
+    expect(externalIdentityUpsert).toHaveBeenCalledTimes(3);
     expect(gradeCreate).toHaveBeenCalledTimes(3);
     expect(positionCreate).toHaveBeenCalledTimes(3);
     expect(departmentCreate).toHaveBeenCalledTimes(3);

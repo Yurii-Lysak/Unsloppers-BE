@@ -78,22 +78,24 @@ export async function createTestApp(
 
   let builder: TestingModuleBuilder = Test.createTestingModule({
     imports: [AppModule],
-  }).overrideProvider(PrismaService).useFactory({
-    factory: (timelineEventWriter: TimelineEventWriter) => {
-      const raw = new SchemaScopedPrismaService(schema);
-      const extended = raw.$extends(
-        createTemporalHistoryExtension(timelineEventWriter, raw),
-      );
+  })
+    .overrideProvider(PrismaService)
+    .useFactory({
+      factory: (timelineEventWriter: TimelineEventWriter) => {
+        const raw = new SchemaScopedPrismaService(schema);
+        const extended = raw.$extends(
+          createTemporalHistoryExtension(timelineEventWriter, raw),
+        );
 
-      (extended as unknown as PrismaService).onModuleInit =
-        raw.onModuleInit.bind(raw);
-      (extended as unknown as PrismaService).onModuleDestroy =
-        raw.onModuleDestroy.bind(raw);
+        (extended as unknown as PrismaService).onModuleInit =
+          raw.onModuleInit.bind(raw);
+        (extended as unknown as PrismaService).onModuleDestroy =
+          raw.onModuleDestroy.bind(raw);
 
-      return extended as unknown as PrismaService;
-    },
-    inject: [TimelineEventWriter],
-  });
+        return extended;
+      },
+      inject: [TimelineEventWriter],
+    });
 
   if (options.clock !== undefined) {
     builder = builder.overrideProvider(Clock).useValue(options.clock);

@@ -71,6 +71,8 @@ model Employee {
   pmProjectAssignments ProjectAssignment[] @relation("ProjectAssignmentPm")
   dmProjectAssignments ProjectAssignment[] @relation("ProjectAssignmentDm")
 
+  externalIdentities ExternalIdentity[]
+
   @@index([managerId])
   @@index([peoplePartnerId])
   @@map("employees")
@@ -265,4 +267,26 @@ model TimelineEvent {
 
   @@index([employeeId, type, effectiveDate, source])
   @@map("timeline_events")
+}
+
+// Story 13.1 / C5 — cross-system identity mapping (Wave-1 shape; Story 13.4 may refine).
+enum ExternalIdentitySystem {
+  peopleforce
+  timetracker
+}
+
+model ExternalIdentity {
+  id           String                 @id @default(uuid())
+  system       ExternalIdentitySystem
+  externalId   String
+  employeeId   String
+  supersededBy String?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([system, externalId])
+  @@index([employeeId])
+  @@map("external_identities")
 }
