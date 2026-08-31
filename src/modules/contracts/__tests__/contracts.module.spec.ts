@@ -13,7 +13,6 @@ import { ExternalIdentityMappingStub } from '../stubs/external-identity-mapping.
 import { ActionItemCreation } from '../action-item-creation.contract';
 import { ActionItemCreationStub } from '../stubs/action-item-creation.stub';
 import { CurrentUserProvider } from '../current-user-provider.contract';
-import { CurrentUserProviderStub } from '../stubs/current-user-provider.stub';
 import { PermissionChecker } from '../permission-checker.contract';
 import { PermissionCheckerStub } from '../stubs/permission-checker.stub';
 
@@ -37,10 +36,13 @@ describe('ContractsModule', () => {
     [TimelineEventWriter, TimelineEventWriterStub],
     [ExternalIdentityMapping, ExternalIdentityMappingStub],
     [ActionItemCreation, ActionItemCreationStub],
-    [CurrentUserProvider, CurrentUserProviderStub],
     [PermissionChecker, PermissionCheckerStub],
   ] as const)('resolves %p to its Wave-0 stub', (token, StubClass) => {
     expect(module.get(token)).toBeInstanceOf(StubClass);
+  });
+
+  it('leaves C7 unbound for the authentication module to implement', () => {
+    expect(() => module.get(CurrentUserProvider)).toThrow();
   });
 
   it('AccessResolverStub denies every section by default', async () => {

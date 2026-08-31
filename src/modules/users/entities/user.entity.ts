@@ -1,8 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { User } from '../../../generated/prisma/client';
 
-/** API-facing user shape — `hash` is persisted for seed sync but never exposed (Story 1.16 review 2C). */
-export type PublicUser = Omit<User, 'hash'>;
+/** API-facing user shape — identity and credential hashes are never exposed. */
+export type PublicUser = Omit<User, 'hash' | 'passwordHash'>;
 
 export class UserEntity implements PublicUser {
   @ApiProperty({ format: 'uuid' })

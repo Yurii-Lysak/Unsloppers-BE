@@ -1,17 +1,22 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { hash } from 'bcryptjs';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { UserEntity } from './../src/modules/users/entities/user.entity';
 import { PrismaService } from './../src/prisma/prisma.service';
+import { configureApp } from './../src/bootstrap';
 
 describe('Users CRUD (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
+  let agent: ReturnType<typeof request.agent>;
 
   const emailPrefix = `e2e-${Date.now()}`;
   const email = `${emailPrefix}@example.com`;
+  const operatorEmail = `${emailPrefix}-operator@example.com`;
+  const operatorPassword = 'test-only-users-password';
   const missingId = '00000000-0000-0000-0000-000000000000';
   let createdId: string;
 
@@ -21,13 +26,21 @@ describe('Users CRUD (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
-    // Mirror the global pipe configured in main.ts bootstrap
-    app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, transform: true }),
-    );
+    configureApp(app);
     await app.init();
 
     prisma = app.get(PrismaService);
+    await prisma.user.create({
+      data: {
+        email: operatorEmail,
+        passwordHash: await hash(operatorPassword, 12),
+      },
+    });
+    agent = request.agent(app.getHttpServer());
+    await agent
+      .post('/api/v1/auth/login')
+      .send({ email: operatorEmail, password: operatorPassword })
+      .expect(200);
   });
 
   afterAll(async () => {
@@ -38,8 +51,8 @@ describe('Users CRUD (e2e)', () => {
   });
 
   it('POST /users creates a user', async () => {
-    const res = await request(app.getHttpServer())
-      .post('/users')
+    const res = await agent
+      .post('/api/v1/users')
       .send({ email, name: 'E2E User' })
       .expect(201);
 
@@ -51,41 +64,36 @@ describe('Users CRUD (e2e)', () => {
   });
 
   it('POST /users with the same email returns 409', () => {
-    return request(app.getHttpServer())
-      .post('/users')
-      .send({ email })
-      .expect(409);
+    return agent.post('/api/v1/users').send({ email }).expect(409);
   });
 
   it('POST /users with an invalid email returns 400', () => {
-    return request(app.getHttpServer())
-      .post('/users')
+    return agent
+      .post('/api/v1/users')
       .send({ email: 'not-an-email' })
       .expect(400);
   });
 
   it('GET /users returns the list including the created user', async () => {
-    const res = await request(app.getHttpServer()).get('/users').expect(200);
+    const res = await agent.get('/api/v1/users').expect(200);
 
     const body = res.body as UserEntity[];
     expect(body.some((u) => u.id === createdId)).toBe(true);
   });
 
   it('GET /users/:id returns the user', async () => {
-    const res = await request(app.getHttpServer())
-      .get(`/users/${createdId}`)
-      .expect(200);
+    const res = await agent.get(`/api/v1/users/${createdId}`).expect(200);
 
     expect((res.body as UserEntity).email).toBe(email);
   });
 
   it('GET /users/:id with an unknown id returns 404', () => {
-    return request(app.getHttpServer()).get(`/users/${missingId}`).expect(404);
+    return agent.get(`/api/v1/users/${missingId}`).expect(404);
   });
 
   it('PATCH /users/:id updates the name', async () => {
-    const res = await request(app.getHttpServer())
-      .patch(`/users/${createdId}`)
+    const res = await agent
+      .patch(`/api/v1/users/${createdId}`)
       .send({ name: 'Renamed User' })
       .expect(200);
 
@@ -93,12 +101,10 @@ describe('Users CRUD (e2e)', () => {
   });
 
   it('DELETE /users/:id returns 204', () => {
-    return request(app.getHttpServer())
-      .delete(`/users/${createdId}`)
-      .expect(204);
+    return agent.delete(`/api/v1/users/${createdId}`).expect(204);
   });
 
   it('GET /users/:id after deletion returns 404', () => {
-    return request(app.getHttpServer()).get(`/users/${createdId}`).expect(404);
+    return agent.get(`/api/v1/users/${createdId}`).expect(404);
   });
 });

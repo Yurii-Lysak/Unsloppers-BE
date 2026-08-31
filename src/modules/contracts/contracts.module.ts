@@ -11,8 +11,6 @@ import { ExternalIdentityMapping } from './external-identity-mapping.contract';
 import { ExternalIdentityMappingStub } from './stubs/external-identity-mapping.stub';
 import { ActionItemCreation } from './action-item-creation.contract';
 import { ActionItemCreationStub } from './stubs/action-item-creation.stub';
-import { CurrentUserProvider } from './current-user-provider.contract';
-import { CurrentUserProviderStub } from './stubs/current-user-provider.stub';
 import { PermissionChecker } from './permission-checker.contract';
 import { PermissionCheckerStub } from './stubs/permission-checker.stub';
 
@@ -38,7 +36,6 @@ import { PermissionCheckerStub } from './stubs/permission-checker.stub';
       useClass: ExternalIdentityMappingStub,
     },
     { provide: ActionItemCreation, useClass: ActionItemCreationStub },
-    { provide: CurrentUserProvider, useClass: CurrentUserProviderStub },
     { provide: PermissionChecker, useClass: PermissionCheckerStub },
   ],
   exports: [
@@ -48,7 +45,6 @@ import { PermissionCheckerStub } from './stubs/permission-checker.stub';
     TimelineEventWriter,
     ExternalIdentityMapping,
     ActionItemCreation,
-    CurrentUserProvider,
     PermissionChecker,
   ],
 })

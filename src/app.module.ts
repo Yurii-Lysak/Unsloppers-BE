@@ -7,6 +7,7 @@ import { UsersModule } from './modules/users/users.module';
 import { ContractsModule } from './modules/contracts/contracts.module';
 import { RegistryModule } from './modules/registry/registry.module';
 import { TimetrackerModule } from './modules/timetracker/timetracker.module';
+import { AuthModule } from './modules/auth/auth.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { TimetrackerModule } from './modules/timetracker/timetracker.module';
     }),
     PrismaModule,
     ContractsModule,
+    AuthModule,
     RegistryModule,
     // Registered for Epic 13 TimeTracker sync — not used by the bundled bootcamp
     // seed manifest (Story 1.16, Aug 2026 pivot). No controller; nothing calls
