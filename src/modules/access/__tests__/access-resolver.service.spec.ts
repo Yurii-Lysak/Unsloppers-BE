@@ -1,4 +1,6 @@
+import { Logger } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { Clock } from '../../../clock/clock.service';
 import { ProjectAssignment } from '../../contracts/project-assignment.contract';
@@ -7,15 +9,51 @@ import { AccessResolverService } from '../access-resolver.service';
 describe('AccessResolverService', () => {
   let service: AccessResolverService;
 
+  type EmployeeRecord = {
+    managerId?: string | null;
+    peoplePartnerId?: string | null;
+  };
+
+  const employees: Record<string, EmployeeRecord> = {};
+  const departments: Record<string, string | null | undefined> = {};
+
   const prisma = {
     employee: {
       findUnique: jest.fn(),
+    },
+    departmentHistory: {
+      findFirst: jest.fn(),
     },
   };
 
   const projectAssignment = {
     listByEmployee: jest.fn(),
     listByProject: jest.fn(),
+  };
+
+  const configService = {
+    get: jest.fn((key: string) =>
+      key === 'HR_DEPARTMENT_VALUE' ? 'HR' : undefined,
+    ),
+  };
+
+  const PP_SECTIONS = {
+    S1: 'RW',
+    S2: 'RW',
+    S3: 'RW',
+    S4: 'RW',
+    S5: 'RW',
+    S6: 'RW',
+    S7: 'RW',
+    S8: 'RW',
+    S9: 'RW',
+    S10: 'R',
+    S11: 'R',
+    S12: 'RW',
+    S13: 'RW',
+    S14: 'RW',
+    S15: 'R',
+    S16: 'RW',
   };
 
   const NOW = new Date('2026-08-31T12:00:00.000Z');
@@ -33,16 +71,87 @@ describe('AccessResolverService', () => {
 
   /** Chains a sequence of `managerId` lookups by employee id. */
   const mockChain = (chain: Record<string, string | null>) => {
-    prisma.employee.findUnique.mockImplementation(
-      ({ where: { id } }: { where: { id: string } }) => {
-        if (!(id in chain)) {
-          return Promise.resolve(null);
-        }
-        return Promise.resolve({ managerId: chain[id] });
-      },
-    );
+    for (const [id, managerId] of Object.entries(chain)) {
+      employees[id] = { ...employees[id], managerId };
+    }
   };
 
+  const mockSubjectPp = (subjectId: string, peoplePartnerId: string | null) => {
+    employees[subjectId] = { ...employees[subjectId], peoplePartnerId };
+  };
+
+  const mockDepartment = (employeeId: string, value: string | null) => {
+    departments[employeeId] = value;
+  };
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    configService.get.mockImplementation((key: string) =>
+      key === 'HR_DEPARTMENT_VALUE' ? 'HR' : undefined,
+    );
+    for (const key of Object.keys(employees)) {
+      delete employees[key];
+    }
+    for (const key of Object.keys(departments)) {
+      delete departments[key];
+    }
+
+    prisma.employee.findUnique.mockImplementation(
+      ({
+        where: { id },
+        select,
+      }: {
+        where: { id: string };
+        select?: { managerId?: boolean; peoplePartnerId?: boolean };
+      }) => {
+        const record = employees[id];
+        if (!record) {
+          return Promise.resolve(null);
+        }
+        if (select?.peoplePartnerId) {
+          return Promise.resolve({
+            peoplePartnerId: record.peoplePartnerId ?? null,
+          });
+        }
+        if (select?.managerId) {
+          return Promise.resolve({ managerId: record.managerId ?? null });
+        }
+        return Promise.resolve(null);
+      },
+    );
+
+    prisma.departmentHistory.findFirst.mockImplementation(
+      ({
+        where: { employeeId, effectiveTo },
+      }: {
+        where: { employeeId: string; effectiveTo?: null };
+      }) => {
+        if (effectiveTo !== null) {
+          return Promise.resolve(null);
+        }
+        const value = departments[employeeId];
+        if (value === undefined) {
+          return Promise.resolve(null);
+        }
+        return Promise.resolve(value === null ? null : { value });
+      },
+    );
+
+    clock.now.mockReturnValue(NOW);
+    clock.nowMs.mockReturnValue(NOW.getTime());
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        AccessResolverService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: ProjectAssignment, useValue: projectAssignment },
+        { provide: Clock, useValue: clock },
+        { provide: ConfigService, useValue: configService },
+      ],
+    }).compile();
+
+    service = module.get(AccessResolverService);
+  });
   /** A confirmed, fresh, active row unless overridden. */
   const row = (overrides: Partial<Record<string, unknown>> = {}) => ({
     employeeId: 'B',
@@ -54,23 +163,6 @@ describe('AccessResolverService', () => {
     confirmed: true,
     confirmedAt: NOW.toISOString(),
     ...overrides,
-  });
-
-  beforeEach(async () => {
-    jest.clearAllMocks();
-    clock.now.mockReturnValue(NOW);
-    clock.nowMs.mockReturnValue(NOW.getTime());
-
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        AccessResolverService,
-        { provide: PrismaService, useValue: prisma },
-        { provide: ProjectAssignment, useValue: projectAssignment },
-        { provide: Clock, useValue: clock },
-      ],
-    }).compile();
-
-    service = module.get(AccessResolverService);
   });
 
   it('grants Self when viewer and subject are the same employee, without any managerId lookup', async () => {
@@ -148,7 +240,9 @@ describe('AccessResolverService', () => {
     const result = await service.resolveAudience('A', 'B');
 
     expect(result.role).toBe('Colleague');
-    expect(prisma.employee.findUnique).toHaveBeenCalledTimes(2);
+    expect(prisma.employee.findUnique.mock.calls.length).toBeGreaterThanOrEqual(
+      2,
+    );
   });
 
   it('resolves Colleague when the chain hits a dangling/invalid id mid-walk, without throwing', async () => {
@@ -169,7 +263,9 @@ describe('AccessResolverService', () => {
     const result = await service.resolveAudience('A', 'X');
 
     expect(result.role).toBe('Colleague');
-    expect(prisma.employee.findUnique).toHaveBeenCalledTimes(1);
+    expect(prisma.employee.findUnique.mock.calls.length).toBeGreaterThanOrEqual(
+      1,
+    );
   });
 
   it('resolves Colleague when only viewerId is empty and subjectId is a real chain', async () => {
@@ -385,15 +481,213 @@ describe('AccessResolverService', () => {
       expect(result.role).toBe('Colleague');
     });
 
-    it('lets ReportingLine short-circuit first when the viewer is both PM/DM and above the subject in the reports-to chain', async () => {
-      // viewer also PM/DM of a shared project, and directly manages the subject
+    it('lets ReportingLine short-circuit ProjectLine but still evaluates PP', async () => {
+      // viewer manages the subject and is also assigned PP — ProjectLine skipped, PP unioned
       mockChain({ B: 'D' });
+      mockSubjectPp('B', 'D');
       projectAssignment.listByEmployee.mockResolvedValue([row({ dmId: 'D' })]);
 
       const result = await service.resolveAudience('D', 'B');
 
       expect(result.role).toBe('ReportingLine');
       expect(projectAssignment.listByEmployee).not.toHaveBeenCalled();
+      expect(prisma.employee.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'B' },
+          select: { peoplePartnerId: true },
+        }),
+      );
+      expect(result.sections.S2).toBe('RW');
+    });
+  });
+
+  describe('PP (Story 1.3)', () => {
+    it('grants PP for the directly assigned people partner', async () => {
+      mockSubjectPp('B', 'X');
+      mockChain({ X: null });
+      projectAssignment.listByEmployee.mockResolvedValue([]);
+
+      const result = await service.resolveAudience('X', 'B');
+
+      expect(result.role).toBe('PP');
+      expect(result.sections).toEqual(PP_SECTIONS);
+    });
+
+    it('grants PP via the HR line above the assigned PP', async () => {
+      mockSubjectPp('B', 'X');
+      mockChain({ X: 'H', H: null });
+      mockDepartment('H', 'HR');
+      projectAssignment.listByEmployee.mockResolvedValue([]);
+
+      const result = await service.resolveAudience('H', 'B');
+
+      expect(result.role).toBe('PP');
+      expect(result.sections).toEqual(PP_SECTIONS);
+      expect(prisma.departmentHistory.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { employeeId: 'H', effectiveTo: null },
+        }),
+      );
+    });
+
+    it('grants PP via a multi-hop HR line', async () => {
+      mockSubjectPp('B', 'X');
+      mockChain({ X: 'H', H: 'G', G: null });
+      mockDepartment('H', 'HR');
+      mockDepartment('G', 'HR');
+      projectAssignment.listByEmployee.mockResolvedValue([]);
+
+      const result = await service.resolveAudience('G', 'B');
+
+      expect(result.role).toBe('PP');
+      expect(result.sections).toEqual(PP_SECTIONS);
+    });
+
+    it('grants PP via HR line when HR_DEPARTMENT_VALUE is a non-default config value', async () => {
+      configService.get.mockImplementation((key: string) =>
+        key === 'HR_DEPARTMENT_VALUE' ? 'PeopleOps' : undefined,
+      );
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          AccessResolverService,
+          { provide: PrismaService, useValue: prisma },
+          { provide: ProjectAssignment, useValue: projectAssignment },
+          { provide: Clock, useValue: clock },
+          { provide: ConfigService, useValue: configService },
+        ],
+      }).compile();
+      const configuredService = module.get(AccessResolverService);
+
+      mockSubjectPp('B', 'X');
+      mockChain({ X: 'H', H: null });
+      mockDepartment('H', 'PeopleOps');
+      projectAssignment.listByEmployee.mockResolvedValue([]);
+
+      const result = await configuredService.resolveAudience('H', 'B');
+
+      expect(result.role).toBe('PP');
+      expect(result.sections).toEqual(PP_SECTIONS);
+    });
+
+    it('does not grant PP via HR line when department value differs by case from HR_DEPARTMENT_VALUE', async () => {
+      mockSubjectPp('B', 'X');
+      mockChain({ X: 'H', H: null });
+      mockDepartment('H', 'hr');
+      projectAssignment.listByEmployee.mockResolvedValue([]);
+
+      const result = await service.resolveAudience('H', 'B');
+
+      expect(result.role).toBe('Colleague');
+    });
+
+    it('does not grant PP via HR line when the manager is outside HR', async () => {
+      mockSubjectPp('B', 'X');
+      mockChain({ X: 'H', H: null });
+      mockDepartment('H', 'Engineering');
+      projectAssignment.listByEmployee.mockResolvedValue([]);
+
+      const result = await service.resolveAudience('H', 'B');
+
+      expect(result.role).toBe('Colleague');
+    });
+
+    it('does not grant PP via HR line when the manager has no open department row', async () => {
+      mockSubjectPp('B', 'X');
+      mockChain({ X: 'H', H: null });
+      projectAssignment.listByEmployee.mockResolvedValue([]);
+
+      const result = await service.resolveAudience('H', 'B');
+
+      expect(result.role).toBe('Colleague');
+    });
+
+    it('revokes PP access for the previous assignee after reassignment', async () => {
+      mockSubjectPp('B', 'X');
+      mockChain({ X: null, Y: null });
+      projectAssignment.listByEmployee.mockResolvedValue([]);
+
+      const beforeReassign = await service.resolveAudience('X', 'B');
+      expect(beforeReassign.role).toBe('PP');
+
+      mockSubjectPp('B', 'Y');
+
+      const former = await service.resolveAudience('X', 'B');
+      const current = await service.resolveAudience('Y', 'B');
+
+      expect(former.role).toBe('Colleague');
+      expect(current.role).toBe('PP');
+    });
+
+    it('resolves Colleague when peoplePartnerId is cleared', async () => {
+      mockSubjectPp('B', null);
+      mockChain({});
+      projectAssignment.listByEmployee.mockResolvedValue([]);
+
+      const result = await service.resolveAudience('X', 'B');
+
+      expect(result.role).toBe('Colleague');
+    });
+
+    it('unions PP with ProjectLine so S2 becomes RW', async () => {
+      mockSubjectPp('B', 'D');
+      mockChain({ D: null });
+      projectAssignment.listByEmployee.mockResolvedValue([row({ dmId: 'D' })]);
+
+      const result = await service.resolveAudience('D', 'B');
+
+      expect(result.role).toBe('PP');
+      expect(result.sections.S2).toBe('RW');
+      expect(result.sections.S7).toBe('RW');
+    });
+
+    it('unions PP with ReportingLine so S2 becomes RW while role stays ReportingLine', async () => {
+      mockSubjectPp('B', 'M');
+      mockChain({ B: 'M', M: null });
+      projectAssignment.listByEmployee.mockResolvedValue([]);
+
+      const result = await service.resolveAudience('M', 'B');
+
+      expect(result.role).toBe('ReportingLine');
+      expect(result.sections.S2).toBe('RW');
+    });
+
+    it('does not evaluate PP when viewer is Self', async () => {
+      mockSubjectPp('emp-x', 'other-pp');
+
+      const result = await service.resolveAudience('emp-x', 'emp-x');
+
+      expect(result.role).toBe('Self');
+      expect(prisma.employee.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('does not loop on a cyclical HR-line walk', async () => {
+      const warnSpy = jest
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => undefined);
+
+      mockSubjectPp('B', 'X');
+      mockChain({ X: 'H', H: 'X' });
+      mockDepartment('H', 'HR');
+      mockDepartment('X', 'HR');
+      projectAssignment.listByEmployee.mockResolvedValue([]);
+
+      const result = await service.resolveAudience('A', 'B');
+
+      expect(result.role).toBe('Colleague');
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Cycle detected while walking HR line'),
+      );
+
+      warnSpy.mockRestore();
+    });
+
+    it('does not grant HR-line PP when the assigned PP employee row is missing', async () => {
+      employees['B'] = { peoplePartnerId: 'X' };
+      projectAssignment.listByEmployee.mockResolvedValue([]);
+
+      const result = await service.resolveAudience('H', 'B');
+
+      expect(result.role).toBe('Colleague');
     });
   });
 });

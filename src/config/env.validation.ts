@@ -26,4 +26,6 @@ export const envValidationSchema = Joi.object({
     .default('https://tt-bootcamp.dev.altexsoft.dev/'),
   TIMETRACKER_ACCOUNTING_API_KEY: Joi.string().optional(),
   TIMETRACKER_TALENTS_API_KEY: Joi.string().optional(),
+  // Story 1.3 — open `DepartmentHistory.value` treated as HR for PP HR-line walk.
+  HR_DEPARTMENT_VALUE: Joi.string().default('HR'),
 });
