@@ -1,6 +1,4 @@
 import { Global, Module } from '@nestjs/common';
-import { AccessResolver } from './access-resolver.contract';
-import { AccessResolverStub } from './stubs/access-resolver.stub';
 import { FieldRegistry } from './field-registry.contract';
 import { FieldRegistryStub } from './stubs/field-registry.stub';
 import { ProjectAssignment } from './project-assignment.contract';
@@ -20,6 +18,10 @@ import { PermissionCheckerStub } from './stubs/permission-checker.stub';
  * importing this module explicitly; providers are still listed in `exports`
  * because @Global() alone does not make them injectable elsewhere.
  *
+ * C1 `AccessResolver` is deliberately left unbound here — the `access`
+ * module implements it directly (Story 1.1), mirroring how C7
+ * `CurrentUserProvider` is left for `auth` to implement.
+ *
  * This module is a deliberate, recognized exception to `nest-modules.md`'s
  * standard module anatomy — no controller, no DTO/entities/swagger folder.
  * Do not "fix" it to match `users`.
@@ -27,7 +29,6 @@ import { PermissionCheckerStub } from './stubs/permission-checker.stub';
 @Global()
 @Module({
   providers: [
-    { provide: AccessResolver, useClass: AccessResolverStub },
     { provide: FieldRegistry, useClass: FieldRegistryStub },
     { provide: ProjectAssignment, useClass: ProjectAssignmentStub },
     { provide: TimelineEventWriter, useClass: TimelineEventWriterStub },
@@ -39,7 +40,6 @@ import { PermissionCheckerStub } from './stubs/permission-checker.stub';
     { provide: PermissionChecker, useClass: PermissionCheckerStub },
   ],
   exports: [
-    AccessResolver,
     FieldRegistry,
     ProjectAssignment,
     TimelineEventWriter,

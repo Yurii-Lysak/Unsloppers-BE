@@ -30,9 +30,18 @@ export type SectionId =
 
 export type SectionAccessLevel = 'R' | 'RW' | 'none';
 
-/** Access roles, derived from hierarchy/assignment — never assigned directly. */
+/**
+ * Access roles, derived from hierarchy/assignment — never assigned directly.
+ * Ratified 2026-08-26 set (ARCHITECTURE-SPINE.md AD-2).
+ */
 export type AccessRole =
-  'Self' | 'ManagerLine' | 'PP' | 'Colleague' | 'SharedLink' | 'HRAdmin';
+  | 'Self'
+  | 'ReportingLine'
+  | 'ProjectLine'
+  | 'PP'
+  | 'Colleague'
+  | 'SharedLink'
+  | 'FullAccess';
 
 export interface ResolvedAudience {
   role: AccessRole;

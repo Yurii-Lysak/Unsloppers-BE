@@ -47,6 +47,15 @@ model Employee {
   employmentTypeHistory EmploymentTypeHistory[]
   timelineEvents        TimelineEvent[]
 
+  // Story 1.1 — reports-to edge that C1 AccessResolver's ReportingLine closure
+  // walks. `onDelete: SetNull` orphans direct reports to top-of-chain when a
+  // manager's Employee row is deleted, rather than re-linking them to the
+  // grand-manager (see spec-1-1 Design Notes) — no automatic reassignment.
+  managerId     String?
+  manager       Employee?  @relation("ReportsTo", fields: [managerId], references: [id], onDelete: SetNull)
+  directReports Employee[] @relation("ReportsTo")
+
+  @@index([managerId])
   @@map("employees")
 }
 

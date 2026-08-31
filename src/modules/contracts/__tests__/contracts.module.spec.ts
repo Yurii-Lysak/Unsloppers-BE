@@ -1,7 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ContractsModule } from '../contracts.module';
 import { AccessResolver } from '../access-resolver.contract';
-import { AccessResolverStub } from '../stubs/access-resolver.stub';
 import { FieldRegistry } from '../field-registry.contract';
 import { FieldRegistryStub } from '../stubs/field-registry.stub';
 import { ProjectAssignment } from '../project-assignment.contract';
@@ -30,7 +29,6 @@ describe('ContractsModule', () => {
   });
 
   it.each([
-    [AccessResolver, AccessResolverStub],
     [FieldRegistry, FieldRegistryStub],
     [ProjectAssignment, ProjectAssignmentStub],
     [TimelineEventWriter, TimelineEventWriterStub],
@@ -45,12 +43,8 @@ describe('ContractsModule', () => {
     expect(() => module.get(CurrentUserProvider)).toThrow();
   });
 
-  it('AccessResolverStub denies every section by default', async () => {
-    const resolver = module.get(AccessResolver);
-    const result = await resolver.resolveAudience('viewer-1', 'subject-1');
-    expect(Object.values(result.sections).every((v) => v === 'none')).toBe(
-      true,
-    );
+  it('leaves C1 unbound for the access module to implement', () => {
+    expect(() => module.get(AccessResolver)).toThrow();
   });
 
   it('PermissionCheckerStub denies every permission by default', async () => {
