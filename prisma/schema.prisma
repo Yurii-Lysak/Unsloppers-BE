@@ -46,6 +46,7 @@ model Employee {
   departmentHistory     DepartmentHistory[]
   employmentTypeHistory EmploymentTypeHistory[]
   timelineEvents        TimelineEvent[]
+  customFieldValues     CustomFieldValue[]
 
   // Story 1.1 — reports-to edge that C1 AccessResolver's ReportingLine closure
   // walks. `onDelete: SetNull` orphans direct reports to top-of-chain when a
@@ -93,6 +94,61 @@ model ProjectAssignment {
   @@index([employeeId])
   @@index([projectId])
   @@map("project_assignments")
+}
+
+// Story 3.2 — runtime custom field definitions (AD-6). Options are stored as a
+// JSON string array for select / multi_select types only.
+enum CustomFieldType {
+  text
+  number
+  date
+  boolean
+  select
+  multi_select
+}
+
+enum CustomFieldVisibility {
+  management
+  employee
+  colleague
+}
+
+model CustomFieldDefinition {
+  id         String                @id @default(uuid())
+  name       String                @unique
+  type       CustomFieldType
+  visibility CustomFieldVisibility @default(management)
+  options    Json?
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
+
+  values CustomFieldValue[]
+
+  @@map("custom_field_definitions")
+}
+
+// Story 3.2 — typed value storage (AD-6). Exactly one value column is populated
+// per row; the rest are NULL. Rows exist only after the first write (lazy).
+// multi_select values are JSON-encoded string arrays in valueText.
+model CustomFieldValue {
+  id                String   @id @default(uuid())
+  employeeId        String
+  fieldDefinitionId String
+  valueText         String?
+  valueNumber       Decimal? @db.Decimal(18, 6)
+  valueDate         DateTime? @db.Date
+  valueBoolean      Boolean?
+  valueSelect       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  employee        Employee              @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  fieldDefinition CustomFieldDefinition @relation(fields: [fieldDefinitionId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, fieldDefinitionId])
+  @@index([fieldDefinitionId])
+  @@index([employeeId])
+  @@map("custom_field_values")
 }
 
 // Four effective-dated history tables (AD-7). `effectiveTo IS NULL` = current

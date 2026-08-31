@@ -4,10 +4,7 @@ import {
   dedupeIdentitiesByEmail,
   normalizeEmailKey,
 } from '../seed.helpers';
-import {
-  EmptySeedPopulationError,
-  SeedManifestError,
-} from '../seed.errors';
+import { EmptySeedPopulationError, SeedManifestError } from '../seed.errors';
 import {
   loadBootcampSeedManifest,
   validateBootcampIdentities,
