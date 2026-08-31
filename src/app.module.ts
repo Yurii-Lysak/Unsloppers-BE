@@ -6,6 +6,7 @@ import { HealthModule } from './modules/health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './modules/users/users.module';
 import { ContractsModule } from './modules/contracts/contracts.module';
+import { AccessModule } from './modules/access/access.module';
 import { RegistryModule } from './modules/registry/registry.module';
 import { TimetrackerModule } from './modules/timetracker/timetracker.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -19,6 +20,7 @@ import { AuthModule } from './modules/auth/auth.module';
     ClockModule,
     PrismaModule,
     ContractsModule,
+    AccessModule,
     AuthModule,
     RegistryModule,
     // Registered for Epic 13 TimeTracker sync — not used by the bundled bootcamp
