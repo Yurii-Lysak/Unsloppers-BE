@@ -7,7 +7,8 @@
  * (Epic 3, Story 3.2).
  */
 
-export type FieldValueType = 'text' | 'number' | 'date' | 'boolean' | 'select';
+export type FieldValueType =
+  'text' | 'number' | 'date' | 'boolean' | 'select' | 'multi_select';
 
 export type FieldVisibility = 'management' | 'employee' | 'colleague';
 
@@ -16,9 +17,10 @@ export interface FieldDefinitionDto {
   name: string;
   type: FieldValueType;
   visibility: FieldVisibility;
+  options: string[];
 }
 
-export type FieldValue = string | number | boolean | null;
+export type FieldValue = string | number | boolean | string[] | null;
 
 export interface FieldQueryOptions {
   employeeIds?: string[];
@@ -36,6 +38,7 @@ export abstract class FieldRegistry {
     name: string,
     type: FieldValueType,
     visibility: FieldVisibility,
+    options?: string[],
   ): Promise<string>;
 
   abstract setValue(

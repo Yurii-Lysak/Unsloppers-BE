@@ -5,7 +5,7 @@ import { FieldRegistry, FieldQueryResultDto } from '../field-registry.contract';
 @Injectable()
 export class FieldRegistryStub extends FieldRegistry {
   defineField(): Promise<string> {
-    return Promise.resolve('stub-field-id');
+    return Promise.resolve('00000000-0000-4000-8000-000000000001');
   }
 
   async setValue(): Promise<void> {
