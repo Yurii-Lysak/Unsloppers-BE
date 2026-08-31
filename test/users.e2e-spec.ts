@@ -1,56 +1,26 @@
-import { INestApplication } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
-import { hash } from 'bcryptjs';
 import request from 'supertest';
-import { App } from 'supertest/types';
-import { AppModule } from './../src/app.module';
 import { UserEntity } from './../src/modules/users/entities/user.entity';
-import { PrismaService } from './../src/prisma/prisma.service';
-import { configureApp } from './../src/bootstrap';
+import { createTestApp, TestApp } from './support/app-harness';
+import { loginAsOperator } from './support/login';
 
 describe('Users CRUD (e2e)', () => {
-  let app: INestApplication<App>;
-  let prisma: PrismaService;
+  let testApp: TestApp;
   let agent: ReturnType<typeof request.agent>;
 
-  const emailPrefix = `e2e-${Date.now()}`;
-  const email = `${emailPrefix}@example.com`;
-  const operatorEmail = `${emailPrefix}-operator@example.com`;
-  const operatorPassword = 'test-only-users-password';
+  const email = 'e2e-user@example.com';
   const missingId = '00000000-0000-0000-0000-000000000000';
   let createdId: string;
 
   beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleFixture.createNestApplication();
-    configureApp(app);
-    await app.init();
-
-    prisma = app.get(PrismaService);
-    await prisma.user.create({
-      data: {
-        email: operatorEmail,
-        passwordHash: await hash(operatorPassword, 12),
-      },
-    });
-    agent = request.agent(app.getHttpServer());
-    await agent
-      .post('/api/v1/auth/login')
-      .send({ email: operatorEmail, password: operatorPassword })
-      .expect(200);
+    testApp = await createTestApp();
+    agent = await loginAsOperator(testApp);
   });
 
   afterAll(async () => {
-    await prisma.user.deleteMany({
-      where: { email: { startsWith: emailPrefix } },
-    });
-    await app.close();
+    await testApp.close();
   });
 
-  it('POST /users creates a user', async () => {
+  it('POST /api/v1/users creates a user', async () => {
     const res = await agent
       .post('/api/v1/users')
       .send({ email, name: 'E2E User' })
@@ -63,35 +33,35 @@ describe('Users CRUD (e2e)', () => {
     createdId = body.id;
   });
 
-  it('POST /users with the same email returns 409', () => {
+  it('POST /api/v1/users with the same email returns 409', () => {
     return agent.post('/api/v1/users').send({ email }).expect(409);
   });
 
-  it('POST /users with an invalid email returns 400', () => {
+  it('POST /api/v1/users with an invalid email returns 400', () => {
     return agent
       .post('/api/v1/users')
       .send({ email: 'not-an-email' })
       .expect(400);
   });
 
-  it('GET /users returns the list including the created user', async () => {
+  it('GET /api/v1/users returns the list including the created user', async () => {
     const res = await agent.get('/api/v1/users').expect(200);
 
     const body = res.body as UserEntity[];
     expect(body.some((u) => u.id === createdId)).toBe(true);
   });
 
-  it('GET /users/:id returns the user', async () => {
+  it('GET /api/v1/users/:id returns the user', async () => {
     const res = await agent.get(`/api/v1/users/${createdId}`).expect(200);
 
     expect((res.body as UserEntity).email).toBe(email);
   });
 
-  it('GET /users/:id with an unknown id returns 404', () => {
+  it('GET /api/v1/users/:id with an unknown id returns 404', () => {
     return agent.get(`/api/v1/users/${missingId}`).expect(404);
   });
 
-  it('PATCH /users/:id updates the name', async () => {
+  it('PATCH /api/v1/users/:id updates the name', async () => {
     const res = await agent
       .patch(`/api/v1/users/${createdId}`)
       .send({ name: 'Renamed User' })
@@ -100,11 +70,11 @@ describe('Users CRUD (e2e)', () => {
     expect((res.body as UserEntity).name).toBe('Renamed User');
   });
 
-  it('DELETE /users/:id returns 204', () => {
+  it('DELETE /api/v1/users/:id returns 204', () => {
     return agent.delete(`/api/v1/users/${createdId}`).expect(204);
   });
 
-  it('GET /users/:id after deletion returns 404', () => {
+  it('GET /api/v1/users/:id after deletion returns 404', () => {
     return agent.get(`/api/v1/users/${createdId}`).expect(404);
   });
 });

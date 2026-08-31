@@ -1,13 +1,7 @@
-import { INestApplication } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
-import type { OpenAPIObject } from '@nestjs/swagger';
 import { hash } from 'bcryptjs';
 import request from 'supertest';
-import { App } from 'supertest/types';
-import { AppModule } from './../src/app.module';
-import { configureApp } from './../src/bootstrap';
-import { PrismaService } from './../src/prisma/prisma.service';
+import { createTestApp, TestApp } from './support/app-harness';
 
 interface SessionBody {
   userId: string;
@@ -26,27 +20,17 @@ const getSessionCookie = (response: { headers: unknown }): string => {
 };
 
 describe('Authentication (e2e)', () => {
-  let app: INestApplication<App>;
-  let prisma: PrismaService;
+  let testApp: TestApp;
   let jwt: JwtService;
-  let openApiDocument: OpenAPIObject;
 
-  const emailPrefix = `auth-e2e-${Date.now()}`;
-  const email = `${emailPrefix}@example.com`;
+  const email = 'auth-e2e@example.com';
   const password = 'test-only-auth-password';
 
   beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
+    testApp = await createTestApp();
+    jwt = testApp.app.get(JwtService);
 
-    app = moduleFixture.createNestApplication();
-    openApiDocument = configureApp(app);
-    await app.init();
-    prisma = app.get(PrismaService);
-    jwt = app.get(JwtService);
-
-    await prisma.user.create({
+    await testApp.prisma.user.create({
       data: {
         email,
         name: 'Authentication E2E',
@@ -56,24 +40,21 @@ describe('Authentication (e2e)', () => {
   });
 
   afterAll(async () => {
-    await prisma.user.deleteMany({
-      where: { email: { startsWith: emailPrefix } },
-    });
-    await app.close();
+    await testApp.close();
   });
 
   it('keeps login and health public while default-denying protected APIs', async () => {
-    await request(app.getHttpServer()).get('/api/v1/health').expect(200);
+    await request(testApp.server).get('/api/v1/health').expect(200);
 
-    const response = await request(app.getHttpServer())
+    const response = await request(testApp.server)
       .get('/api/v1/users')
       .expect(401);
     expect(getSessionCookie(response)).toContain('session=;');
-    await request(app.getHttpServer()).post('/auth/login').expect(404);
+    await request(testApp.server).post('/auth/login').expect(404);
   });
 
   it('sets only a secure browser cookie and restores the C7 session', async () => {
-    const login = await request(app.getHttpServer())
+    const login = await request(testApp.server)
       .post('/api/v1/auth/login')
       .send({ email, password })
       .expect(200);
@@ -96,13 +77,13 @@ describe('Authentication (e2e)', () => {
     const payload = jwt.decode<{ iat: number; exp: number }>(token);
     expect(payload.exp - payload.iat).toBe(maxAge);
 
-    const session = await request(app.getHttpServer())
+    const session = await request(testApp.server)
       .get('/api/v1/auth/session')
       .set('Cookie', cookie)
       .expect(200);
     expect(session.body).toEqual({ userId: loginBody.userId });
 
-    const users = await request(app.getHttpServer())
+    const users = await request(testApp.server)
       .get('/api/v1/users')
       .set('Cookie', cookie)
       .expect(200);
@@ -111,15 +92,15 @@ describe('Authentication (e2e)', () => {
   });
 
   it('uses the same generic 401 for unknown email and wrong password', async () => {
-    const unknown = await request(app.getHttpServer())
+    const unknown = await request(testApp.server)
       .post('/api/v1/auth/login')
-      .send({ email: `${emailPrefix}-missing@example.com`, password })
+      .send({ email: 'auth-e2e-missing@example.com', password })
       .expect(401);
-    const wrong = await request(app.getHttpServer())
+    const wrong = await request(testApp.server)
       .post('/api/v1/auth/login')
       .send({ email, password: 'wrong-test-password' })
       .expect(401);
-    const overlong = await request(app.getHttpServer())
+    const overlong = await request(testApp.server)
       .post('/api/v1/auth/login')
       .send({ email, password: '€'.repeat(25) })
       .expect(401);
@@ -135,7 +116,7 @@ describe('Authentication (e2e)', () => {
   });
 
   it('rejects malformed cookies and clears stale browser state', async () => {
-    const response = await request(app.getHttpServer())
+    const response = await request(testApp.server)
       .get('/api/v1/auth/session')
       .set('Cookie', 'session=not-a-jwt')
       .expect(401);
@@ -144,12 +125,14 @@ describe('Authentication (e2e)', () => {
   });
 
   it('rejects expired cookies and clears stale browser state', async () => {
-    const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+    const user = await testApp.prisma.user.findUniqueOrThrow({
+      where: { email },
+    });
     const expiredToken = await jwt.signAsync(
       { sub: user.id },
       { expiresIn: -1 },
     );
-    const response = await request(app.getHttpServer())
+    const response = await request(testApp.server)
       .get('/api/v1/auth/session')
       .set('Cookie', `session=${expiredToken}`)
       .expect(401);
@@ -158,22 +141,22 @@ describe('Authentication (e2e)', () => {
   });
 
   it('rejects a valid token after its user is deleted', async () => {
-    const deletedEmail = `${emailPrefix}-deleted@example.com`;
-    const deleted = await prisma.user.create({
+    const deletedEmail = 'auth-e2e-deleted@example.com';
+    const deleted = await testApp.prisma.user.create({
       data: {
         email: deletedEmail,
         passwordHash: await hash(password, 12),
       },
     });
-    const login = await request(app.getHttpServer())
+    const login = await request(testApp.server)
       .post('/api/v1/auth/login')
       .send({ email: deletedEmail, password })
       .expect(200);
     const cookie = getSessionCookie(login);
 
-    await prisma.user.delete({ where: { id: deleted.id } });
+    await testApp.prisma.user.delete({ where: { id: deleted.id } });
 
-    const response = await request(app.getHttpServer())
+    const response = await request(testApp.server)
       .get('/api/v1/auth/session')
       .set('Cookie', cookie)
       .expect(401);
@@ -181,24 +164,26 @@ describe('Authentication (e2e)', () => {
   });
 
   it('protects Swagger UI and JSON with the same session cookie scheme', async () => {
-    await request(app.getHttpServer()).get('/api/docs').expect(401);
-    await request(app.getHttpServer()).get('/api/docs-json').expect(401);
+    await request(testApp.server).get('/api/docs').expect(401);
+    await request(testApp.server).get('/api/docs-json').expect(401);
 
-    const login = await request(app.getHttpServer())
+    const login = await request(testApp.server)
       .post('/api/v1/auth/login')
       .send({ email, password })
       .expect(200);
     const cookie = getSessionCookie(login);
 
-    await request(app.getHttpServer())
+    await request(testApp.server)
       .get('/api/docs')
       .set('Cookie', cookie)
       .expect(200);
-    await request(app.getHttpServer())
+    await request(testApp.server)
       .get('/api/docs-json')
       .set('Cookie', cookie)
       .expect(200);
-    expect(openApiDocument.components?.securitySchemes?.session).toEqual({
+    expect(
+      testApp.openApiDocument.components?.securitySchemes?.session,
+    ).toEqual({
       type: 'apiKey',
       in: 'cookie',
       name: 'session',
@@ -206,7 +191,7 @@ describe('Authentication (e2e)', () => {
   });
 
   it('enables credentialed CORS for the configured frontend origin', async () => {
-    const response = await request(app.getHttpServer())
+    const response = await request(testApp.server)
       .options('/api/v1/auth/login')
       .set('Origin', 'http://localhost:4200')
       .set('Access-Control-Request-Method', 'POST')
@@ -219,13 +204,13 @@ describe('Authentication (e2e)', () => {
   });
 
   it('logs out by expiring the session cookie', async () => {
-    const login = await request(app.getHttpServer())
+    const login = await request(testApp.server)
       .post('/api/v1/auth/login')
       .send({ email, password })
       .expect(200);
     const cookie = getSessionCookie(login);
 
-    const logout = await request(app.getHttpServer())
+    const logout = await request(testApp.server)
       .post('/api/v1/auth/logout')
       .set('Cookie', cookie)
       .expect(204);
