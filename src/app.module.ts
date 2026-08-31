@@ -10,6 +10,7 @@ import { AccessModule } from './modules/access/access.module';
 import { RegistryModule } from './modules/registry/registry.module';
 import { TimetrackerModule } from './modules/timetracker/timetracker.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { DirectoryModule } from './modules/directory/directory.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { AuthModule } from './modules/auth/auth.module';
     ContractsModule,
     AccessModule,
     AuthModule,
+    DirectoryModule,
     RegistryModule,
     // Registered for Epic 13 TimeTracker sync — not used by the bundled bootcamp
     // seed manifest (Story 1.16, Aug 2026 pivot). No controller; nothing calls

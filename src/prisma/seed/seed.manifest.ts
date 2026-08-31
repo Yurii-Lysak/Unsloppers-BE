@@ -28,7 +28,14 @@ export function resolveManifestPath(manifestPath?: string): string {
   // to dist/prisma/seed/data (see nest-cli.json). Try both layouts.
   const candidates = [
     join(__dirname, 'data', DEFAULT_MANIFEST_FILE),
-    join(process.cwd(), 'dist', 'prisma', 'seed', 'data', DEFAULT_MANIFEST_FILE),
+    join(
+      process.cwd(),
+      'dist',
+      'prisma',
+      'seed',
+      'data',
+      DEFAULT_MANIFEST_FILE,
+    ),
     join(process.cwd(), 'src', 'prisma', 'seed', 'data', DEFAULT_MANIFEST_FILE),
   ];
 
