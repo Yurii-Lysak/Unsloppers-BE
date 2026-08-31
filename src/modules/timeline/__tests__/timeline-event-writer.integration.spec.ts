@@ -106,4 +106,43 @@ describe('TimelineEventWriter integration (real Postgres)', () => {
     });
     expect(updated.systemWriteSkippedAt).toBeInstanceOf(Date);
   });
+
+  it('duplicate system timeline event rolls back the history write', async () => {
+    const user = await prisma.user.create({
+      data: { email: `${emailPrefix}-dup@example.com` },
+    });
+    const employee = await prisma.employee.create({
+      data: { userId: user.id },
+    });
+
+    await prisma.timelineEvent.create({
+      data: {
+        employeeId: employee.id,
+        type: 'grade',
+        effectiveDate: new Date('2026-09-01T00:00:00.000Z'),
+        source: 'system',
+        newValue: 'Existing',
+      },
+    });
+
+    await expect(
+      prisma.gradeHistory.create({
+        data: {
+          employeeId: employee.id,
+          value: 'Senior',
+          effectiveFrom: new Date('2026-09-01T00:00:00.000Z'),
+        },
+      }),
+    ).rejects.toThrow();
+
+    const historyRows = await prisma.gradeHistory.findMany({
+      where: { employeeId: employee.id },
+    });
+    expect(historyRows).toHaveLength(0);
+
+    const timelineRows = await prisma.timelineEvent.findMany({
+      where: { employeeId: employee.id, type: 'grade' },
+    });
+    expect(timelineRows).toHaveLength(1);
+  });
 });

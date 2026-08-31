@@ -12,9 +12,10 @@ import {
  * This is the ONLY legal write path to `GradeHistory`, `PositionHistory`,
  * `DepartmentHistory`, `EmploymentTypeHistory`:
  *  - `create` validates the input, checks ordering against the currently
- *    open row (if any), checks for a conflicting manual `TimelineEvent`,
- *    closes the prior open row, inserts the new row, and calls C4 — all
- *    inside one Serializable-isolation transaction.
+ *    open row (if any), checks for a conflicting manual `TimelineEvent`
+ *    (outside the Serializable transaction so skip metadata commits), closes
+ *    the prior open row, inserts the new row, and calls C4 — the history
+ *    mutations and `recordTimelineEvent` share one Serializable transaction.
  *  - Every other operation (`update`, `updateMany`, `delete`, `deleteMany`,
  *    `upsert`, `createMany`, `createManyAndReturn`, `updateManyAndReturn`,
  *    `findUnique`, `findUniqueOrThrow`) is rejected outright: history rows

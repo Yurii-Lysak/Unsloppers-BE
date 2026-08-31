@@ -156,6 +156,45 @@ describe('TimelineEventWriterService', () => {
     expect(logMessage).toContain('2026-09-01');
   });
 
+  it('recordTimelineEvent soft-fails on duplicate system event without a transaction', async () => {
+    prisma.timelineEvent.create.mockRejectedValueOnce(
+      Object.assign(new Error('Unique constraint failed'), { code: 'P2002' }),
+    );
+
+    await expect(
+      service.recordTimelineEvent(
+        'emp-1',
+        'grade',
+        '2026-09-01',
+        'Middle',
+        'Senior',
+        'system',
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('TIMELINE_WRITE_RETRY'),
+    );
+  });
+
+  it('recordTimelineEvent normalizes effectiveDate to UTC date-only', async () => {
+    await service.recordTimelineEvent(
+      'emp-1',
+      'grade',
+      '2026-09-01T15:30:00.000+02:00',
+      null,
+      'Senior',
+      'system',
+    );
+
+    const createCalls = prisma.timelineEvent.create.mock.calls as Array<
+      [{ data: { effectiveDate: Date } }]
+    >;
+    expect(createCalls[0]?.[0].data.effectiveDate).toEqual(
+      new Date(Date.UTC(2026, 8, 1)),
+    );
+  });
+
   it('markSystemWriteSkipped sets systemWriteSkippedAt on the manual event', async () => {
     await service.markSystemWriteSkipped(
       'manual-1',

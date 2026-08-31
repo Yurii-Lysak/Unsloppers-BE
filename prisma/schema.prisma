@@ -234,12 +234,9 @@ model EmploymentTypeHistory {
   @@map("employment_type_history")
 }
 
-// Minimal Wave-0 shape (Design Notes): substrate for AD-7's manual-conflict
-// detection only. C4 (`TimelineEventWriter`) stays a no-op stub (Story 1.19)
-// until Epic 7 lands the real `timeline` module — nothing in production
-// populates this table yet. `onDelete: Restrict` mirrors the history tables'
-// policy (not explicitly mandated by the spec, but Employees are never
-// hard-deleted in Wave-0 regardless).
+// Minimal Wave-0 substrate extended by Story 7.1: C4 (`TimelineEventWriter`
+// in the `timeline` module) persists system-generated rows when history
+// writes land. Manual-conflict detection still queries this table.
 model TimelineEvent {
   id            String    @id @default(uuid())
   employeeId    String

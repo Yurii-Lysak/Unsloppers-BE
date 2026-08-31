@@ -35,7 +35,7 @@ export class TimelineEventWriterService extends TimelineEventWriter {
         data: {
           employeeId,
           type,
-          effectiveDate: new Date(effectiveDate),
+          effectiveDate: parseEffectiveDate(effectiveDate),
           oldValue: toJsonValue(oldValue),
           newValue: toJsonValue(newValue),
           source,
@@ -80,4 +80,19 @@ function toJsonValue(
     return Prisma.DbNull;
   }
   return value;
+}
+
+/** UTC date-only normalization — matches the extension's `toDateOnly` (AD-7). */
+function parseEffectiveDate(isoDateString: string): Date {
+  const parsed = new Date(isoDateString);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`Invalid effectiveDate: ${isoDateString}`);
+  }
+  return new Date(
+    Date.UTC(
+      parsed.getUTCFullYear(),
+      parsed.getUTCMonth(),
+      parsed.getUTCDate(),
+    ),
+  );
 }
