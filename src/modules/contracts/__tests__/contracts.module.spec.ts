@@ -4,8 +4,6 @@ import { AccessResolver } from '../access-resolver.contract';
 import { FieldRegistry } from '../field-registry.contract';
 import { FieldRegistryStub } from '../stubs/field-registry.stub';
 import { ProjectAssignment } from '../project-assignment.contract';
-import { TimelineEventWriter } from '../timeline-event-writer.contract';
-import { TimelineEventWriterStub } from '../stubs/timeline-event-writer.stub';
 import { ExternalIdentityMapping } from '../external-identity-mapping.contract';
 import { ExternalIdentityMappingStub } from '../stubs/external-identity-mapping.stub';
 import { ActionItemCreation } from '../action-item-creation.contract';
@@ -13,6 +11,7 @@ import { ActionItemCreationStub } from '../stubs/action-item-creation.stub';
 import { CurrentUserProvider } from '../current-user-provider.contract';
 import { PermissionChecker } from '../permission-checker.contract';
 import { PermissionCheckerStub } from '../stubs/permission-checker.stub';
+import { TimelineEventWriter } from '../timeline-event-writer.contract';
 
 describe('ContractsModule', () => {
   let module: TestingModule;
@@ -29,7 +28,6 @@ describe('ContractsModule', () => {
 
   it.each([
     [FieldRegistry, FieldRegistryStub],
-    [TimelineEventWriter, TimelineEventWriterStub],
     [ExternalIdentityMapping, ExternalIdentityMappingStub],
     [ActionItemCreation, ActionItemCreationStub],
     [PermissionChecker, PermissionCheckerStub],
@@ -47,6 +45,10 @@ describe('ContractsModule', () => {
 
   it('leaves C3 unbound for the access module to implement', () => {
     expect(() => module.get(ProjectAssignment)).toThrow();
+  });
+
+  it('leaves C4 unbound for the timeline module to implement', () => {
+    expect(() => module.get(TimelineEventWriter)).toThrow();
   });
 
   it('PermissionCheckerStub denies every permission by default', async () => {
