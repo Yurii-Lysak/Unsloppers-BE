@@ -147,7 +147,11 @@ export const ACCESS_MATRIX: Record<
   },
   S9: {
     self: { level: 'read' },
-    managerLine: { level: 'readWrite' },
+    managerLine: {
+      level: 'readWrite',
+      exception:
+        'spec rule / Epic 7: writes are narrowed to assigned UM (ReportingLine) and PP only — ProjectLine Manager access does not grant timeline writes',
+    },
     pp: { level: 'readWrite' },
     colleague: NO_ACCESS,
     sharedLink: { level: 'read', sharedLinkDefault: 'off' },
