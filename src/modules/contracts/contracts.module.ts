@@ -1,8 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { FieldRegistry } from './field-registry.contract';
 import { FieldRegistryStub } from './stubs/field-registry.stub';
-import { ExternalIdentityMapping } from './external-identity-mapping.contract';
-import { ExternalIdentityMappingStub } from './stubs/external-identity-mapping.stub';
 import { ActionItemCreation } from './action-item-creation.contract';
 import { ActionItemCreationStub } from './stubs/action-item-creation.stub';
 
@@ -19,6 +17,9 @@ import { ActionItemCreationStub } from './stubs/action-item-creation.stub';
  *
  * C4 `TimelineEventWriter` is left unbound for the `timeline` module (Story 7.1).
  *
+ * C5 `ExternalIdentityMapping` is left for `integrations` to implement
+ * (Story 13.1), mirroring the C1/C4 moves above.
+ *
  * This module is a deliberate, recognized exception to `nest-modules.md`'s
  * standard module anatomy — no controller, no DTO/entities/swagger folder.
  * Do not "fix" it to match `users`.
@@ -27,12 +28,8 @@ import { ActionItemCreationStub } from './stubs/action-item-creation.stub';
 @Module({
   providers: [
     { provide: FieldRegistry, useClass: FieldRegistryStub },
-    {
-      provide: ExternalIdentityMapping,
-      useClass: ExternalIdentityMappingStub,
-    },
     { provide: ActionItemCreation, useClass: ActionItemCreationStub },
   ],
-  exports: [FieldRegistry, ExternalIdentityMapping, ActionItemCreation],
+  exports: [FieldRegistry, ActionItemCreation],
 })
 export class ContractsModule {}

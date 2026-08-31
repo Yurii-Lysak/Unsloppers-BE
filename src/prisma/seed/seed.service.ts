@@ -133,6 +133,21 @@ export class SeedService {
       create: { userId: user.id },
     });
 
+    await this.prisma.externalIdentity.upsert({
+      where: {
+        system_externalId: {
+          system: 'timetracker',
+          externalId: String(identity.id),
+        },
+      },
+      update: { employeeId: employee.id },
+      create: {
+        system: 'timetracker',
+        externalId: String(identity.id),
+        employeeId: employee.id,
+      },
+    });
+
     await this.seedInitialHistory(employee.id, identity.email, now);
   }
 

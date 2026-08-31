@@ -140,6 +140,10 @@ function makePrismaMock() {
     },
   );
 
+  const externalIdentityUpsert = jest.fn(() =>
+    Promise.resolve({ id: 'map-1' }),
+  );
+
   const employeeFindUnique = jest.fn(
     ({ where }: { where: { userId?: string; id?: string } }) => {
       if (where.userId) {
@@ -332,6 +336,7 @@ function makePrismaMock() {
       findFirst: employeeFindFirst,
       findUnique: employeeFindUnique,
     },
+    externalIdentity: { upsert: externalIdentityUpsert },
     functionalRole: {
       upsert: functionalRoleUpsert,
       findFirst: functionalRoleFindFirst,
@@ -364,6 +369,7 @@ function makePrismaMock() {
     positionCreate: position.create,
     departmentCreate: department.create,
     employmentTypeCreate: employmentType.create,
+    externalIdentityUpsert,
     functionalRoleCreate,
     functionalRoleAssignmentUpsert,
   };
@@ -381,6 +387,7 @@ describe('SeedService', () => {
       positionCreate,
       departmentCreate,
       employmentTypeCreate,
+      externalIdentityUpsert,
     } = makePrismaMock();
 
     const summary = await new SeedService(
@@ -393,6 +400,7 @@ describe('SeedService', () => {
     expect(summary.functionalRolesUpserted).toBe(5);
     expect(summary.hrAdminAssignments).toBe(1);
     expect(userUpsert).toHaveBeenCalledTimes(3);
+    expect(externalIdentityUpsert).toHaveBeenCalledTimes(3);
     expect(gradeCreate).toHaveBeenCalledTimes(3);
     expect(positionCreate).toHaveBeenCalledTimes(3);
     expect(departmentCreate).toHaveBeenCalledTimes(3);

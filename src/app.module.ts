@@ -12,6 +12,7 @@ import { TimetrackerModule } from './modules/timetracker/timetracker.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { DirectoryModule } from './modules/directory/directory.module';
 import { TimelineModule } from './modules/timeline/timeline.module';
+import { IntegrationsModule } from './modules/integrations/integrations.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { TimelineModule } from './modules/timeline/timeline.module';
     // seed manifest (Story 1.16, Aug 2026 pivot). No controller; nothing calls
     // it at request time today.
     TimetrackerModule,
+    IntegrationsModule,
     HealthModule,
     UsersModule,
   ],

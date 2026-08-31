@@ -17,9 +17,9 @@ const REQUEST_TIMEOUT_MS = 15000;
 /**
  * HTTP client for the TimeTracker External API (`docs/api-external-openapi.json`).
  *
- * Only ever called from `prisma/seed.ts` (Story 1.16 spec, "Never" — no
- * runtime/request-time dependency on TimeTracker anywhere else). Uses Node
- * 22's global `fetch`; no HTTP client dependency needed for two calls.
+ * Consumed by `prisma/seed.ts` (Story 1.16) and runtime leave/project sync in
+ * `integrations` (Epic 13). Uses Node 22's global `fetch`; no HTTP client
+ * dependency needed for two calls.
  *
  * The two endpoints use independent, non-interchangeable API keys
  * (`AccountingApiKey` / `TalentsApiKey` — the wrong one gets a 403), so each
