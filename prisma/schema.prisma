@@ -55,8 +55,44 @@ model Employee {
   manager       Employee?  @relation("ReportsTo", fields: [managerId], references: [id], onDelete: SetNull)
   directReports Employee[] @relation("ReportsTo")
 
+  // Story 1.2 — the three legs of a ProjectAssignment row that can name this
+  // Employee: the assigned employee, and the project's PM/DM. Three distinct
+  // relation names disambiguate the 3 FKs Prisma would otherwise see as
+  // ambiguous references to the same model (mirrors "ReportsTo" above).
+  projectAssignments   ProjectAssignment[] @relation("ProjectAssignmentEmployee")
+  pmProjectAssignments ProjectAssignment[] @relation("ProjectAssignmentPm")
+  dmProjectAssignments ProjectAssignment[] @relation("ProjectAssignmentDm")
+
   @@index([managerId])
   @@map("employees")
+}
+
+// Story 1.2 — C3 ProjectAssignment's real persistence (contracts.md's
+// ratified shape). Backs AccessResolverService's `ProjectLine` role: a
+// confirmed, fresh, still-active row grants the PM/DM (and everyone above
+// them via the reports-to walk) Manager-equivalent access to `employeeId`.
+// `onDelete: Restrict` on all three Employee FKs: assignment rows must never
+// be silently cascade-deleted when an Employee row is removed.
+model ProjectAssignment {
+  id          String    @id @default(uuid())
+  employeeId  String
+  projectId   String
+  pmId        String
+  dmId        String
+  startDate   DateTime  @db.Date
+  endDate     DateTime? @db.Date
+  confirmed   Boolean   @default(false)
+  confirmedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  employee Employee @relation("ProjectAssignmentEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  pm       Employee @relation("ProjectAssignmentPm", fields: [pmId], references: [id], onDelete: Restrict)
+  dm       Employee @relation("ProjectAssignmentDm", fields: [dmId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId])
+  @@index([projectId])
+  @@map("project_assignments")
 }
 
 // Four effective-dated history tables (AD-7). `effectiveTo IS NULL` = current

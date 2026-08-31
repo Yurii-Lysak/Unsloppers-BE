@@ -1,8 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { FieldRegistry } from './field-registry.contract';
 import { FieldRegistryStub } from './stubs/field-registry.stub';
-import { ProjectAssignment } from './project-assignment.contract';
-import { ProjectAssignmentStub } from './stubs/project-assignment.stub';
 import { TimelineEventWriter } from './timeline-event-writer.contract';
 import { TimelineEventWriterStub } from './stubs/timeline-event-writer.stub';
 import { ExternalIdentityMapping } from './external-identity-mapping.contract';
@@ -22,6 +20,10 @@ import { PermissionCheckerStub } from './stubs/permission-checker.stub';
  * module implements it directly (Story 1.1), mirroring how C7
  * `CurrentUserProvider` is left for `auth` to implement.
  *
+ * C3 `ProjectAssignment` is likewise left unbound as of Story 1.2 — the
+ * `access` module implements it directly (its CAP-1-owner per
+ * `interface-contracts.md`), mirroring the C1 move above.
+ *
  * This module is a deliberate, recognized exception to `nest-modules.md`'s
  * standard module anatomy — no controller, no DTO/entities/swagger folder.
  * Do not "fix" it to match `users`.
@@ -30,7 +32,6 @@ import { PermissionCheckerStub } from './stubs/permission-checker.stub';
 @Module({
   providers: [
     { provide: FieldRegistry, useClass: FieldRegistryStub },
-    { provide: ProjectAssignment, useClass: ProjectAssignmentStub },
     { provide: TimelineEventWriter, useClass: TimelineEventWriterStub },
     {
       provide: ExternalIdentityMapping,
@@ -41,7 +42,6 @@ import { PermissionCheckerStub } from './stubs/permission-checker.stub';
   ],
   exports: [
     FieldRegistry,
-    ProjectAssignment,
     TimelineEventWriter,
     ExternalIdentityMapping,
     ActionItemCreation,
