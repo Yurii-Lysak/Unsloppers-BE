@@ -12,6 +12,7 @@ describe('UsersService', () => {
     email: 'user@example.com',
     name: 'John Doe',
     hash: 'seed-only-hash',
+    passwordHash: 'credential-hash',
     countryCode: null,
     createdAt: new Date(),
     updatedAt: new Date(),

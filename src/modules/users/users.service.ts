@@ -57,7 +57,7 @@ export class UsersService {
     }
   }
 
-  /** Strips seed-only `hash` before any HTTP response (Story 1.16 review decision 2C). */
+  /** Strips identity and credential hashes before every HTTP response. */
   private toPublicUser(user: User): PublicUser {
     return {
       id: user.id,

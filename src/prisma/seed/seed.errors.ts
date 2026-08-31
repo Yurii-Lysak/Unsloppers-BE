@@ -25,5 +25,21 @@ export class EmptySeedPopulationError extends Error {
   }
 }
 
+/** Thrown before seed writes when the initial credential secret is unavailable. */
+export class InitialPasswordMissingError extends Error {
+  constructor() {
+    super('BOOTCAMP_INITIAL_PASSWORD is required to provision credentials');
+    this.name = 'InitialPasswordMissingError';
+  }
+}
+
+/** Thrown before writes when bcrypt would silently truncate the seed password. */
+export class InitialPasswordTooLongError extends Error {
+  constructor() {
+    super('BOOTCAMP_INITIAL_PASSWORD exceeds bcrypt input capacity');
+    this.name = 'InitialPasswordTooLongError';
+  }
+}
+
 /** @deprecated Renamed to {@link EmptySeedPopulationError}; kept for test imports during transition. */
 export class PopulationSizeError extends EmptySeedPopulationError {}

@@ -4,6 +4,7 @@ import { HealthCheckResult } from '@nestjs/terminus';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
+import { configureApp } from './../src/bootstrap';
 
 describe('AppModule (e2e)', () => {
   let app: INestApplication<App>;
@@ -14,6 +15,7 @@ describe('AppModule (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    configureApp(app);
     await app.init();
   });
 
@@ -21,9 +23,9 @@ describe('AppModule (e2e)', () => {
     await app.close();
   });
 
-  it('/health (GET)', () => {
+  it('/api/v1/health (GET)', () => {
     return request(app.getHttpServer())
-      .get('/health')
+      .get('/api/v1/health')
       .expect(200)
       .expect((res) => {
         const body = res.body as HealthCheckResult;
