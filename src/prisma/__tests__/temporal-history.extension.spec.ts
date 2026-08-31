@@ -402,6 +402,150 @@ describe('temporal-history.extension (I/O matrix, real Postgres)', () => {
       expect(rows[0].effectiveTo).toBeNull();
     });
 
+    it('date-corrected manual with system anchor: transition fallback suppresses the write', async () => {
+      const employeeId = await createEmployee();
+      const inferredDate = new Date('2026-01-10T00:00:00.000Z');
+      const correctedDate = new Date('2026-01-15T00:00:00.000Z');
+
+      await delegate(property).create({
+        data: {
+          employeeId,
+          value: 'Middle',
+          effectiveFrom: new Date('2020-01-01T00:00:00.000Z'),
+        },
+      });
+
+      await prisma.timelineEvent.create({
+        data: {
+          employeeId,
+          type,
+          effectiveDate: inferredDate,
+          source: 'system',
+          oldValue: 'Middle',
+          newValue: 'Senior',
+        },
+      });
+
+      const manualEvent = await prisma.timelineEvent.create({
+        data: {
+          employeeId,
+          type,
+          effectiveDate: correctedDate,
+          source: 'manual',
+          oldValue: 'Middle',
+          newValue: 'Senior',
+        },
+      });
+      jest.clearAllMocks();
+
+      await expect(
+        delegate(property).create({
+          data: { employeeId, value: 'Senior', effectiveFrom: inferredDate },
+        }),
+      ).rejects.toThrow(ManualConflictSuppressedError);
+
+      expect(
+        timelineEventWriterMock.markSystemWriteSkipped,
+      ).toHaveBeenCalledWith(manualEvent.id, expect.any(String));
+      expect(
+        timelineEventWriterMock.recordTimelineEvent,
+      ).not.toHaveBeenCalled();
+
+      const rows = await delegate(property).findMany({ where: { employeeId } });
+      expect(rows).toHaveLength(1);
+      expect(rows[0].value).toBe('Middle');
+    });
+
+    it('unrelated manual backfill does not suppress a new write', async () => {
+      const employeeId = await createEmployee();
+
+      await prisma.timelineEvent.create({
+        data: {
+          employeeId,
+          type: 'department',
+          effectiveDate: new Date('2018-06-01T00:00:00.000Z'),
+          source: 'manual',
+          oldValue: 'Engineering',
+          newValue: 'Platform',
+        },
+      });
+
+      await delegate(property).create({
+        data: {
+          employeeId,
+          value: 'Middle',
+          effectiveFrom: new Date('2026-09-01T00:00:00.000Z'),
+        },
+      });
+
+      expect(timelineEventWriterMock.recordTimelineEvent).toHaveBeenCalled();
+    });
+
+    it('historical manual transition without system anchor does not suppress', async () => {
+      const employeeId = await createEmployee();
+
+      await delegate(property).create({
+        data: {
+          employeeId,
+          value: 'Middle',
+          effectiveFrom: new Date('2015-01-01T00:00:00.000Z'),
+        },
+      });
+
+      await prisma.timelineEvent.create({
+        data: {
+          employeeId,
+          type,
+          effectiveDate: new Date('2015-01-01T00:00:00.000Z'),
+          source: 'manual',
+          oldValue: 'Middle',
+          newValue: 'Senior',
+        },
+      });
+      jest.clearAllMocks();
+
+      await delegate(property).create({
+        data: {
+          employeeId,
+          value: 'Senior',
+          effectiveFrom: new Date('2026-09-01T00:00:00.000Z'),
+        },
+      });
+
+      expect(timelineEventWriterMock.recordTimelineEvent).toHaveBeenCalled();
+      const rows = await delegate(property).findMany({ where: { employeeId } });
+      expect(rows).toHaveLength(2);
+    });
+
+    it('soft-deleted manual entry does not suppress a write', async () => {
+      const employeeId = await createEmployee();
+      const conflictDate = new Date('2026-07-01T00:00:00.000Z');
+
+      await prisma.timelineEvent.create({
+        data: {
+          employeeId,
+          type,
+          effectiveDate: conflictDate,
+          source: 'manual',
+          deletedAt: new Date(),
+        },
+      });
+      jest.clearAllMocks();
+
+      await delegate(property).create({
+        data: {
+          employeeId,
+          value: 'Middle',
+          effectiveFrom: conflictDate,
+        },
+      });
+
+      expect(timelineEventWriterMock.recordTimelineEvent).toHaveBeenCalled();
+      expect(
+        timelineEventWriterMock.markSystemWriteSkipped,
+      ).not.toHaveBeenCalled();
+    });
+
     it('rejects every non-create operation outright', async () => {
       const employeeId = await createEmployee();
       const row = await delegate(property).create({

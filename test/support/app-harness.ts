@@ -7,6 +7,8 @@ import { AppModule } from '../../src/app.module';
 import { configureApp } from '../../src/bootstrap';
 import { Clock } from '../../src/clock/clock.service';
 import { PrismaClient } from '../../src/generated/prisma/client';
+import { TimelineEventWriter } from '../../src/modules/contracts/timeline-event-writer.contract';
+import { createTemporalHistoryExtension } from '../../src/prisma/extensions/temporal-history.extension';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { truncateAllTables } from './test-database';
 import { databaseUrl, testSchemaName } from './test-schema';
@@ -76,9 +78,22 @@ export async function createTestApp(
 
   let builder: TestingModuleBuilder = Test.createTestingModule({
     imports: [AppModule],
-  })
-    .overrideProvider(PrismaService)
-    .useFactory({ factory: () => new SchemaScopedPrismaService(schema) });
+  }).overrideProvider(PrismaService).useFactory({
+    factory: (timelineEventWriter: TimelineEventWriter) => {
+      const raw = new SchemaScopedPrismaService(schema);
+      const extended = raw.$extends(
+        createTemporalHistoryExtension(timelineEventWriter, raw),
+      );
+
+      (extended as unknown as PrismaService).onModuleInit =
+        raw.onModuleInit.bind(raw);
+      (extended as unknown as PrismaService).onModuleDestroy =
+        raw.onModuleDestroy.bind(raw);
+
+      return extended as unknown as PrismaService;
+    },
+    inject: [TimelineEventWriter],
+  });
 
   if (options.clock !== undefined) {
     builder = builder.overrideProvider(Clock).useValue(options.clock);
