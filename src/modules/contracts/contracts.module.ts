@@ -3,8 +3,6 @@ import { FieldRegistry } from './field-registry.contract';
 import { FieldRegistryStub } from './stubs/field-registry.stub';
 import { ActionItemCreation } from './action-item-creation.contract';
 import { ActionItemCreationStub } from './stubs/action-item-creation.stub';
-import { PermissionChecker } from './permission-checker.contract';
-import { PermissionCheckerStub } from './stubs/permission-checker.stub';
 
 /**
  * `contracts` — C1-C8 abstract-class DI tokens, each bound to a Wave-0 stub
@@ -12,14 +10,12 @@ import { PermissionCheckerStub } from './stubs/permission-checker.stub';
  * importing this module explicitly; providers are still listed in `exports`
  * because @Global() alone does not make them injectable elsewhere.
  *
- * C1 `AccessResolver` and C4 `TimelineEventWriter` are deliberately left
- * unbound here — the `access` and `timeline` modules implement them
- * directly (Stories 1.1 and 7.1), mirroring how C7 `CurrentUserProvider`
- * is left for `auth` to implement.
+ * C1 `AccessResolver`, C3 `ProjectAssignment`, and C8 `PermissionChecker` are
+ * deliberately left unbound here — the `access` module implements them
+ * directly (Stories 1.1, 1.2, 1.4), mirroring how C7 `CurrentUserProvider` is
+ * left for `auth` to implement.
  *
- * C3 `ProjectAssignment` is likewise left unbound as of Story 1.2 — the
- * `access` module implements it directly (its CAP-1-owner per
- * `interface-contracts.md`), mirroring the C1 move above.
+ * C4 `TimelineEventWriter` is left unbound for the `timeline` module (Story 7.1).
  *
  * C5 `ExternalIdentityMapping` is left for `integrations` to implement
  * (Story 13.1), mirroring the C1/C4 moves above.
@@ -33,8 +29,7 @@ import { PermissionCheckerStub } from './stubs/permission-checker.stub';
   providers: [
     { provide: FieldRegistry, useClass: FieldRegistryStub },
     { provide: ActionItemCreation, useClass: ActionItemCreationStub },
-    { provide: PermissionChecker, useClass: PermissionCheckerStub },
   ],
-  exports: [FieldRegistry, ActionItemCreation, PermissionChecker],
+  exports: [FieldRegistry, ActionItemCreation],
 })
 export class ContractsModule {}

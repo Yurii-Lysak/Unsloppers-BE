@@ -5,7 +5,10 @@ import { PermissionChecker } from '../../contracts/permission-checker.contract';
 import { CustomFieldVisibilityService } from '../custom-field-visibility.service';
 import { CustomFieldsService } from '../custom-fields.service';
 import { FieldRegistryService } from '../field-registry.service';
-import { MANAGE_CUSTOM_FIELDS_PERMISSION } from '../directory.constants';
+import {
+  MANAGE_CUSTOM_FIELDS_PERMISSION,
+  PERMISSION_KEYS,
+} from '../directory.constants';
 
 describe('CustomFieldsService', () => {
   let service: CustomFieldsService;
@@ -42,6 +45,12 @@ describe('CustomFieldsService', () => {
     }).compile();
 
     service = module.get(CustomFieldsService);
+  });
+
+  it('re-exports manage_custom_fields from the permission catalog', () => {
+    expect(MANAGE_CUSTOM_FIELDS_PERMISSION).toBe(
+      PERMISSION_KEYS.MANAGE_CUSTOM_FIELDS,
+    );
   });
 
   it('requires manage custom fields permission to create a definition', async () => {

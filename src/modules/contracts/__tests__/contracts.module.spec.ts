@@ -9,7 +9,6 @@ import { ActionItemCreation } from '../action-item-creation.contract';
 import { ActionItemCreationStub } from '../stubs/action-item-creation.stub';
 import { CurrentUserProvider } from '../current-user-provider.contract';
 import { PermissionChecker } from '../permission-checker.contract';
-import { PermissionCheckerStub } from '../stubs/permission-checker.stub';
 import { TimelineEventWriter } from '../timeline-event-writer.contract';
 
 describe('ContractsModule', () => {
@@ -28,7 +27,6 @@ describe('ContractsModule', () => {
   it.each([
     [FieldRegistry, FieldRegistryStub],
     [ActionItemCreation, ActionItemCreationStub],
-    [PermissionChecker, PermissionCheckerStub],
   ] as const)('resolves %p to its Wave-0 stub', (token, StubClass) => {
     expect(module.get(token)).toBeInstanceOf(StubClass);
   });
@@ -53,10 +51,7 @@ describe('ContractsModule', () => {
     expect(() => module.get(ExternalIdentityMapping)).toThrow();
   });
 
-  it('PermissionCheckerStub denies every permission by default', async () => {
-    const checker = module.get(PermissionChecker);
-    await expect(
-      checker.hasPermission('user-1', 'any:permission'),
-    ).resolves.toBe(false);
+  it('leaves C8 unbound for the access module to implement', () => {
+    expect(() => module.get(PermissionChecker)).toThrow();
   });
 });
