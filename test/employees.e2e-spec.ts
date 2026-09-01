@@ -387,10 +387,7 @@ describe('Employees list (e2e)', () => {
       },
     ]);
 
-    await agent
-      .get('/api/v1/employees')
-      .query({ filters })
-      .expect(400);
+    await agent.get('/api/v1/employees').query({ filters }).expect(400);
   });
 
   it('omits management custom field values from row cells for colleague viewers', async () => {
