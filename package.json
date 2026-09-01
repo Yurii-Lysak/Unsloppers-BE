@@ -18,7 +18,7 @@
     "db:seed": "nest build && node dist/prisma/seed.js",
     "db:studio": "prisma studio",
     "build": "nest build",
-    "postbuild": "prisma migrate deploy && npm run db:seed",
+    "postbuild": "prisma migrate deploy",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
