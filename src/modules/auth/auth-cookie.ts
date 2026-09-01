@@ -20,12 +20,19 @@ export const toCookieMaxAge = (seconds: number): number => {
   return milliseconds;
 };
 
-const baseCookieOptions = (config: ConfigService): CookieOptions => ({
-  httpOnly: true,
-  sameSite: 'strict',
-  secure: config.get<string>('NODE_ENV') === 'production',
-  path: '/',
-});
+const baseCookieOptions = (config: ConfigService): CookieOptions => {
+  const isProduction = config.get<string>('NODE_ENV') === 'production';
+  return {
+    httpOnly: true,
+    // FE and BE are deployed on different sites (Vercel/Render), so the
+    // cookie must be SameSite=None to be sent on cross-site requests at
+    // all; locally FE/BE share the localhost site, so Strict is safe there.
+    sameSite: isProduction ? 'none' : 'strict',
+    // SameSite=None requires Secure — already true in production (HTTPS).
+    secure: isProduction,
+    path: '/',
+  };
+};
 
 export const setSessionCookie = (
   response: Response,
