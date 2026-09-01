@@ -85,6 +85,11 @@ model Employee {
 // them via the reports-to walk) Manager-equivalent access to `employeeId`.
 // `onDelete: Restrict` on all three Employee FKs: assignment rows must never
 // be silently cascade-deleted when an Employee row is removed.
+enum ProjectAssignmentSource {
+  manual
+  timetracker
+}
+
 model ProjectAssignment {
   id          String    @id @default(uuid())
   employeeId  String
@@ -95,6 +100,8 @@ model ProjectAssignment {
   endDate     DateTime? @db.Date
   confirmed   Boolean   @default(false)
   confirmedAt DateTime?
+  source      ProjectAssignmentSource @default(manual)
+  sourceKey   String?   @unique
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -104,6 +111,7 @@ model ProjectAssignment {
 
   @@index([employeeId])
   @@index([projectId])
+  @@index([source])
   @@map("project_assignments")
 }
 
