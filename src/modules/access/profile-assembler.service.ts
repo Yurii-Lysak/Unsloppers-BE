@@ -6,7 +6,6 @@ import {
   SectionId,
 } from '../contracts/access-resolver.contract';
 import { SectionProvider } from '../contracts/section-provider.contract';
-import { LeavesSectionEntity } from '../integrations/entities/leaves-section.entity';
 import { ProviderRegistryService } from '../registry/provider-registry.service';
 import {
   EmployeeProfileEntity,
@@ -160,7 +159,10 @@ export class ProfileAssemblerService {
       typeof data === 'object' &&
       'leaves' in data
     ) {
-      const leavesSection = data as LeavesSectionEntity;
+      const leavesSection = data as {
+        leaves: unknown;
+        manageLeaveUrl?: string | null;
+      };
       return {
         leaves: leavesSection.leaves,
         manageLeaveUrl: leavesSection.manageLeaveUrl ?? null,
