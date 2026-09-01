@@ -13,6 +13,10 @@ import {
   PermissionsCatalogController,
 } from './functional-roles.controller';
 import { EmployeeFunctionalRolesController } from './employee-functional-roles.controller';
+import { ProfileController } from './profile.controller';
+import { ProfileAssemblerService } from './profile-assembler.service';
+import { IdentitySectionProvider } from './identity-section.provider';
+import { ProjectsSectionProvider } from './projects-section.provider';
 
 /**
  * `access` — implements C1 `AccessResolver`, C3 `ProjectAssignment`, and C8
@@ -34,6 +38,7 @@ import { EmployeeFunctionalRolesController } from './employee-functional-roles.c
     FunctionalRolesController,
     PermissionsCatalogController,
     EmployeeFunctionalRolesController,
+    ProfileController,
   ],
   providers: [
     { provide: AccessResolver, useClass: AccessResolverService },
@@ -42,6 +47,9 @@ import { EmployeeFunctionalRolesController } from './employee-functional-roles.c
     PeoplePartnerAssignmentService,
     FunctionalRoleService,
     FunctionalRoleAssignmentService,
+    ProfileAssemblerService,
+    IdentitySectionProvider,
+    ProjectsSectionProvider,
   ],
   exports: [
     AccessResolver,
@@ -49,6 +57,7 @@ import { EmployeeFunctionalRolesController } from './employee-functional-roles.c
     PermissionChecker,
     PeoplePartnerAssignmentService,
     FunctionalRoleAssignmentService,
+    ProfileAssemblerService,
   ],
 })
 export class AccessModule {}
