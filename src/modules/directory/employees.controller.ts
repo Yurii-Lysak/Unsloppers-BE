@@ -7,6 +7,12 @@ import { EmployeeSummaryEntity } from './entities/employee-summary.entity';
 import { EmployeesService } from './employees.service';
 import { SwaggerGetEmployee, SwaggerListEmployees } from './employees.swagger';
 
+/**
+ * Minimal employee directory reads for Story 1.5 navigation shell.
+ * Story 1.8: summary DTO is S1-safe (`id`, `displayName` only). Full C1
+ * per-row column projection lands in Epic 3; browsing all seeded employees
+ * remains intentional for Colleague-tier viewers.
+ */
 @ApiTags('employees')
 @Controller('employees')
 export class EmployeesController {

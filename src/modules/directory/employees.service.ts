@@ -9,6 +9,12 @@ import { CustomFieldVisibilityService } from './custom-field-visibility.service'
 import { FieldRegistryService } from './field-registry.service';
 import { MANAGE_CUSTOM_FIELDS_PERMISSION } from './directory.constants';
 
+/**
+ * Minimal employee directory reads for Story 1.5 navigation shell.
+ * Story 1.8: summary DTO is S1-safe (`id`, `displayName` only). Full C1
+ * per-row column projection lands in Epic 3; browsing all seeded employees
+ * remains intentional for Colleague-tier viewers.
+ */
 @Injectable()
 export class EmployeesService {
   constructor(

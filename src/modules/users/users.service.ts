@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -35,6 +36,17 @@ export class UsersService {
       throw new NotFoundException(`User with id "${id}" not found`);
     }
     return this.toPublicUser(user);
+  }
+
+  /** Bootcamp Story 1.8 — self-only reads; no user directory listing. */
+  async findOneForViewer(
+    viewerUserId: string,
+    id: string,
+  ): Promise<PublicUser> {
+    if (viewerUserId !== id) {
+      throw new ForbiddenException('May only read your own user record');
+    }
+    return this.findOne(id);
   }
 
   async update(id: string, updateUserDto: UpdateUserDto): Promise<PublicUser> {
