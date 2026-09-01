@@ -31,7 +31,11 @@ describe('IdentitySectionProvider', () => {
       sections: { S1: 'R' },
     };
 
-    const section = await provider.getSection('viewer-1', 'subject-1', audience);
+    const section = await provider.getSection(
+      'viewer-1',
+      'subject-1',
+      audience,
+    );
 
     expect(section).not.toHaveProperty('mentor');
     expect(section.displayName).toBe('Subject User');
@@ -48,11 +52,10 @@ describe('IdentitySectionProvider', () => {
       peoplePartner: null,
     });
 
-    const section = await provider.getSection(
-      'viewer-1',
-      'subject-1',
-      { role: 'ReportingLine', sections: { S1: 'RW' } },
-    );
+    const section = await provider.getSection('viewer-1', 'subject-1', {
+      role: 'ReportingLine',
+      sections: { S1: 'RW' },
+    });
 
     expect(section.manager).toEqual({
       id: 'manager-1',

@@ -4,8 +4,9 @@ import { EmployeeSummaryEntity } from './entities/employee-summary.entity';
 
 /**
  * Minimal employee directory reads for Story 1.5 navigation shell.
- * Story 1.8 adds C1 access-matrix filtering — until then every authenticated
- * user sees the full seeded list (24 bootcamp accounts).
+ * Story 1.8: summary DTO is S1-safe (`id`, `displayName` only). Full C1
+ * per-row column projection lands in Epic 3; browsing all seeded employees
+ * remains intentional for Colleague-tier viewers.
  */
 @Injectable()
 export class EmployeesService {
