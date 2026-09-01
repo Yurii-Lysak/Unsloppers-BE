@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -9,8 +10,11 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import type { Request } from 'express';
+import { CurrentUserProvider } from '../contracts/current-user-provider.contract';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UsersService } from './users.service';
@@ -25,7 +29,10 @@ import {
 @ApiTags('users')
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly currentUser: CurrentUserProvider,
+  ) {}
 
   @Post()
   @SwaggerCreateUser()
@@ -35,14 +42,19 @@ export class UsersController {
 
   @Get()
   @SwaggerFindAllUsers()
-  findAll() {
-    return this.usersService.findAll();
+  async findAll(@Req() request: Request) {
+    await this.currentUser.getCurrentUser(request);
+    throw new ForbiddenException('User directory listing is not available');
   }
 
   @Get(':id')
   @SwaggerFindOneUser()
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.usersService.findOne(id);
+  async findOne(
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const { userId } = await this.currentUser.getCurrentUser(request);
+    return this.usersService.findOneForViewer(userId, id);
   }
 
   @Patch(':id')

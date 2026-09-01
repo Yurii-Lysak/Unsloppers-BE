@@ -320,6 +320,9 @@ function makePrismaMock() {
     Promise.resolve({ id: 'assign-1' }),
   );
 
+  const functionalRoleFindMany = jest.fn(() => Promise.resolve([]));
+  const functionalRoleAssignmentFindMany = jest.fn(() => Promise.resolve([]));
+
   const grade = historyDelegate('grade');
   const position = historyDelegate('position');
   const department = historyDelegate('department');
@@ -341,6 +344,7 @@ function makePrismaMock() {
       upsert: functionalRoleUpsert,
       findFirst: functionalRoleFindFirst,
       findFirstOrThrow: functionalRoleFindFirstOrThrow,
+      findMany: functionalRoleFindMany,
       create: functionalRoleCreate,
       update: functionalRoleUpdate,
       findUnique: functionalRoleFindUnique,
@@ -352,6 +356,7 @@ function makePrismaMock() {
     },
     functionalRoleAssignment: {
       upsert: functionalRoleAssignmentUpsert,
+      findMany: functionalRoleAssignmentFindMany,
     },
     gradeHistory: grade,
     positionHistory: position,

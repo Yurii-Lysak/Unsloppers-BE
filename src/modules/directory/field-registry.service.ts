@@ -511,12 +511,7 @@ export class FieldRegistryService extends FieldRegistry {
     const rows: EmployeeRowDto[] = pageSnapshots.map((snapshot) => {
       const cells: Record<string, FieldValue> = {};
       for (const fieldId of visibleFieldIds) {
-        cells[fieldId] = getCellValue(
-          snapshot,
-          fieldId,
-          asOf,
-          customValueMap,
-        );
+        cells[fieldId] = getCellValue(snapshot, fieldId, asOf, customValueMap);
       }
       return { employeeId: snapshot.employeeId, cells };
     });

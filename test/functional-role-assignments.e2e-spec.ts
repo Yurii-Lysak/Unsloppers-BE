@@ -70,9 +70,9 @@ describe('Functional role assignments (e2e)', () => {
       .get(`/api/v1/employees/${assigneeEmployeeId}/functional-roles`)
       .expect(200);
 
-    expect((listed.body as Array<{ id: string }>).map((role) => role.id)).toEqual(
-      [campaignRoleId],
-    );
+    expect(
+      (listed.body as Array<{ id: string }>).map((role) => role.id),
+    ).toEqual([campaignRoleId]);
   });
 
   it('GET /employees lists seeded employees for authenticated users', async () => {

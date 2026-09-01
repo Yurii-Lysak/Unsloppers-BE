@@ -9,6 +9,12 @@ import { CustomFieldVisibilityService } from './custom-field-visibility.service'
 import { FieldRegistryService } from './field-registry.service';
 import { MANAGE_CUSTOM_FIELDS_PERMISSION } from './directory.constants';
 
+/**
+ * `listEmployees` (Story 3.1) queries the C2 FieldRegistry and applies
+ * viewer-scoped field/cell masking. `getById` (Story 1.5/1.6) returns an
+ * S1-safe `EmployeeSummaryEntity` (`id`, `displayName` only, per Story 1.8)
+ * for profile navigation — it never carries per-field data.
+ */
 @Injectable()
 export class EmployeesService {
   constructor(

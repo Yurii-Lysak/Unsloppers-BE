@@ -10,6 +10,7 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { CurrentUserProvider } from '../contracts/current-user-provider.contract';
+import { SectionAccessGate } from '../contracts/section-access-gate.contract';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LeavesSectionEntity } from './entities/leaves-section.entity';
 import { LeavesSectionProvider } from './leaves-section.provider';
@@ -22,6 +23,7 @@ export class LeavesController {
     private readonly leavesSection: LeavesSectionProvider,
     private readonly currentUser: CurrentUserProvider,
     private readonly prisma: PrismaService,
+    private readonly sectionGate: SectionAccessGate,
   ) {}
 
   @Get(':employeeId/leaves')
@@ -46,8 +48,18 @@ export class LeavesController {
       throw new NotFoundException(`Employee ${employeeId} not found`);
     }
 
+    const audience = await this.sectionGate.requireSection(
+      viewerEmployeeId,
+      employeeId,
+      'S10',
+    );
+
     try {
-      return await this.leavesSection.getSection(viewerEmployeeId, employeeId);
+      return await this.leavesSection.getSection(
+        viewerEmployeeId,
+        employeeId,
+        audience,
+      );
     } catch (error) {
       if (error instanceof ForbiddenException) {
         throw error;

@@ -5,6 +5,7 @@ import { Clock } from '../../clock/clock.service';
 import {
   AccessResolver,
   AccessRole,
+  COLLEAGUE_SECTION_GRANTS,
   ResolvedAudience,
   SectionId,
   SectionAccessLevel,
@@ -115,24 +116,7 @@ const PP_SECTIONS: Record<SectionId, SectionAccessLevel> = {
 };
 
 /** `access-model.md` Rule 4 — Colleague whitelist (S1, S10, S11 only). */
-const COLLEAGUE_SECTIONS: Record<SectionId, SectionAccessLevel> = {
-  S1: 'R',
-  S2: 'none',
-  S3: 'none',
-  S4: 'none',
-  S5: 'none',
-  S6: 'none',
-  S7: 'none',
-  S8: 'none',
-  S9: 'none',
-  S10: 'R',
-  S11: 'R',
-  S12: 'none',
-  S13: 'none',
-  S14: 'none',
-  S15: 'none',
-  S16: 'none',
-};
+const COLLEAGUE_SECTIONS = COLLEAGUE_SECTION_GRANTS;
 
 const ACCESS_LEVEL_RANK: Record<SectionAccessLevel, number> = {
   none: 0,
