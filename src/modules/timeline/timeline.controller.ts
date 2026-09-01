@@ -2,9 +2,11 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -13,7 +15,9 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
+import { SectionAccessGate } from '../contracts/section-access-gate.contract';
 import { CurrentUserProvider } from '../contracts/current-user-provider.contract';
+import { PrismaService } from '../../prisma/prisma.service';
 import { CreateTimelineEventDto } from './dto/create-timeline-event.dto';
 import { UpdateTimelineEventDto } from './dto/update-timeline-event.dto';
 import { TimelineService } from './timeline.service';
@@ -30,6 +34,8 @@ export class TimelineController {
   constructor(
     private readonly timeline: TimelineService,
     private readonly currentUser: CurrentUserProvider,
+    private readonly prisma: PrismaService,
+    private readonly sectionGate: SectionAccessGate,
   ) {}
 
   @Get()
@@ -38,8 +44,14 @@ export class TimelineController {
     @Req() request: Request,
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
   ) {
-    const { userId } = await this.currentUser.getCurrentUser(request);
-    return this.timeline.listEvents(userId, employeeId);
+    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
+    await this.assertSubjectEmployeeExists(employeeId);
+    const audience = await this.sectionGate.requireSection(
+      viewerEmployeeId,
+      employeeId,
+      'S9',
+    );
+    return this.timeline.listEvents(viewerEmployeeId, employeeId, audience);
   }
 
   @Post()
@@ -49,8 +61,15 @@ export class TimelineController {
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @Body() dto: CreateTimelineEventDto,
   ) {
-    const { userId } = await this.currentUser.getCurrentUser(request);
-    return this.timeline.createManualEvent(userId, employeeId, dto);
+    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
+    await this.assertSubjectEmployeeExists(employeeId);
+    await this.sectionGate.requireSection(
+      viewerEmployeeId,
+      employeeId,
+      'S9',
+      'RW',
+    );
+    return this.timeline.createManualEvent(viewerEmployeeId, employeeId, dto);
   }
 
   @Patch(':eventId')
@@ -61,8 +80,20 @@ export class TimelineController {
     @Param('eventId', ParseUUIDPipe) eventId: string,
     @Body() dto: UpdateTimelineEventDto,
   ) {
-    const { userId } = await this.currentUser.getCurrentUser(request);
-    return this.timeline.updateManualEvent(userId, employeeId, eventId, dto);
+    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
+    await this.assertSubjectEmployeeExists(employeeId);
+    await this.sectionGate.requireSection(
+      viewerEmployeeId,
+      employeeId,
+      'S9',
+      'RW',
+    );
+    return this.timeline.updateManualEvent(
+      viewerEmployeeId,
+      employeeId,
+      eventId,
+      dto,
+    );
   }
 
   @Delete(':eventId')
@@ -73,7 +104,40 @@ export class TimelineController {
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @Param('eventId', ParseUUIDPipe) eventId: string,
   ) {
+    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
+    await this.assertSubjectEmployeeExists(employeeId);
+    await this.sectionGate.requireSection(
+      viewerEmployeeId,
+      employeeId,
+      'S9',
+      'RW',
+    );
+    await this.timeline.softDeleteManualEvent(
+      viewerEmployeeId,
+      employeeId,
+      eventId,
+    );
+  }
+
+  private async assertSubjectEmployeeExists(employeeId: string): Promise<void> {
+    const subject = await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { id: true },
+    });
+    if (!subject) {
+      throw new NotFoundException(`Employee ${employeeId} not found`);
+    }
+  }
+
+  private async resolveViewerEmployeeId(request: Request): Promise<string> {
     const { userId } = await this.currentUser.getCurrentUser(request);
-    await this.timeline.softDeleteManualEvent(userId, employeeId, eventId);
+    const employee = await this.prisma.employee.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!employee) {
+      throw new ForbiddenException('Authenticated user has no employee record');
+    }
+    return employee.id;
   }
 }
