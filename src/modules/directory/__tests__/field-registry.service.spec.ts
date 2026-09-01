@@ -509,7 +509,10 @@ describe('FieldRegistryService', () => {
         order: 'asc',
       });
 
-      expect(result.rows.map((row) => row.employeeId)).toEqual(['emp-a', 'emp-b']);
+      expect(result.rows.map((row) => row.employeeId)).toEqual([
+        'emp-a',
+        'emp-b',
+      ]);
     });
 
     it('uses the open history row and earliest tenure date across all rows', async () => {
@@ -548,7 +551,9 @@ describe('FieldRegistryService', () => {
       });
 
       expect(result.rows[0]?.cells.grade).toBe('Senior');
-      expect(result.rows[0]?.cells.years_with_company).toBeGreaterThanOrEqual(7);
+      expect(result.rows[0]?.cells.years_with_company).toBeGreaterThanOrEqual(
+        7,
+      );
     });
   });
 });
