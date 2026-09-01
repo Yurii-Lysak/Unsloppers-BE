@@ -74,6 +74,9 @@ model Employee {
   externalIdentities ExternalIdentity[]
   functionalRoleAssignments FunctionalRoleAssignment[]
 
+  managementNotesAbout   ManagementNote[] @relation("ManagementNoteSubject")
+  managementNotesAuthored ManagementNote[] @relation("ManagementNoteAuthor")
+
   @@index([managerId])
   @@index([peoplePartnerId])
   @@map("employees")
@@ -333,4 +336,24 @@ model FunctionalRoleAssignment {
   @@index([employeeId])
   @@index([roleId])
   @@map("functional_role_assignments")
+}
+
+// Story 1.9 — S7 management notes with dual visibility flags (access-model Rule 3).
+// `onDelete: Restrict` — notes are not cascade-deleted when an employee row is
+// removed; explicit cleanup belongs to the future employment departure cascade.
+model ManagementNote {
+  id                 String   @id @default(uuid())
+  subjectEmployeeId  String
+  authorEmployeeId   String
+  content            String   @db.Text
+  visibleForEmployee Boolean  @default(false)
+  visibleForPm       Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  subjectEmployee Employee @relation("ManagementNoteSubject", fields: [subjectEmployeeId], references: [id], onDelete: Restrict)
+  authorEmployee  Employee @relation("ManagementNoteAuthor", fields: [authorEmployeeId], references: [id], onDelete: Restrict)
+
+  @@index([subjectEmployeeId])
+  @@map("management_notes")
 }

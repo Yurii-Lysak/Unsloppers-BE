@@ -13,6 +13,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { DirectoryModule } from './modules/directory/directory.module';
 import { TimelineModule } from './modules/timeline/timeline.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
+import { ManagementNotesModule } from './modules/management-notes/management-notes.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { IntegrationsModule } from './modules/integrations/integrations.module';
     // it at request time today.
     TimetrackerModule,
     IntegrationsModule,
+    ManagementNotesModule,
     HealthModule,
     UsersModule,
   ],
