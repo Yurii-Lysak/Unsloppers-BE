@@ -36,7 +36,9 @@ describe('FunctionalRoleAssignmentService', () => {
   it('assign is idempotent for the same employee/role pair', async () => {
     prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1' });
     prisma.functionalRole.findUnique.mockResolvedValue({ id: 'role-1' });
-    prisma.functionalRoleAssignment.upsert.mockResolvedValue({ id: 'assign-1' });
+    prisma.functionalRoleAssignment.upsert.mockResolvedValue({
+      id: 'assign-1',
+    });
 
     await service.assign('emp-1', 'role-1');
     await service.assign('emp-1', 'role-1');
@@ -61,7 +63,9 @@ describe('FunctionalRoleAssignmentService', () => {
     prisma.functionalRoleAssignment.findUnique.mockResolvedValue({
       id: 'assign-1',
     });
-    prisma.functionalRoleAssignment.delete.mockResolvedValue({ id: 'assign-1' });
+    prisma.functionalRoleAssignment.delete.mockResolvedValue({
+      id: 'assign-1',
+    });
 
     await service.unassign('emp-1', 'role-1');
 

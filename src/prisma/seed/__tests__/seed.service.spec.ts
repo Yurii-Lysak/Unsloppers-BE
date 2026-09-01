@@ -163,7 +163,7 @@ function makePrismaMock() {
   const employeeFindFirst = jest.fn(
     ({ where }: { where: { user: { email: string } } }) => {
       const user = [...users.values()].find(
-        entry => entry.email === where.user.email,
+        (entry) => entry.email === where.user.email,
       );
       if (!user) {
         return Promise.resolve(null);
@@ -205,7 +205,7 @@ function makePrismaMock() {
         id: `role-${roles.size + 1}`,
         name: data.name,
         isBuiltIn: data.isBuiltIn,
-        permissions: data.permissions.create.map(entry => ({
+        permissions: data.permissions.create.map((entry) => ({
           permissionKey: entry.permissionKey,
         })),
       };
@@ -271,7 +271,7 @@ function makePrismaMock() {
         id: `role-${roles.size + 1}`,
         name: create.name,
         isBuiltIn: create.isBuiltIn,
-        permissions: create.permissions.create.map(entry => ({
+        permissions: create.permissions.create.map((entry) => ({
           permissionKey: entry.permissionKey,
         })),
       };
@@ -439,9 +439,11 @@ describe('SeedService', () => {
     await new SeedService(prisma, initialPassword, fixturePath).run(now);
 
     const hrAdmin = [...roles.values()].find(
-      role => role.name === BUILT_IN_ROLE_NAMES.HR_ADMIN,
+      (role) => role.name === BUILT_IN_ROLE_NAMES.HR_ADMIN,
     );
-    expect(hrAdmin?.permissions.map(entry => entry.permissionKey).sort()).toEqual(
+    expect(
+      hrAdmin?.permissions.map((entry) => entry.permissionKey).sort(),
+    ).toEqual(
       [
         PERMISSION_KEYS.CHANGE_ORGANISATIONAL_RELATIONSHIPS,
         PERMISSION_KEYS.MANAGE_CUSTOM_FIELDS,
@@ -451,11 +453,11 @@ describe('SeedService', () => {
     );
 
     const unitManager = [...roles.values()].find(
-      role => role.name === BUILT_IN_ROLE_NAMES.UNIT_MANAGER,
+      (role) => role.name === BUILT_IN_ROLE_NAMES.UNIT_MANAGER,
     );
-    expect(unitManager?.permissions.map(entry => entry.permissionKey)).toContain(
-      PERMISSION_KEYS.FULFIL_RESOURCING_REQUESTS,
-    );
+    expect(
+      unitManager?.permissions.map((entry) => entry.permissionKey),
+    ).toContain(PERMISSION_KEYS.FULFIL_RESOURCING_REQUESTS);
 
     expect(functionalRoleCreate).toHaveBeenCalledTimes(5);
     expect(functionalRoleAssignmentUpsert).toHaveBeenCalledWith(
