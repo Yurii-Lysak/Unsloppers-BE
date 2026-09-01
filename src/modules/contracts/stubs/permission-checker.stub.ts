@@ -7,4 +7,8 @@ export class PermissionCheckerStub extends PermissionChecker {
   hasPermission(): Promise<boolean> {
     return Promise.resolve(false);
   }
+
+  getGrantedPermissions(): Promise<readonly string[]> {
+    return Promise.resolve([]);
+  }
 }

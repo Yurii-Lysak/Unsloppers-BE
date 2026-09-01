@@ -1,14 +1,17 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
+import { TimetrackerClient } from '../contracts/timetracker-client.contract';
 import { TimetrackerService } from './timetracker.service';
 
 /**
- * `timetracker` — HTTP client for the TimeTracker External API, consumed
- * only by `prisma/seed.ts` (Story 1.16) via `NestFactory.createApplicationContext`.
- * No controller: this is a seed-time infrastructure client, not an
- * HTTP-facing feature (see `timetracker.types.ts` header).
+ * `timetracker` — HTTP client for the TimeTracker External API. Bound as
+ * `TimetrackerClient` so `integrations` and seed paths consume via contracts (AD-1).
  */
+@Global()
 @Module({
-  providers: [TimetrackerService],
-  exports: [TimetrackerService],
+  providers: [
+    TimetrackerService,
+    { provide: TimetrackerClient, useExisting: TimetrackerService },
+  ],
+  exports: [TimetrackerClient],
 })
 export class TimetrackerModule {}

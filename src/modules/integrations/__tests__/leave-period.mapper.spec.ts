@@ -2,7 +2,7 @@ import {
   DayApprovalState,
   DayStatus,
   WorkingDay,
-} from '../../timetracker/timetracker.types';
+} from '../../contracts/timetracker.types';
 import { groupLeavePeriods } from '../leave-period.mapper';
 
 function day(

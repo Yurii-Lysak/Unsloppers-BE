@@ -1,9 +1,9 @@
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Clock } from '../../../clock/clock.service';
-import { TimetrackerApiError } from '../../timetracker/timetracker.errors';
-import { DayStatus } from '../../timetracker/timetracker.types';
-import { TimetrackerService } from '../../timetracker/timetracker.service';
+import { TimetrackerClient } from '../../contracts/timetracker-client.contract';
+import { TimetrackerApiError } from '../../contracts/timetracker.errors';
+import { DayStatus } from '../../contracts/timetracker.types';
 import { ExternalIdentityMappingService } from '../external-identity-mapping.service';
 import { LeavesSyncService } from '../leaves-sync.service';
 
@@ -27,7 +27,7 @@ describe('LeavesSyncService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         LeavesSyncService,
-        { provide: TimetrackerService, useValue: timetracker },
+        { provide: TimetrackerClient, useValue: timetracker },
         {
           provide: ExternalIdentityMappingService,
           useValue: identityMapping,

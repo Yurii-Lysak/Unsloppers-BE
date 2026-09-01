@@ -1,12 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { TimetrackerApiError } from './timetracker.errors';
+import { TimetrackerClient } from '../contracts/timetracker-client.contract';
+import { TimetrackerApiError } from '../contracts/timetracker.errors';
 import {
   AccountingReportRequest,
   AccountingReportResponse,
   GetTalentProjectsResponse,
   ProjectStatus,
-} from './timetracker.types';
+} from '../contracts/timetracker.types';
 
 const ACCOUNTING_ENDPOINT = 'POST /api/accounting/report';
 const TALENTS_ENDPOINT = 'GET /api/projects/talents';
@@ -26,8 +27,10 @@ const REQUEST_TIMEOUT_MS = 15000;
  * method reads its own `ConfigService` key rather than sharing one.
  */
 @Injectable()
-export class TimetrackerService {
-  constructor(private readonly config: ConfigService) {}
+export class TimetrackerService extends TimetrackerClient {
+  constructor(private readonly config: ConfigService) {
+    super();
+  }
 
   async fetchAccountingReport(
     request: AccountingReportRequest,

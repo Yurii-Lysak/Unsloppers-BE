@@ -1,6 +1,5 @@
 import { Global, Module } from '@nestjs/common';
 import { ExternalIdentityMapping } from '../contracts/external-identity-mapping.contract';
-import { TimetrackerModule } from '../timetracker/timetracker.module';
 import { ExternalIdentityMappingService } from './external-identity-mapping.service';
 import { LeavesController } from './leaves.controller';
 import { LeavesSectionProvider } from './leaves-section.provider';
@@ -12,7 +11,6 @@ import { LeavesSyncService } from './leaves-sync.service';
  */
 @Global()
 @Module({
-  imports: [TimetrackerModule],
   controllers: [LeavesController],
   providers: [
     ExternalIdentityMappingService,

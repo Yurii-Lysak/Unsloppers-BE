@@ -33,7 +33,9 @@ describe('Functional roles (e2e)', () => {
   });
 
   it('GET /api/v1/permissions/catalog without session returns 401', () => {
-    return request(testApp.server).get('/api/v1/permissions/catalog').expect(401);
+    return request(testApp.server)
+      .get('/api/v1/permissions/catalog')
+      .expect(401);
   });
 
   it('GET /api/v1/functional-roles without manage_functional_roles returns 403', () => {

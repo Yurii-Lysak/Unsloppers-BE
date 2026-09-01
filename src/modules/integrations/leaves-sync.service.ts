@@ -1,9 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Clock } from '../../clock/clock.service';
-import { TimetrackerApiError } from '../timetracker/timetracker.errors';
-import { TimetrackerService } from '../timetracker/timetracker.service';
-import { WorkingDay } from '../timetracker/timetracker.types';
+import { TimetrackerClient } from '../contracts/timetracker-client.contract';
+import { TimetrackerApiError } from '../contracts/timetracker.errors';
+import { WorkingDay } from '../contracts/timetracker.types';
 import { ExternalIdentityMappingService } from './external-identity-mapping.service';
 import {
   NormalizedLeavePeriod,
@@ -27,7 +27,7 @@ export class LeavesSyncService {
   private readonly monthCache = new Map<string, MonthCacheEntry>();
 
   constructor(
-    private readonly timetracker: TimetrackerService,
+    private readonly timetracker: TimetrackerClient,
     private readonly identityMapping: ExternalIdentityMappingService,
     private readonly config: ConfigService,
     private readonly clock: Clock,

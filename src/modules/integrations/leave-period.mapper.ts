@@ -2,7 +2,7 @@ import {
   DayApprovalState,
   DayStatus,
   WorkingDay,
-} from '../timetracker/timetracker.types';
+} from '../contracts/timetracker.types';
 
 /** Wire-safe leave type slugs derived from TimeTracker `DayStatus`. */
 export type LeaveTypeSlug =

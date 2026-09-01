@@ -1,8 +1,9 @@
 import { ConfigService } from '@nestjs/config';
 import { CookieOptions, Response } from 'express';
 import { MAX_SAFE_JWT_TTL_SECONDS } from '../../config/env.validation';
+import { SESSION_COOKIE_NAME } from '../contracts/session-auth.constants';
 
-export const SESSION_COOKIE_NAME = 'session';
+export { SESSION_COOKIE_NAME };
 
 export const toCookieMaxAge = (seconds: number): number => {
   if (

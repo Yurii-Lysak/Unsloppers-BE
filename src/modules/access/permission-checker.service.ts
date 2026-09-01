@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { isValidPermissionKey } from '../contracts/permission-keys';
+import {
+  filterCatalogValidKeys,
+  isValidPermissionKey,
+} from '../contracts/permission-keys';
 import { PermissionChecker } from '../contracts/permission-checker.contract';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -14,12 +17,17 @@ export class PermissionCheckerService extends PermissionChecker {
       return false;
     }
 
+    const granted = await this.getGrantedPermissions(userId);
+    return granted.includes(permissionKey);
+  }
+
+  async getGrantedPermissions(userId: string): Promise<readonly string[]> {
     const employee = await this.prisma.employee.findUnique({
       where: { userId },
       select: { id: true },
     });
     if (!employee) {
-      return false;
+      return [];
     }
 
     const assignments = await this.prisma.functionalRoleAssignment.findMany({
@@ -44,6 +52,6 @@ export class PermissionCheckerService extends PermissionChecker {
       }
     }
 
-    return grantedKeys.has(permissionKey);
+    return filterCatalogValidKeys([...grantedKeys]).sort();
   }
 }

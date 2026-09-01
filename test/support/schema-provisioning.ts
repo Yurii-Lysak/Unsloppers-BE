@@ -52,11 +52,11 @@ export async function provisionSchemas(schemas: string[]): Promise<void> {
   await dropSchemas(schemas);
 
   try {
-    await Promise.all(
-      schemas.map((schema) =>
-        runPrisma(['migrate', 'deploy'], schemaScopedUrl(schema)),
-      ),
-    );
+    // Prisma migrate uses a single advisory lock per database, not per schema.
+    // Running deploy in parallel races on that lock and fails with P1002.
+    for (const schema of schemas) {
+      await runPrisma(['migrate', 'deploy'], schemaScopedUrl(schema));
+    }
   } catch (error) {
     throw new Error(
       `Failed to apply migrations to the test schemas. Is Postgres up (\`npm run db:up\`)?\n${describe(error)}`,

@@ -100,7 +100,9 @@ export async function seedFunctionalRoles(
             name,
             isBuiltIn: true,
             permissions: {
-              create: permissionKeys.map((permissionKey) => ({ permissionKey })),
+              create: permissionKeys.map((permissionKey) => ({
+                permissionKey,
+              })),
             },
           },
           include: { permissions: true },
