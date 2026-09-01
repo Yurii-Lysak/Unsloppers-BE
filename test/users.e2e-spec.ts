@@ -1,7 +1,7 @@
 import request from 'supertest';
 import { UserEntity } from './../src/modules/users/entities/user.entity';
 import { createTestApp, TestApp } from './support/app-harness';
-import { loginAsOperator } from './support/login';
+import { E2E_OPERATOR_EMAIL, loginAsOperator } from './support/login';
 
 describe('Users CRUD (e2e)', () => {
   let testApp: TestApp;
@@ -44,21 +44,22 @@ describe('Users CRUD (e2e)', () => {
       .expect(400);
   });
 
-  it('GET /api/v1/users returns the list including the created user', async () => {
-    const res = await agent.get('/api/v1/users').expect(200);
-
-    const body = res.body as UserEntity[];
-    expect(body.some((u) => u.id === createdId)).toBe(true);
+  it('GET /api/v1/users is forbidden in bootcamp scope', async () => {
+    await agent.get('/api/v1/users').expect(403);
   });
 
-  it('GET /api/v1/users/:id returns the user', async () => {
-    const res = await agent.get(`/api/v1/users/${createdId}`).expect(200);
+  it('GET /api/v1/users/:id returns the user when requesting own record', async () => {
+    const operator = await testApp.prisma.user.findUniqueOrThrow({
+      where: { email: E2E_OPERATOR_EMAIL },
+      select: { id: true },
+    });
+    const res = await agent.get(`/api/v1/users/${operator.id}`).expect(200);
 
-    expect((res.body as UserEntity).email).toBe(email);
+    expect((res.body as UserEntity).email).toBe(E2E_OPERATOR_EMAIL);
   });
 
-  it('GET /api/v1/users/:id with an unknown id returns 404', () => {
-    return agent.get(`/api/v1/users/${missingId}`).expect(404);
+  it('GET /api/v1/users/:id with an unknown id returns 403', () => {
+    return agent.get(`/api/v1/users/${missingId}`).expect(403);
   });
 
   it('PATCH /api/v1/users/:id updates the name', async () => {
@@ -74,7 +75,7 @@ describe('Users CRUD (e2e)', () => {
     return agent.delete(`/api/v1/users/${createdId}`).expect(204);
   });
 
-  it('GET /api/v1/users/:id after deletion returns 404', () => {
-    return agent.get(`/api/v1/users/${createdId}`).expect(404);
+  it('GET /api/v1/users/:id after deletion returns 403 for another user id', () => {
+    return agent.get(`/api/v1/users/${createdId}`).expect(403);
   });
 });

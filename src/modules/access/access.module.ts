@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { PermissionChecker } from '../contracts/permission-checker.contract';
 import { AccessResolver } from '../contracts/access-resolver.contract';
+import { SectionAccessGate } from '../contracts/section-access-gate.contract';
 import { AccessResolverService } from './access-resolver.service';
 import { ProjectAssignment } from '../contracts/project-assignment.contract';
 import { ProjectAssignmentService } from './project-assignment.service';
@@ -12,6 +13,12 @@ import {
   FunctionalRolesController,
   PermissionsCatalogController,
 } from './functional-roles.controller';
+import { EmployeeFunctionalRolesController } from './employee-functional-roles.controller';
+import { ProfileController } from './profile.controller';
+import { ProfileAssemblerService } from './profile-assembler.service';
+import { IdentitySectionProvider } from './identity-section.provider';
+import { ProjectsSectionProvider } from './projects-section.provider';
+import { SectionAccessGateService } from './section-access-gate.service';
 
 /**
  * `access` — implements C1 `AccessResolver`, C3 `ProjectAssignment`, and C8
@@ -29,7 +36,12 @@ import {
  */
 @Global()
 @Module({
-  controllers: [FunctionalRolesController, PermissionsCatalogController],
+  controllers: [
+    FunctionalRolesController,
+    PermissionsCatalogController,
+    EmployeeFunctionalRolesController,
+    ProfileController,
+  ],
   providers: [
     { provide: AccessResolver, useClass: AccessResolverService },
     { provide: ProjectAssignment, useClass: ProjectAssignmentService },
@@ -37,6 +49,10 @@ import {
     PeoplePartnerAssignmentService,
     FunctionalRoleService,
     FunctionalRoleAssignmentService,
+    ProfileAssemblerService,
+    IdentitySectionProvider,
+    ProjectsSectionProvider,
+    { provide: SectionAccessGate, useClass: SectionAccessGateService },
   ],
   exports: [
     AccessResolver,
@@ -44,6 +60,8 @@ import {
     PermissionChecker,
     PeoplePartnerAssignmentService,
     FunctionalRoleAssignmentService,
+    ProfileAssemblerService,
+    SectionAccessGate,
   ],
 })
 export class AccessModule {}

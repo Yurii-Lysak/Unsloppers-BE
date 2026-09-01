@@ -74,6 +74,9 @@ model Employee {
   externalIdentities ExternalIdentity[]
   functionalRoleAssignments FunctionalRoleAssignment[]
 
+  managementNotesAbout   ManagementNote[] @relation("ManagementNoteSubject")
+  managementNotesAuthored ManagementNote[] @relation("ManagementNoteAuthor")
+
   @@index([managerId])
   @@index([peoplePartnerId])
   @@map("employees")
@@ -85,6 +88,11 @@ model Employee {
 // them via the reports-to walk) Manager-equivalent access to `employeeId`.
 // `onDelete: Restrict` on all three Employee FKs: assignment rows must never
 // be silently cascade-deleted when an Employee row is removed.
+enum ProjectAssignmentSource {
+  manual
+  timetracker
+}
+
 model ProjectAssignment {
   id          String    @id @default(uuid())
   employeeId  String
@@ -95,6 +103,8 @@ model ProjectAssignment {
   endDate     DateTime? @db.Date
   confirmed   Boolean   @default(false)
   confirmedAt DateTime?
+  source      ProjectAssignmentSource @default(manual)
+  sourceKey   String?   @unique
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -104,6 +114,7 @@ model ProjectAssignment {
 
   @@index([employeeId])
   @@index([projectId])
+  @@index([source])
   @@map("project_assignments")
 }
 
@@ -333,4 +344,24 @@ model FunctionalRoleAssignment {
   @@index([employeeId])
   @@index([roleId])
   @@map("functional_role_assignments")
+}
+
+// Story 1.9 — S7 management notes with dual visibility flags (access-model Rule 3).
+// `onDelete: Restrict` — notes are not cascade-deleted when an employee row is
+// removed; explicit cleanup belongs to the future employment departure cascade.
+model ManagementNote {
+  id                 String   @id @default(uuid())
+  subjectEmployeeId  String
+  authorEmployeeId   String
+  content            String   @db.Text
+  visibleForEmployee Boolean  @default(false)
+  visibleForPm       Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  subjectEmployee Employee @relation("ManagementNoteSubject", fields: [subjectEmployeeId], references: [id], onDelete: Restrict)
+  authorEmployee  Employee @relation("ManagementNoteAuthor", fields: [authorEmployeeId], references: [id], onDelete: Restrict)
+
+  @@index([subjectEmployeeId])
+  @@map("management_notes")
 }

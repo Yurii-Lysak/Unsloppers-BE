@@ -1,5 +1,8 @@
+import { INestApplication } from '@nestjs/common';
+import { SchedulerRegistry } from '@nestjs/schedule';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppModule } from '../app.module';
+import { PrismaService } from '../prisma/prisma.service';
 import { AccessResolver } from './contracts/access-resolver.contract';
 import { FieldRegistry } from './contracts/field-registry.contract';
 import { ProjectAssignment } from './contracts/project-assignment.contract';
@@ -8,6 +11,11 @@ import { AccessResolverService } from './access/access-resolver.service';
 import { FieldRegistryService } from './directory/field-registry.service';
 import { ProjectAssignmentService } from './access/project-assignment.service';
 import { PermissionCheckerService } from './access/permission-checker.service';
+import {
+  PROJECTS_SYNC_CRON,
+  ProjectsSyncScheduler,
+} from './integrations/projects-sync.scheduler';
+import { ProjectsSyncService } from './integrations/projects-sync.service';
 
 /**
  * Boots the real `AppModule` wiring (not a hand-built test module) so a
@@ -48,5 +56,38 @@ describe('AppModule', () => {
     expect(module.get(PermissionChecker)).toBeInstanceOf(
       PermissionCheckerService,
     );
+  });
+
+  it('wires the TimeTracker project writer and scheduler in the production module graph', () => {
+    expect(module.get(ProjectsSyncService)).toBeInstanceOf(ProjectsSyncService);
+    expect(module.get(ProjectsSyncScheduler)).toBeInstanceOf(
+      ProjectsSyncScheduler,
+    );
+  });
+
+  it('registers the 15-minute project sync cron when the production graph initializes', async () => {
+    const projectsSync = {
+      sync: jest.fn().mockResolvedValue({ status: 'succeeded' }),
+    };
+    const initializedModule = await Test.createTestingModule({
+      imports: [AppModule],
+    })
+      .overrideProvider(PrismaService)
+      .useValue({})
+      .overrideProvider(ProjectsSyncService)
+      .useValue(projectsSync)
+      .compile();
+    const app: INestApplication = initializedModule.createNestApplication();
+
+    try {
+      await app.init();
+      const jobs = [...app.get(SchedulerRegistry).getCronJobs().values()];
+
+      expect(projectsSync.sync).toHaveBeenCalledTimes(1);
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0].cronTime.source).toBe(PROJECTS_SYNC_CRON);
+    } finally {
+      await app.close();
+    }
   });
 });

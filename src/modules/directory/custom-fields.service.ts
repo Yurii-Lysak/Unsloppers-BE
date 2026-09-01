@@ -39,13 +39,14 @@ export class CustomFieldsService {
   }
 
   async listDefinitions(
-    viewerId: string,
+    userId: string,
+    viewerEmployeeId: string,
   ): Promise<CustomFieldDefinitionEntity[]> {
     const definitions = await this.fieldRegistryService.listDefinitions();
 
     if (
       await this.permissionChecker.hasPermission(
-        viewerId,
+        userId,
         MANAGE_CUSTOM_FIELDS_PERMISSION,
       )
     ) {
@@ -56,7 +57,7 @@ export class CustomFieldsService {
     for (const definition of definitions) {
       if (
         await this.visibility.canViewFieldDefinition(
-          viewerId,
+          viewerEmployeeId,
           definition.visibility,
         )
       ) {
@@ -67,13 +68,14 @@ export class CustomFieldsService {
   }
 
   async getDefinition(
-    viewerId: string,
+    userId: string,
+    viewerEmployeeId: string,
     fieldId: string,
   ): Promise<CustomFieldDefinitionEntity> {
     const definition = await this.fieldRegistryService.getDefinition(fieldId);
 
     const canManage = await this.permissionChecker.hasPermission(
-      viewerId,
+      userId,
       MANAGE_CUSTOM_FIELDS_PERMISSION,
     );
     if (canManage) {
@@ -82,7 +84,7 @@ export class CustomFieldsService {
 
     if (
       !(await this.visibility.canViewFieldDefinition(
-        viewerId,
+        viewerEmployeeId,
         definition.visibility,
       ))
     ) {
@@ -95,7 +97,8 @@ export class CustomFieldsService {
   }
 
   async setValue(
-    viewerId: string,
+    userId: string,
+    viewerEmployeeId: string,
     employeeId: string,
     fieldId: string,
     dto: SetCustomFieldValueDto,
@@ -103,13 +106,13 @@ export class CustomFieldsService {
     const definition = await this.fieldRegistryService.getDefinition(fieldId);
 
     const canManage = await this.permissionChecker.hasPermission(
-      viewerId,
+      userId,
       MANAGE_CUSTOM_FIELDS_PERMISSION,
     );
     const canWrite =
       canManage ||
       (await this.visibility.canWriteFieldForSubject(
-        viewerId,
+        viewerEmployeeId,
         employeeId,
         definition.visibility,
       ));
@@ -119,7 +122,7 @@ export class CustomFieldsService {
       );
     }
 
-    if (!('value' in dto)) {
+    if (!('value' in dto) || dto.value === undefined) {
       throw new BadRequestException('value is required');
     }
 
@@ -138,13 +141,14 @@ export class CustomFieldsService {
   }
 
   async listValuesForEmployee(
-    viewerId: string,
+    userId: string,
+    viewerEmployeeId: string,
     employeeId: string,
   ): Promise<CustomFieldValueEntity[]> {
     await this.fieldRegistryService.assertEmployeeExists(employeeId);
 
     const canManage = await this.permissionChecker.hasPermission(
-      viewerId,
+      userId,
       MANAGE_CUSTOM_FIELDS_PERMISSION,
     );
     const allDefinitions = await this.fieldRegistryService.listDefinitions();
@@ -154,7 +158,7 @@ export class CustomFieldsService {
       if (
         canManage ||
         (await this.visibility.canViewFieldForSubject(
-          viewerId,
+          viewerEmployeeId,
           employeeId,
           definition.visibility,
         ))

@@ -1,4 +1,4 @@
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, InjectionToken } from '@nestjs/common';
 import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import { PrismaPg } from '@prisma/adapter-pg';
 import type { OpenAPIObject } from '@nestjs/swagger';
@@ -56,6 +56,13 @@ export interface TestAppOptions {
    * truncating, so a file cannot inherit state from the file before it.
    */
   readonly truncate?: boolean;
+  /**
+   * Optional provider overrides applied before the module compiles.
+   */
+  readonly providerOverrides?: ReadonlyArray<{
+    provide: InjectionToken;
+    useValue: unknown;
+  }>;
 }
 
 export interface TestApp {
@@ -99,6 +106,12 @@ export async function createTestApp(
 
   if (options.clock !== undefined) {
     builder = builder.overrideProvider(Clock).useValue(options.clock);
+  }
+
+  for (const override of options.providerOverrides ?? []) {
+    builder = builder
+      .overrideProvider(override.provide)
+      .useValue(override.useValue);
   }
 
   const moduleRef = await builder.compile();

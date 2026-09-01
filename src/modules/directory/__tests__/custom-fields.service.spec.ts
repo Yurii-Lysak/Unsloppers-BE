@@ -34,6 +34,7 @@ describe('CustomFieldsService', () => {
   };
   const permissionChecker = {
     hasPermission: jest.fn(),
+    getGrantedPermissions: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -83,7 +84,9 @@ describe('CustomFieldsService', () => {
       },
     ]);
 
-    await expect(service.listDefinitions('viewer-1')).resolves.toHaveLength(1);
+    await expect(
+      service.listDefinitions('viewer-1', 'employee-1'),
+    ).resolves.toHaveLength(1);
     expect(visibility.canViewFieldDefinition).not.toHaveBeenCalled();
   });
 
@@ -110,9 +113,9 @@ describe('CustomFieldsService', () => {
         Promise.resolve(visibilityLevel === 'colleague'),
     );
 
-    await expect(service.listDefinitions('viewer-1')).resolves.toEqual([
-      expect.objectContaining({ id: 'field-2' }),
-    ]);
+    await expect(
+      service.listDefinitions('viewer-1', 'employee-1'),
+    ).resolves.toEqual([expect.objectContaining({ id: 'field-2' })]);
   });
 
   it('creates a definition when permission is granted', async () => {
@@ -151,9 +154,9 @@ describe('CustomFieldsService', () => {
     });
     visibility.canViewFieldDefinition.mockResolvedValue(false);
 
-    await expect(service.getDefinition('viewer-1', 'field-1')).rejects.toThrow(
-      ForbiddenException,
-    );
+    await expect(
+      service.getDefinition('viewer-1', 'employee-1', 'field-1'),
+    ).rejects.toThrow(ForbiddenException);
   });
 
   it('forbids setValue without write permission', async () => {
@@ -168,7 +171,9 @@ describe('CustomFieldsService', () => {
     visibility.canWriteFieldForSubject.mockResolvedValue(false);
 
     await expect(
-      service.setValue('viewer-1', 'employee-1', 'field-1', { value: 'A' }),
+      service.setValue('viewer-1', 'employee-viewer', 'employee-1', 'field-1', {
+        value: 'A',
+      }),
     ).rejects.toThrow(ForbiddenException);
   });
 
@@ -187,7 +192,9 @@ describe('CustomFieldsService', () => {
     ]);
 
     await expect(
-      service.setValue('viewer-1', 'employee-1', 'field-1', { value: 42 }),
+      service.setValue('viewer-1', 'employee-viewer', 'employee-1', 'field-1', {
+        value: 42,
+      }),
     ).resolves.toEqual({
       employeeId: 'employee-1',
       fieldId: 'field-1',
@@ -206,7 +213,13 @@ describe('CustomFieldsService', () => {
     });
 
     await expect(
-      service.setValue('viewer-1', 'employee-1', 'field-1', {}),
+      service.setValue(
+        'viewer-1',
+        'employee-viewer',
+        'employee-1',
+        'field-1',
+        {},
+      ),
     ).rejects.toThrow(BadRequestException);
   });
 
@@ -216,7 +229,7 @@ describe('CustomFieldsService', () => {
     );
 
     await expect(
-      service.listValuesForEmployee('viewer-1', 'missing'),
+      service.listValuesForEmployee('viewer-1', 'employee-viewer', 'missing'),
     ).rejects.toThrow(NotFoundException);
   });
 
@@ -248,7 +261,11 @@ describe('CustomFieldsService', () => {
     ]);
 
     await expect(
-      service.listValuesForEmployee('viewer-1', 'employee-1'),
+      service.listValuesForEmployee(
+        'viewer-1',
+        'employee-viewer',
+        'employee-1',
+      ),
     ).resolves.toEqual([
       { employeeId: 'employee-1', fieldId: 'field-2', value: 'Open plan' },
     ]);

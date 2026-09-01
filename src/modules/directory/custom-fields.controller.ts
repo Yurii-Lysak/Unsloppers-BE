@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Post,
@@ -10,7 +12,9 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
+import { SectionAccessGate } from '../contracts/section-access-gate.contract';
 import { CurrentUserProvider } from '../contracts/current-user-provider.contract';
+import { PrismaService } from '../../prisma/prisma.service';
 import { CustomFieldsService } from './custom-fields.service';
 import {
   SwaggerCreateCustomField,
@@ -28,6 +32,8 @@ export class CustomFieldsController {
   constructor(
     private readonly customFields: CustomFieldsService,
     private readonly currentUser: CurrentUserProvider,
+    private readonly prisma: PrismaService,
+    private readonly sectionGate: SectionAccessGate,
   ) {}
 
   @Post()
@@ -41,7 +47,8 @@ export class CustomFieldsController {
   @SwaggerListCustomFields()
   async findAll(@Req() request: Request) {
     const { userId } = await this.currentUser.getCurrentUser(request);
-    return this.customFields.listDefinitions(userId);
+    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
+    return this.customFields.listDefinitions(userId, viewerEmployeeId);
   }
 
   @Get('values/:employeeId')
@@ -51,7 +58,14 @@ export class CustomFieldsController {
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
   ) {
     const { userId } = await this.currentUser.getCurrentUser(request);
-    return this.customFields.listValuesForEmployee(userId, employeeId);
+    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
+    await this.assertSubjectEmployeeExists(employeeId);
+    await this.sectionGate.requireSection(viewerEmployeeId, employeeId, 'S16');
+    return this.customFields.listValuesForEmployee(
+      userId,
+      viewerEmployeeId,
+      employeeId,
+    );
   }
 
   @Get(':fieldId')
@@ -61,7 +75,8 @@ export class CustomFieldsController {
     @Param('fieldId', ParseUUIDPipe) fieldId: string,
   ) {
     const { userId } = await this.currentUser.getCurrentUser(request);
-    return this.customFields.getDefinition(userId, fieldId);
+    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
+    return this.customFields.getDefinition(userId, viewerEmployeeId, fieldId);
   }
 
   @Put(':fieldId/values/:employeeId')
@@ -73,6 +88,42 @@ export class CustomFieldsController {
     @Body() dto: SetCustomFieldValueDto,
   ) {
     const { userId } = await this.currentUser.getCurrentUser(request);
-    return this.customFields.setValue(userId, employeeId, fieldId, dto);
+    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
+    await this.assertSubjectEmployeeExists(employeeId);
+    await this.sectionGate.requireSection(
+      viewerEmployeeId,
+      employeeId,
+      'S16',
+      'RW',
+    );
+    return this.customFields.setValue(
+      userId,
+      viewerEmployeeId,
+      employeeId,
+      fieldId,
+      dto,
+    );
+  }
+
+  private async assertSubjectEmployeeExists(employeeId: string): Promise<void> {
+    const subject = await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { id: true },
+    });
+    if (!subject) {
+      throw new NotFoundException('Employee not found');
+    }
+  }
+
+  private async resolveViewerEmployeeId(request: Request): Promise<string> {
+    const { userId } = await this.currentUser.getCurrentUser(request);
+    const employee = await this.prisma.employee.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!employee) {
+      throw new ForbiddenException('Authenticated user has no employee record');
+    }
+    return employee.id;
   }
 }

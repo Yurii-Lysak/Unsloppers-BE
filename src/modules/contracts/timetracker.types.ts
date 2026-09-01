@@ -1,13 +1,7 @@
 /**
  * Typed shapes mirroring `docs/api-external-openapi.json` (TimeTracker
- * External API) — the first external-HTTP integration in this codebase.
- * Consumers get real types instead of raw `any`; enums use the same
- * `x-enum-varnames` the contract documents.
- *
- * This module is a deliberate, recognized exception to `nest-modules.md`'s
- * standard anatomy (no controller/DTO/entities/swagger) — it is an
- * infrastructure client consumed only by `prisma/seed.ts` (Story 1.16), not
- * an HTTP-facing feature. Do not "fix" it to match `users`.
+ * External API). Lives in `contracts` so `integrations` and other feature
+ * modules can type TimeTracker payloads without cross-module imports (AD-1).
  */
 
 export enum TaskDurationStatus {

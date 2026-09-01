@@ -25,26 +25,47 @@ describe('session cookie', () => {
     jest.clearAllMocks();
   });
 
-  it('sets an HttpOnly Secure SameSite cookie with the JWT lifetime', () => {
+  it('sets an HttpOnly Secure SameSite=None cookie with the JWT lifetime in production', () => {
     setSessionCookie(response, 'signed-token', config);
 
     expect(cookie).toHaveBeenCalledWith(SESSION_COOKIE_NAME, 'signed-token', {
       httpOnly: true,
-      sameSite: 'strict',
+      sameSite: 'none',
       secure: true,
       path: '/',
       maxAge: 3_600_000,
     });
   });
 
-  it('clears the cookie using matching security attributes', () => {
+  it('clears the cookie using matching security attributes in production', () => {
     clearSessionCookie(response, config);
 
     expect(clearCookie).toHaveBeenCalledWith(SESSION_COOKIE_NAME, {
       httpOnly: true,
-      sameSite: 'strict',
+      sameSite: 'none',
       secure: true,
       path: '/',
+    });
+  });
+
+  it('uses SameSite=Strict and non-Secure outside production (same-site local dev)', () => {
+    const devConfig = {
+      get: jest.fn((key: string) =>
+        key === 'NODE_ENV' ? 'development' : undefined,
+      ),
+      getOrThrow: jest.fn((key: string) =>
+        key === 'JWT_TTL_SECONDS' ? 3600 : undefined,
+      ),
+    } as unknown as ConfigService;
+
+    setSessionCookie(response, 'signed-token', devConfig);
+
+    expect(cookie).toHaveBeenCalledWith(SESSION_COOKIE_NAME, 'signed-token', {
+      httpOnly: true,
+      sameSite: 'strict',
+      secure: false,
+      path: '/',
+      maxAge: 3_600_000,
     });
   });
 

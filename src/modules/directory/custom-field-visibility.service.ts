@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
 import {
   AccessResolver,
   AccessRole,
+  COLLEAGUE_SECTION_GRANTS,
+  ResolvedAudience,
 } from '../contracts/access-resolver.contract';
 import { FieldVisibility } from '../contracts/field-registry.contract';
 
@@ -19,7 +22,10 @@ function hasManagementVisibility(role: AccessRole): boolean {
 
 @Injectable()
 export class CustomFieldVisibilityService {
-  constructor(private readonly accessResolver: AccessResolver) {}
+  constructor(
+    private readonly accessResolver: AccessResolver,
+    private readonly prisma: PrismaService,
+  ) {}
 
   /** Whether a field's visibility tier is visible to the resolved access role. */
   isVisibleToRole(role: AccessRole, visibility: FieldVisibility): boolean {
@@ -39,12 +45,12 @@ export class CustomFieldVisibilityService {
 
   /** S16 must grant read/write; field visibility tier must match the viewer role. */
   async canViewFieldForSubject(
-    viewerId: string,
+    viewerEmployeeId: string,
     subjectEmployeeId: string,
     visibility: FieldVisibility,
   ): Promise<boolean> {
     const audience = await this.accessResolver.resolveAudience(
-      viewerId,
+      viewerEmployeeId,
       subjectEmployeeId,
     );
     const s16Access = audience.sections.S16;
@@ -55,24 +61,41 @@ export class CustomFieldVisibilityService {
   }
 
   /**
-   * For directory definition lists: S16 must grant read and the visibility tier
-   * must be visible in peer/directory context. Self-role resolution over-permits
-   * employee-tier metadata (every user is Self to themselves), so employee-tier
-   * definitions require a management role here — subject-scoped reads use
-   * `canViewFieldForSubject` instead.
+   * Directory definition catalog: never use Self resolution (over-permits S16).
+   * Resolve peer grants instead so Colleague-tier viewers see no metadata.
    */
   async canViewFieldDefinition(
-    viewerId: string,
+    viewerEmployeeId: string,
     visibility: FieldVisibility,
   ): Promise<boolean> {
-    const audience = await this.accessResolver.resolveAudience(
-      viewerId,
-      viewerId,
-    );
+    const audience = await this.resolveCatalogAudience(viewerEmployeeId);
     if (audience.sections.S16 === 'none') {
       return false;
     }
     return this.isVisibleToRoleForDefinitionList(audience.role, visibility);
+  }
+
+  private async resolveCatalogAudience(
+    viewerEmployeeId: string,
+  ): Promise<ResolvedAudience> {
+    const report = await this.prisma.employee.findFirst({
+      where: { managerId: viewerEmployeeId },
+      orderBy: { id: 'asc' },
+      select: { id: true },
+    });
+    if (report) {
+      return this.accessResolver.resolveAudience(viewerEmployeeId, report.id);
+    }
+
+    const peer = await this.prisma.employee.findFirst({
+      where: { id: { not: viewerEmployeeId } },
+      orderBy: { id: 'asc' },
+      select: { id: true },
+    });
+    if (!peer) {
+      return { role: 'Colleague', sections: { ...COLLEAGUE_SECTION_GRANTS } };
+    }
+    return this.accessResolver.resolveAudience(viewerEmployeeId, peer.id);
   }
 
   private isVisibleToRoleForDefinitionList(
@@ -85,7 +108,7 @@ export class CustomFieldVisibilityService {
       case 'employee':
         return hasManagementVisibility(role);
       case 'colleague':
-        return true;
+        return role === 'Colleague' || hasManagementVisibility(role);
       default: {
         const _exhaustive: never = visibility;
         return _exhaustive;
@@ -94,12 +117,12 @@ export class CustomFieldVisibilityService {
   }
 
   async canWriteFieldForSubject(
-    viewerId: string,
+    viewerEmployeeId: string,
     subjectEmployeeId: string,
     visibility: FieldVisibility,
   ): Promise<boolean> {
     const audience = await this.accessResolver.resolveAudience(
-      viewerId,
+      viewerEmployeeId,
       subjectEmployeeId,
     );
     if (audience.sections.S16 !== 'RW') {

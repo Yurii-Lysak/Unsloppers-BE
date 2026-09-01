@@ -227,9 +227,11 @@ describe('AccessResolverService', () => {
     const result = await service.resolveAudience('A', 'B');
 
     expect(result.role).toBe('Colleague');
-    expect(Object.values(result.sections).every((v) => v === 'none')).toBe(
-      true,
-    );
+    expect(result.sections.S1).toBe('R');
+    expect(result.sections.S10).toBe('R');
+    expect(result.sections.S11).toBe('R');
+    expect(result.sections.S2).toBe('none');
+    expect(result.sections.S9).toBe('none');
   });
 
   it('resolves Colleague and never loops on a cyclical manager chain', async () => {

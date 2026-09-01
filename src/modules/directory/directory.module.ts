@@ -2,7 +2,9 @@ import { Global, Module } from '@nestjs/common';
 import { FieldRegistry } from '../contracts/field-registry.contract';
 import { CustomFieldVisibilityService } from './custom-field-visibility.service';
 import { CustomFieldsController } from './custom-fields.controller';
+import { EmployeesController } from './employees.controller';
 import { CustomFieldsService } from './custom-fields.service';
+import { EmployeesService } from './employees.service';
 import { FieldRegistryService } from './field-registry.service';
 
 /**
@@ -12,16 +14,22 @@ import { FieldRegistryService } from './field-registry.service';
  */
 @Global()
 @Module({
-  controllers: [CustomFieldsController],
+  controllers: [CustomFieldsController, EmployeesController],
   providers: [
     FieldRegistryService,
     CustomFieldsService,
+    EmployeesService,
     CustomFieldVisibilityService,
     {
       provide: FieldRegistry,
       useExisting: FieldRegistryService,
     },
   ],
-  exports: [FieldRegistry, FieldRegistryService, CustomFieldsService],
+  exports: [
+    FieldRegistry,
+    FieldRegistryService,
+    CustomFieldsService,
+    EmployeesService,
+  ],
 })
 export class DirectoryModule {}

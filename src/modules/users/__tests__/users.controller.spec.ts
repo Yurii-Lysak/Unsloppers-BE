@@ -1,4 +1,6 @@
+import { ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { CurrentUserProvider } from '../../contracts/current-user-provider.contract';
 import { UsersController } from '../users.controller';
 import { UsersService } from '../users.service';
 
@@ -16,18 +18,26 @@ describe('UsersController', () => {
 
   const usersService = {
     create: jest.fn().mockResolvedValue(user),
-    findAll: jest.fn().mockResolvedValue([user]),
-    findOne: jest.fn().mockResolvedValue(user),
+    findOneForViewer: jest.fn().mockResolvedValue(user),
     update: jest.fn().mockResolvedValue(user),
     remove: jest.fn().mockResolvedValue(undefined),
   };
+
+  const currentUser = {
+    getCurrentUser: jest.fn().mockResolvedValue({ userId: user.id }),
+  };
+
+  const request = {} as Parameters<UsersController['findOne']>[0];
 
   beforeEach(async () => {
     jest.clearAllMocks();
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [UsersController],
-      providers: [{ provide: UsersService, useValue: usersService }],
+      providers: [
+        { provide: UsersService, useValue: usersService },
+        { provide: CurrentUserProvider, useValue: currentUser },
+      ],
     }).compile();
 
     controller = module.get(UsersController);
@@ -40,13 +50,18 @@ describe('UsersController', () => {
     expect(usersService.create).toHaveBeenCalledWith(dto);
   });
 
-  it('findAll delegates to the service', async () => {
-    await expect(controller.findAll()).resolves.toEqual([user]);
+  it('findAll is forbidden in bootcamp scope', async () => {
+    await expect(controller.findAll(request)).rejects.toThrow(
+      ForbiddenException,
+    );
   });
 
-  it('findOne delegates to the service', async () => {
-    await expect(controller.findOne(user.id)).resolves.toEqual(user);
-    expect(usersService.findOne).toHaveBeenCalledWith(user.id);
+  it('findOne delegates to the self-scoped service', async () => {
+    await expect(controller.findOne(request, user.id)).resolves.toEqual(user);
+    expect(usersService.findOneForViewer).toHaveBeenCalledWith(
+      user.id,
+      user.id,
+    );
   });
 
   it('update delegates to the service', async () => {
