@@ -9,22 +9,48 @@ import {
   CustomFieldType,
   Prisma,
 } from '../../generated/prisma/client';
+import { Clock } from '../../clock/clock.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
+  EmployeeListQueryOptions,
+  EmployeeListQueryResultDto,
+  EmployeeRowDto,
   FieldDefinitionDto,
+  FieldFilter,
   FieldQueryOptions,
   FieldQueryResultDto,
   FieldRegistry,
+  FieldSpec,
   FieldValue,
   FieldValueType,
   FieldVisibility,
 } from '../contracts/field-registry.contract';
+import {
+  BUILTIN_FIELD_SPECS,
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGE_SIZE,
+  MIN_PAGE,
+} from './field-catalog';
+import {
+  allowedOperatorsForField,
+  applyFilters,
+  currentHistoryValue,
+  earliestDate,
+  EmployeeSnapshot,
+  getCellValue,
+  HistoryRowSnapshot,
+  isBuiltinFieldId,
+  sortSnapshots,
+} from './employee-query.helpers';
 
 const SELECT_TYPES: CustomFieldType[] = ['select', 'multi_select'];
 
 @Injectable()
 export class FieldRegistryService extends FieldRegistry {
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly clock: Clock,
+  ) {
     super();
   }
 
@@ -373,6 +399,251 @@ export class FieldRegistryService extends FieldRegistry {
     if (!employee) {
       throw new NotFoundException(`Employee "${employeeId}" not found`);
     }
+  }
+
+  async listFields(): Promise<FieldSpec[]> {
+    const customDefinitions = await this.prisma.customFieldDefinition.findMany({
+      orderBy: { name: 'asc' },
+    });
+
+    const customFields: FieldSpec[] = customDefinitions.map((definition) => ({
+      id: definition.id,
+      name: definition.name,
+      type: definition.type,
+      source: 'custom',
+      sortable: true,
+      filterable: true,
+      visibility: definition.visibility,
+      options: this.parseOptions(definition.options),
+    }));
+
+    return [...BUILTIN_FIELD_SPECS, ...customFields];
+  }
+
+  async queryEmployees(
+    options: EmployeeListQueryOptions,
+  ): Promise<EmployeeListQueryResultDto> {
+    const page = options.page ?? MIN_PAGE;
+    const pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE;
+
+    if (!Number.isInteger(page) || page < MIN_PAGE) {
+      throw new BadRequestException('Invalid page');
+    }
+    if (
+      !Number.isInteger(pageSize) ||
+      pageSize < 1 ||
+      pageSize > MAX_PAGE_SIZE
+    ) {
+      throw new BadRequestException('Invalid pageSize');
+    }
+
+    const allFields = await this.listFields();
+    const fieldById = new Map(allFields.map((field) => [field.id, field]));
+    const visibleFieldIds =
+      options.visibleFieldIds ?? allFields.map((field) => field.id);
+
+    for (const fieldId of visibleFieldIds) {
+      if (!fieldById.has(fieldId)) {
+        throw new BadRequestException(`Unknown field "${fieldId}"`);
+      }
+    }
+
+    const filters = options.filters ?? [];
+    this.validateFilters(filters, fieldById, visibleFieldIds);
+
+    const sortFieldId = options.sort;
+    const sortOrder = options.order ?? 'asc';
+    if (sortFieldId) {
+      const sortField = fieldById.get(sortFieldId);
+      if (!sortField || !visibleFieldIds.includes(sortFieldId)) {
+        throw new BadRequestException(
+          `Field "${sortFieldId}" is not sortable for this viewer`,
+        );
+      }
+      if (!sortField.sortable) {
+        throw new BadRequestException(`Field "${sortFieldId}" is not sortable`);
+      }
+    }
+
+    const asOf = this.clock.now();
+    let snapshots = await this.loadEmployeeSnapshots();
+
+    const customFieldIdsForQuery = this.collectCustomFieldIds(
+      visibleFieldIds,
+      filters,
+      sortFieldId,
+    );
+    const customValueMap = await this.loadCustomValueMap(
+      snapshots,
+      customFieldIdsForQuery,
+    );
+
+    snapshots = applyFilters(
+      snapshots,
+      filters,
+      fieldById,
+      asOf,
+      customValueMap,
+    );
+
+    if (sortFieldId) {
+      snapshots = sortSnapshots(
+        snapshots,
+        sortFieldId,
+        sortOrder,
+        asOf,
+        customValueMap,
+      );
+    } else {
+      snapshots = sortSnapshots(
+        snapshots,
+        BUILTIN_FIELD_SPECS[0].id,
+        'asc',
+        asOf,
+        customValueMap,
+      );
+    }
+
+    const total = snapshots.length;
+    const offset = (page - 1) * pageSize;
+    const pageSnapshots = snapshots.slice(offset, offset + pageSize);
+
+    const rows: EmployeeRowDto[] = pageSnapshots.map((snapshot) => {
+      const cells: Record<string, FieldValue> = {};
+      for (const fieldId of visibleFieldIds) {
+        cells[fieldId] = getCellValue(
+          snapshot,
+          fieldId,
+          asOf,
+          customValueMap,
+        );
+      }
+      return { employeeId: snapshot.employeeId, cells };
+    });
+
+    return { rows, total, page, pageSize };
+  }
+
+  private collectCustomFieldIds(
+    visibleFieldIds: string[],
+    filters: FieldFilter[],
+    sortFieldId: string | undefined,
+  ): string[] {
+    const ids = new Set<string>();
+    for (const fieldId of visibleFieldIds) {
+      if (!isBuiltinFieldId(fieldId)) {
+        ids.add(fieldId);
+      }
+    }
+    for (const filter of filters) {
+      if (!isBuiltinFieldId(filter.fieldId)) {
+        ids.add(filter.fieldId);
+      }
+    }
+    if (sortFieldId && !isBuiltinFieldId(sortFieldId)) {
+      ids.add(sortFieldId);
+    }
+    return [...ids];
+  }
+
+  private async loadCustomValueMap(
+    snapshots: EmployeeSnapshot[],
+    customFieldIds: string[],
+  ): Promise<Map<string, FieldValue>> {
+    const customValueMap = new Map<string, FieldValue>();
+    if (customFieldIds.length === 0 || snapshots.length === 0) {
+      return customValueMap;
+    }
+
+    const customValues = await this.query({
+      employeeIds: snapshots.map((snapshot) => snapshot.employeeId),
+      fieldIds: customFieldIds,
+    });
+    for (const entry of customValues) {
+      customValueMap.set(`${entry.employeeId}:${entry.fieldId}`, entry.value);
+    }
+    return customValueMap;
+  }
+
+  private validateFilters(
+    filters: FieldFilter[],
+    fieldById: Map<string, FieldSpec>,
+    visibleFieldIds: string[],
+  ): void {
+    for (const filter of filters) {
+      const field = fieldById.get(filter.fieldId);
+      if (!field) {
+        throw new BadRequestException(`Unknown field "${filter.fieldId}"`);
+      }
+      if (!visibleFieldIds.includes(filter.fieldId)) {
+        throw new BadRequestException(
+          `Field "${filter.fieldId}" is not filterable for this viewer`,
+        );
+      }
+      if (!field.filterable) {
+        throw new BadRequestException(
+          `Field "${filter.fieldId}" is not filterable`,
+        );
+      }
+      const allowed = allowedOperatorsForField(field);
+      if (!allowed.includes(filter.operator)) {
+        throw new BadRequestException(
+          `Operator "${filter.operator}" is not supported for field "${filter.fieldId}"`,
+        );
+      }
+    }
+  }
+
+  private async loadEmployeeSnapshots(): Promise<EmployeeSnapshot[]> {
+    const employees = await this.prisma.employee.findMany({
+      include: {
+        user: { select: { name: true } },
+        gradeHistory: {
+          select: { value: true, effectiveFrom: true, effectiveTo: true },
+        },
+        positionHistory: {
+          select: { value: true, effectiveFrom: true, effectiveTo: true },
+        },
+        departmentHistory: {
+          select: { value: true, effectiveFrom: true, effectiveTo: true },
+        },
+        employmentTypeHistory: {
+          select: { value: true, effectiveFrom: true, effectiveTo: true },
+        },
+      },
+      orderBy: { id: 'asc' },
+    });
+
+    return employees.map((employee) => {
+      const gradeHistory = employee.gradeHistory as HistoryRowSnapshot[];
+      const positionHistory = employee.positionHistory as HistoryRowSnapshot[];
+      const departmentHistory =
+        employee.departmentHistory as HistoryRowSnapshot[];
+      const employmentTypeHistory =
+        employee.employmentTypeHistory as HistoryRowSnapshot[];
+
+      const grade = currentHistoryValue(gradeHistory);
+      const position = currentHistoryValue(positionHistory);
+      const department = currentHistoryValue(departmentHistory);
+      const employmentType = currentHistoryValue(employmentTypeHistory);
+
+      const tenureDates = [
+        ...gradeHistory.map((row) => row.effectiveFrom),
+        ...positionHistory.map((row) => row.effectiveFrom),
+        ...departmentHistory.map((row) => row.effectiveFrom),
+        ...employmentTypeHistory.map((row) => row.effectiveFrom),
+      ];
+
+      return {
+        employeeId: employee.id,
+        name: employee.user?.name ?? null,
+        grade: grade?.value ?? null,
+        position: position?.value ?? null,
+        department: department?.value ?? null,
+        employmentType: employmentType?.value ?? null,
+        tenureStart: earliestDate(tenureDates),
+      };
+    });
   }
 
   private rethrowKnownErrors(error: unknown): never {

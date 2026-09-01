@@ -77,8 +77,12 @@ describe('Functional role assignments (e2e)', () => {
 
   it('GET /employees lists seeded employees for authenticated users', async () => {
     const res = await outsiderAgent.get('/api/v1/employees').expect(200);
-    expect(Array.isArray(res.body)).toBe(true);
-    expect((res.body as Array<{ id: string }>).length).toBeGreaterThan(0);
+    const body = res.body as {
+      rows: Array<{ employeeId: string }>;
+      total: number;
+    };
+    expect(Array.isArray(body.rows)).toBe(true);
+    expect(body.total).toBeGreaterThan(0);
   });
 
   it('HR Admin assigns a campaign role and assignee permissions update immediately', async () => {

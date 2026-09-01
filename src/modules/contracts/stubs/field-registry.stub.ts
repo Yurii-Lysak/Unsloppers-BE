@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { FieldRegistry, FieldQueryResultDto } from '../field-registry.contract';
+import {
+  EmployeeListQueryResultDto,
+  FieldQueryResultDto,
+  FieldRegistry,
+  FieldSpec,
+} from '../field-registry.contract';
 
 /** Wave-0 stub — no-op writes, empty reads. */
 @Injectable()
@@ -14,5 +19,13 @@ export class FieldRegistryStub extends FieldRegistry {
 
   query(): Promise<FieldQueryResultDto[]> {
     return Promise.resolve([]);
+  }
+
+  listFields(): Promise<FieldSpec[]> {
+    return Promise.resolve([]);
+  }
+
+  queryEmployees(): Promise<EmployeeListQueryResultDto> {
+    return Promise.resolve({ rows: [], total: 0, page: 1, pageSize: 50 });
   }
 }
