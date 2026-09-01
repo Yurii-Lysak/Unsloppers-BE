@@ -4,6 +4,9 @@ import { ExternalIdentityMappingService } from './external-identity-mapping.serv
 import { LeavesController } from './leaves.controller';
 import { LeavesSectionProvider } from './leaves-section.provider';
 import { LeavesSyncService } from './leaves-sync.service';
+import { ProjectAssignmentMapper } from './project-assignment.mapper';
+import { ProjectsSyncScheduler } from './projects-sync.scheduler';
+import { ProjectsSyncService } from './projects-sync.service';
 
 /**
  * `integrations` — Epic 13 external feeds. Story 13.1 owns C5 and the S10
@@ -20,7 +23,15 @@ import { LeavesSyncService } from './leaves-sync.service';
     },
     LeavesSyncService,
     LeavesSectionProvider,
+    ProjectAssignmentMapper,
+    ProjectsSyncService,
+    ProjectsSyncScheduler,
   ],
-  exports: [ExternalIdentityMapping, LeavesSectionProvider, LeavesSyncService],
+  exports: [
+    ExternalIdentityMapping,
+    LeavesSectionProvider,
+    LeavesSyncService,
+    ProjectsSyncService,
+  ],
 })
 export class IntegrationsModule {}

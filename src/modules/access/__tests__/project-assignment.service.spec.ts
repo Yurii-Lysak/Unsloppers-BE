@@ -23,6 +23,8 @@ describe('ProjectAssignmentService', () => {
     endDate: null,
     confirmed: true,
     confirmedAt: new Date('2026-08-31T10:00:00.000Z'),
+    source: 'manual',
+    sourceKey: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
   };
