@@ -7,7 +7,7 @@ import {
   ApiOperation,
   ApiParam,
 } from '@nestjs/swagger';
-import { SESSION_COOKIE_NAME } from '../auth/auth-cookie';
+import { SESSION_COOKIE_NAME } from '../contracts/session-auth.constants';
 import { LeavesSectionEntity } from './entities/leaves-section.entity';
 
 export const SwaggerGetEmployeeLeaves = (): MethodDecorator =>
