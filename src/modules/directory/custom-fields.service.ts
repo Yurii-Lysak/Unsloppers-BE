@@ -119,7 +119,7 @@ export class CustomFieldsService {
       );
     }
 
-    if (!('value' in dto)) {
+    if (!('value' in dto) || dto.value === undefined) {
       throw new BadRequestException('value is required');
     }
 
