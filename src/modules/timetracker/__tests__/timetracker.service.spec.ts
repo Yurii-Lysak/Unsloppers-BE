@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { TimetrackerApiError } from '../timetracker.errors';
+import { TimetrackerApiError } from '../../contracts/timetracker.errors';
 import { TimetrackerService } from '../timetracker.service';
 
 function makeConfig(values: Record<string, string>): ConfigService {

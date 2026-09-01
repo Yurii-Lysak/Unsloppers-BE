@@ -12,6 +12,11 @@ import {
   FunctionalRolesController,
   PermissionsCatalogController,
 } from './functional-roles.controller';
+import { EmployeeFunctionalRolesController } from './employee-functional-roles.controller';
+import { ProfileController } from './profile.controller';
+import { ProfileAssemblerService } from './profile-assembler.service';
+import { IdentitySectionProvider } from './identity-section.provider';
+import { ProjectsSectionProvider } from './projects-section.provider';
 
 /**
  * `access` — implements C1 `AccessResolver`, C3 `ProjectAssignment`, and C8
@@ -29,7 +34,12 @@ import {
  */
 @Global()
 @Module({
-  controllers: [FunctionalRolesController, PermissionsCatalogController],
+  controllers: [
+    FunctionalRolesController,
+    PermissionsCatalogController,
+    EmployeeFunctionalRolesController,
+    ProfileController,
+  ],
   providers: [
     { provide: AccessResolver, useClass: AccessResolverService },
     { provide: ProjectAssignment, useClass: ProjectAssignmentService },
@@ -37,6 +47,9 @@ import {
     PeoplePartnerAssignmentService,
     FunctionalRoleService,
     FunctionalRoleAssignmentService,
+    ProfileAssemblerService,
+    IdentitySectionProvider,
+    ProjectsSectionProvider,
   ],
   exports: [
     AccessResolver,
@@ -44,6 +57,7 @@ import {
     PermissionChecker,
     PeoplePartnerAssignmentService,
     FunctionalRoleAssignmentService,
+    ProfileAssemblerService,
   ],
 })
 export class AccessModule {}

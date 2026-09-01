@@ -1,9 +1,11 @@
+import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   BUILTIN_FIELD_IDS,
   FieldSpec,
 } from '../../contracts/field-registry.contract';
 import { PermissionChecker } from '../../contracts/permission-checker.contract';
+import { PrismaService } from '../../../prisma/prisma.service';
 import { CustomFieldVisibilityService } from '../custom-field-visibility.service';
 import { EmployeesService } from '../employees.service';
 import { FieldRegistryService } from '../field-registry.service';
@@ -21,6 +23,11 @@ describe('EmployeesService', () => {
   };
   const permissionChecker = {
     hasPermission: jest.fn(),
+  };
+  const prisma = {
+    employee: {
+      findUnique: jest.fn(),
+    },
   };
 
   const builtinFields: FieldSpec[] = [
@@ -61,6 +68,7 @@ describe('EmployeesService', () => {
         { provide: FieldRegistryService, useValue: fieldRegistryService },
         { provide: CustomFieldVisibilityService, useValue: visibility },
         { provide: PermissionChecker, useValue: permissionChecker },
+        { provide: PrismaService, useValue: prisma },
       ],
     }).compile();
 
@@ -181,5 +189,25 @@ describe('EmployeesService', () => {
     expect(result.total).toBe(128);
     expect(result.page).toBe(2);
     expect(result.rows).toHaveLength(50);
+  });
+
+  it('getById returns a single employee summary', async () => {
+    prisma.employee.findUnique.mockResolvedValue({
+      id: 'emp-1',
+      user: { name: 'Anton Savchenko', email: 'anton@example.com' },
+    });
+
+    await expect(service.getById('emp-1')).resolves.toEqual({
+      id: 'emp-1',
+      displayName: 'Anton Savchenko',
+    });
+  });
+
+  it('getById rejects unknown employees', async () => {
+    prisma.employee.findUnique.mockResolvedValue(null);
+
+    await expect(service.getById('missing')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 });

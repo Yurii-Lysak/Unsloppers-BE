@@ -87,6 +87,26 @@ describe('PermissionCheckerService', () => {
     ).resolves.toBe(false);
   });
 
+  it('getGrantedPermissions returns sorted catalog-valid keys', async () => {
+    prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1' });
+    prisma.functionalRoleAssignment.findMany.mockResolvedValue([
+      {
+        role: {
+          permissions: [
+            { permissionKey: PERMISSION_KEYS.CREATE_ACTION_ITEMS },
+            { permissionKey: PERMISSION_KEYS.CREATE_FORM_CAMPAIGNS },
+            { permissionKey: 'retired_permission' },
+          ],
+        },
+      },
+    ]);
+
+    await expect(service.getGrantedPermissions('user-1')).resolves.toEqual([
+      PERMISSION_KEYS.CREATE_ACTION_ITEMS,
+      PERMISSION_KEYS.CREATE_FORM_CAMPAIGNS,
+    ]);
+  });
+
   it('reflects permission removal on the next call', async () => {
     prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1' });
     prisma.functionalRoleAssignment.findMany

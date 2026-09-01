@@ -23,8 +23,10 @@ import { PermissionChecker } from '../contracts/permission-checker.contract';
 import { CreateFunctionalRoleDto } from './dto/create-functional-role.dto';
 import { UpdateFunctionalRoleDto } from './dto/update-functional-role.dto';
 import { FunctionalRoleEntity } from './entities/functional-role.entity';
+import { MyPermissionsEntity } from './entities/my-permissions.entity';
 import { PermissionCatalogEntryEntity } from './entities/permission-catalog-entry.entity';
 import { FunctionalRoleService } from './functional-role.service';
+import { SwaggerGetMyPermissions } from './employee-functional-roles.swagger';
 import {
   SwaggerCreateFunctionalRole,
   SwaggerDeleteFunctionalRole,
@@ -118,5 +120,14 @@ export class PermissionsCatalogController {
       throw new ForbiddenException();
     }
     return getPermissionCatalog();
+  }
+
+  @Get('me')
+  @SwaggerGetMyPermissions()
+  async me(@Req() request: Request): Promise<MyPermissionsEntity> {
+    const { userId } = await this.currentUser.getCurrentUser(request);
+    const permissions =
+      await this.permissionChecker.getGrantedPermissions(userId);
+    return { permissions: [...permissions] };
   }
 }

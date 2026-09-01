@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import {
   AccessResolver,
   AccessRole,
+  ResolvedAudience,
 } from '../contracts/access-resolver.contract';
 import { TimelineEventWriter } from '../contracts/timeline-event-writer.contract';
 import { CreateTimelineEventDto } from './dto/create-timeline-event.dto';
@@ -28,8 +29,15 @@ export class TimelineService {
   async listEvents(
     viewerId: string,
     employeeId: string,
+    preResolvedAudience?: ResolvedAudience,
   ): Promise<TimelineEventEntity[]> {
-    await this.assertCanReadTimeline(viewerId, employeeId);
+    if (preResolvedAudience) {
+      if (preResolvedAudience.sections.S9 === 'none') {
+        throw new ForbiddenException('Career timeline is not accessible');
+      }
+    } else {
+      await this.assertCanReadTimeline(viewerId, employeeId);
+    }
     await this.assertEmployeeExists(employeeId);
 
     const rows = await this.prisma.timelineEvent.findMany({

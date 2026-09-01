@@ -1,8 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
 import { FieldSpec } from '../contracts/field-registry.contract';
 import { PermissionChecker } from '../contracts/permission-checker.contract';
 import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
 import { EmployeeListEntity } from './entities/employee-list.entity';
+import { EmployeeSummaryEntity } from './entities/employee-summary.entity';
 import { CustomFieldVisibilityService } from './custom-field-visibility.service';
 import { FieldRegistryService } from './field-registry.service';
 import { MANAGE_CUSTOM_FIELDS_PERMISSION } from './directory.constants';
@@ -13,6 +15,7 @@ export class EmployeesService {
     private readonly fieldRegistryService: FieldRegistryService,
     private readonly visibility: CustomFieldVisibilityService,
     private readonly permissionChecker: PermissionChecker,
+    private readonly prisma: PrismaService,
   ) {}
 
   async listEmployees(
@@ -45,6 +48,19 @@ export class EmployeesService {
       page: result.page,
       pageSize: result.pageSize,
     };
+  }
+
+  async getById(employeeId: string): Promise<EmployeeSummaryEntity> {
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+      include: {
+        user: { select: { name: true, email: true } },
+      },
+    });
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
+    }
+    return this.toSummary(employee);
   }
 
   private async filterVisibleFields(
@@ -116,5 +132,15 @@ export class EmployeesService {
       maskedRows.push({ employeeId: row.employeeId, cells });
     }
     return maskedRows;
+  }
+
+  private toSummary(employee: {
+    id: string;
+    user: { name: string | null; email: string };
+  }): EmployeeSummaryEntity {
+    return {
+      id: employee.id,
+      displayName: employee.user.name?.trim() || employee.user.email,
+    };
   }
 }
