@@ -160,7 +160,7 @@ export const ACCESS_MATRIX: Record<
     self: { level: 'read' },
     managerLine: { level: 'read' },
     pp: { level: 'read' },
-    colleague: { level: 'read', qualifier: 'includes the leave type' },
+    colleague: { level: 'read', qualifier: 'dates only, leave type hidden' },
     sharedLink: { level: 'read', sharedLinkDefault: 'off' },
   },
   S11: {
@@ -216,9 +216,9 @@ export const ACCESS_MATRIX: Record<
 };
 
 /**
- * Spec rule 3: the Colleague view is a whitelist. Exactly S1, S10 including the
- * leave type, and the S11 project name, plus whatever S16 custom fields are
- * individually marked colleague-visible. Every other section is absent for a
+ * Spec rule 3: the Colleague view is a whitelist. Exactly S1, S10 (dates only,
+ * leave type hidden), and the S11 project name, plus whatever S16 custom fields
+ * are individually marked colleague-visible. Every other section is absent for a
  * Colleague, enforced at the API rather than by hiding fields in the UI.
  */
 export const COLLEAGUE_WHITELIST = [

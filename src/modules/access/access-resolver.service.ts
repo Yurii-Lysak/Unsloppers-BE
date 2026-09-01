@@ -114,8 +114,9 @@ const PP_SECTIONS: Record<SectionId, SectionAccessLevel> = {
   S16: 'RW',
 };
 
+/** `access-model.md` Rule 4 — Colleague whitelist (S1, S10, S11 only). */
 const COLLEAGUE_SECTIONS: Record<SectionId, SectionAccessLevel> = {
-  S1: 'none',
+  S1: 'R',
   S2: 'none',
   S3: 'none',
   S4: 'none',
@@ -124,8 +125,8 @@ const COLLEAGUE_SECTIONS: Record<SectionId, SectionAccessLevel> = {
   S7: 'none',
   S8: 'none',
   S9: 'none',
-  S10: 'none',
-  S11: 'none',
+  S10: 'R',
+  S11: 'R',
   S12: 'none',
   S13: 'none',
   S14: 'none',

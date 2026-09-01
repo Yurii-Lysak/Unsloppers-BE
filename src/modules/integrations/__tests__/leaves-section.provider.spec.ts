@@ -125,6 +125,39 @@ describe('LeavesSectionProvider', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
+  it('masks leave type when audience is passed from the assembler path', async () => {
+    leavesSync.getLeavesForEmployee.mockResolvedValue({
+      availability: 'ok',
+      leaves: [
+        {
+          type: 'vacation',
+          startDate: '2026-08-25',
+          endDate: '2026-08-29',
+          approvalState: 'approved',
+        },
+      ],
+    });
+
+    await expect(
+      provider.getSection('viewer-1', 'subject-1', {
+        role: 'Colleague',
+        sections: { S10: 'R' },
+      }),
+    ).resolves.toEqual({
+      availability: 'ok',
+      manageLeaveUrl: null,
+      leaves: [
+        {
+          type: null,
+          startDate: '2026-08-25',
+          endDate: '2026-08-29',
+          approvalState: null,
+        },
+      ],
+    });
+    expect(accessResolver.resolveAudience).not.toHaveBeenCalled();
+  });
+
   it('includes manageLeaveUrl for Self viewers', async () => {
     accessResolver.resolveAudience.mockResolvedValue({
       role: 'Self',
