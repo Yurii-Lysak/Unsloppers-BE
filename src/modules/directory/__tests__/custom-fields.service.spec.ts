@@ -34,6 +34,7 @@ describe('CustomFieldsService', () => {
   };
   const permissionChecker = {
     hasPermission: jest.fn(),
+    getGrantedPermissions: jest.fn(),
   };
 
   beforeEach(async () => {

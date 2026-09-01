@@ -15,4 +15,7 @@ export abstract class PermissionChecker {
     userId: string,
     permissionKey: string,
   ): Promise<boolean>;
+
+  /** Union of catalog-valid permission keys granted via functional-role assignments. */
+  abstract getGrantedPermissions(userId: string): Promise<readonly string[]>;
 }

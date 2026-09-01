@@ -12,6 +12,7 @@ import {
   FunctionalRolesController,
   PermissionsCatalogController,
 } from './functional-roles.controller';
+import { EmployeeFunctionalRolesController } from './employee-functional-roles.controller';
 
 /**
  * `access` — implements C1 `AccessResolver`, C3 `ProjectAssignment`, and C8
@@ -29,7 +30,11 @@ import {
  */
 @Global()
 @Module({
-  controllers: [FunctionalRolesController, PermissionsCatalogController],
+  controllers: [
+    FunctionalRolesController,
+    PermissionsCatalogController,
+    EmployeeFunctionalRolesController,
+  ],
   providers: [
     { provide: AccessResolver, useClass: AccessResolverService },
     { provide: ProjectAssignment, useClass: ProjectAssignmentService },
