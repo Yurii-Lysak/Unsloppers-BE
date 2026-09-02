@@ -24,6 +24,9 @@ describe('AccessResolverService', () => {
     departmentHistory: {
       findFirst: jest.fn(),
     },
+    fullAccessGrant: {
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
   };
 
   const projectAssignment = {
@@ -693,6 +696,17 @@ describe('AccessResolverService', () => {
       const result = await service.resolveAudience('H', 'B');
 
       expect(result.role).toBe('Colleague');
+    });
+
+    it('resolves FullAccess when viewer holds an active full-access grant', async () => {
+      projectAssignment.listByEmployee.mockResolvedValue([]);
+      prisma.fullAccessGrant.findFirst.mockResolvedValue({ id: 'grant-1' });
+
+      const result = await service.resolveAudience('fa-viewer', 'subject');
+
+      expect(result.role).toBe('FullAccess');
+      expect(result.sections.S3).toBe('RW');
+      expect(result.sections.S7).toBe('RW');
     });
   });
 });
