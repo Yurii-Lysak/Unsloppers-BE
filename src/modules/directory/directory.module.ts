@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { FieldRegistry } from '../contracts/field-registry.contract';
 import { CustomFieldVisibilityService } from './custom-field-visibility.service';
 import { CustomFieldsController } from './custom-fields.controller';
+import { CustomFieldsSectionProvider } from './custom-fields-section.provider';
 import { EmployeesController } from './employees.controller';
 import { CustomFieldsService } from './custom-fields.service';
 import { EmployeesService } from './employees.service';
@@ -20,6 +21,7 @@ import { FieldRegistryService } from './field-registry.service';
     CustomFieldsService,
     EmployeesService,
     CustomFieldVisibilityService,
+    CustomFieldsSectionProvider,
     {
       provide: FieldRegistry,
       useExisting: FieldRegistryService,

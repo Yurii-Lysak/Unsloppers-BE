@@ -53,7 +53,17 @@ export interface ResolvedAudience {
   sections: Record<SectionId, SectionAccessLevel>;
 }
 
-/** `access-model.md` Rule 4 — Colleague whitelist (S1, S10, S11 only). */
+/**
+ * `access-model.md` Rule 4 — Colleague whitelist (S1, S10, S11 — see the S16
+ * exception below).
+ *
+ * S16 is a narrow, documented exception (CAP-2 / Story 1.10): the section
+ * itself is granted `'R'` so a Colleague can reach per-field filtering, but
+ * no field is actually visible unless its own visibility is `'colleague'` —
+ * `CustomFieldVisibilityService` enforces that gate. This mirrors the
+ * S7-PM and S1-mentor carve-outs, where a general grant is narrowed by a
+ * later, more specific rule rather than by widening the whitelist itself.
+ */
 export const COLLEAGUE_SECTION_GRANTS: Record<SectionId, SectionAccessLevel> = {
   S1: 'R',
   S2: 'none',
@@ -70,7 +80,7 @@ export const COLLEAGUE_SECTION_GRANTS: Record<SectionId, SectionAccessLevel> = {
   S13: 'none',
   S14: 'none',
   S15: 'none',
-  S16: 'none',
+  S16: 'R',
 };
 
 export abstract class AccessResolver {

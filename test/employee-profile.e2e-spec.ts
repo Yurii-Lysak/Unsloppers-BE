@@ -91,7 +91,15 @@ describe('Employee profile assembly (e2e)', () => {
 
     expect(body.displayName).toBeTruthy();
     expect(body.audience.role).toBe('Colleague');
-    expect(Object.keys(body.sections).sort()).toEqual(['S1', 'S10', 'S11']);
+    // S16 is a documented CAP-2 exception (Story 1.10): the section renders
+    // (empty here — no custom fields exist in this fixture), never
+    // 'unavailable', per ProfileAssemblerService.isUnavailablePayload.
+    expect(Object.keys(body.sections).sort()).toEqual([
+      'S1',
+      'S10',
+      'S11',
+      'S16',
+    ]);
   });
 
   it('masks S10 leave type for Colleague viewers on the profile endpoint', async () => {

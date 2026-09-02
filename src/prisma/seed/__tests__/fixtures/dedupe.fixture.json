@@ -1,0 +1,1 @@
+{"version":1,"identities":[{"id":1,"email":"dup@example.com","name":"First","hash":"hash-1","countryCode":"US"},{"id":2,"email":"dup@example.com","name":"Second","hash":"hash-1","countryCode":"US"},{"id":3,"email":"other@example.com","name":"Other","hash":"hash-1","countryCode":"US"}]}

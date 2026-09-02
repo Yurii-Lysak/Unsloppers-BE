@@ -59,6 +59,16 @@ describe('EmployeesService', () => {
     visibility: 'management',
   };
 
+  const colleagueCustomField: FieldSpec = {
+    id: 'custom-colleague',
+    name: 'Favorite team',
+    type: 'text',
+    source: 'custom',
+    sortable: true,
+    filterable: true,
+    visibility: 'colleague',
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
 
@@ -103,6 +113,67 @@ describe('EmployeesService', () => {
         ],
       }),
     );
+  });
+
+  it('includes colleague-visibility custom fields in colleague catalog responses (Story 1.10)', async () => {
+    fieldRegistryService.listFields.mockResolvedValue([
+      ...builtinFields,
+      colleagueCustomField,
+    ]);
+    permissionChecker.hasPermission.mockResolvedValue(false);
+    visibility.canViewFieldDefinition.mockResolvedValue(true);
+    fieldRegistryService.queryEmployees.mockResolvedValue({
+      rows: [],
+      total: 0,
+      page: 1,
+      pageSize: 50,
+    });
+
+    const result = await service.listEmployees('viewer-1', {});
+
+    expect(result.fields.map((field) => field.id)).toEqual([
+      BUILTIN_FIELD_IDS.name,
+      BUILTIN_FIELD_IDS.years_with_company,
+      colleagueCustomField.id,
+    ]);
+    expect(fieldRegistryService.queryEmployees).toHaveBeenCalledWith(
+      expect.objectContaining({
+        visibleFieldIds: [
+          BUILTIN_FIELD_IDS.name,
+          BUILTIN_FIELD_IDS.years_with_company,
+          colleagueCustomField.id,
+        ],
+      }),
+    );
+  });
+
+  it('keeps colleague-visibility custom cells unmasked for a Colleague viewer (Story 1.10)', async () => {
+    fieldRegistryService.listFields.mockResolvedValue([
+      ...builtinFields,
+      colleagueCustomField,
+    ]);
+    permissionChecker.hasPermission.mockResolvedValue(false);
+    visibility.canViewFieldDefinition.mockResolvedValue(true);
+    fieldRegistryService.queryEmployees.mockResolvedValue({
+      rows: [
+        {
+          employeeId: 'emp-1',
+          cells: {
+            [BUILTIN_FIELD_IDS.name]: 'Alex',
+            [colleagueCustomField.id]: 'Falcons',
+          },
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+    });
+    visibility.canViewFieldForSubject.mockResolvedValue(true);
+
+    const result = await service.listEmployees('viewer-1', {});
+
+    expect(result.rows[0]?.cells[colleagueCustomField.id]).toBe('Falcons');
+    expect(result.rows[0]?.cells[BUILTIN_FIELD_IDS.name]).toBe('Alex');
   });
 
   it('passes tenure filter to the registry query engine', async () => {
