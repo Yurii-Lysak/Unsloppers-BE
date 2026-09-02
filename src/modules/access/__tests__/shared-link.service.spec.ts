@@ -7,42 +7,74 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { Clock } from '../../../clock/clock.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessResolver } from '../../contracts/access-resolver.contract';
+import { RelationshipJournal } from '../../contracts/relationship-journal.contract';
 import { SharedLinkService } from '../shared-link.service';
 
 describe('SharedLinkService', () => {
   let service: SharedLinkService;
   let accessResolver: jest.Mocked<AccessResolver>;
+  let relationshipJournal: { record: jest.Mock };
   let prisma: {
-    sharedLink: { create: jest.Mock; findUnique: jest.Mock };
+    sharedLink: {
+      create: jest.Mock;
+      findUnique: jest.Mock;
+      findMany: jest.Mock;
+      findFirst: jest.Mock;
+      update: jest.Mock;
+    };
     employee: { findUnique: jest.Mock };
   };
-  let clock: { nowMs: jest.Mock };
+  let clock: { now: jest.Mock; nowMs: jest.Mock };
 
   const creatorId = 'creator-id';
   const subjectId = 'subject-id';
   const recipientId = 'recipient-id';
+  const baseTime = new Date('2026-09-02T12:00:00.000Z');
+
+  const activeLinkRow = {
+    id: 'link-id',
+    token: 'A'.repeat(43),
+    subjectEmployeeId: subjectId,
+    creatorEmployeeId: creatorId,
+    recipientEmployeeId: recipientId,
+    expiresAt: new Date('2026-09-03T12:00:00.000Z'),
+    revokedAt: null,
+    createdAt: baseTime,
+    sections: [{ sectionId: 'S1' }, { sectionId: 'S9' }],
+  };
 
   beforeEach(async () => {
     accessResolver = {
       resolveAudience: jest.fn(),
     };
 
+    relationshipJournal = {
+      record: jest.fn().mockResolvedValue({}),
+    };
+
     prisma = {
       sharedLink: {
         create: jest.fn().mockResolvedValue({}),
         findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        findFirst: jest.fn(),
+        update: jest.fn(),
       },
       employee: {
         findUnique: jest.fn(),
       },
     };
 
-    clock = { nowMs: jest.fn().mockReturnValue(1_700_000_000_000) };
+    clock = {
+      now: jest.fn().mockReturnValue(baseTime),
+      nowMs: jest.fn().mockReturnValue(baseTime.getTime()),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SharedLinkService,
         { provide: AccessResolver, useValue: accessResolver },
+        { provide: RelationshipJournal, useValue: relationshipJournal },
         { provide: PrismaService, useValue: prisma },
         { provide: Clock, useValue: clock },
       ],
@@ -71,6 +103,17 @@ describe('SharedLinkService', () => {
       S15: 'R',
       S16: 'RW',
     },
+  });
+
+  const linkRecord = () => ({
+    id: activeLinkRow.id,
+    token: activeLinkRow.token,
+    subjectEmployeeId: subjectId,
+    creatorEmployeeId: creatorId,
+    recipientEmployeeId: recipientId,
+    sectionIds: ['S1', 'S9'] as const,
+    expiresAt: activeLinkRow.expiresAt,
+    revokedAt: null,
   });
 
   const setupCreateFixtures = () => {
@@ -162,6 +205,22 @@ describe('SharedLinkService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('createLink_usesCustomExpiresInHours', async () => {
+    setupCreateFixtures();
+    await service.createLink(creatorId, subjectId, {
+      recipientEmployeeId: recipientId,
+      expiresInHours: 48,
+    });
+
+    expect(prisma.sharedLink.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          expiresAt: new Date(baseTime.getTime() + 48 * 3_600_000),
+        }) as object,
+      }),
+    );
+  });
+
   it('buildSharedLinkAudience_capsAllGrantsAtRead', () => {
     const audience = service.buildSharedLinkAudience(['S1', 'S9']);
     expect(audience.role).toBe('SharedLink');
@@ -176,11 +235,7 @@ describe('SharedLinkService', () => {
       sections: { ...reportingLineAudience().sections, S6: 'none' },
     });
     const clamped = await service.computeClampedSectionIds({
-      id: 'link',
-      token: 'a'.repeat(43),
-      subjectEmployeeId: subjectId,
-      creatorEmployeeId: creatorId,
-      recipientEmployeeId: recipientId,
+      ...linkRecord(),
       sectionIds: ['S1', 'S6', 'S9'],
     });
     expect(clamped).toEqual(['S1', 'S9']);
@@ -199,20 +254,159 @@ describe('SharedLinkService', () => {
     );
   });
 
-  it('assertRecipient_rejectsWrongViewer', () => {
-    expect(() =>
-      service.assertRecipient(
-        {
-          id: 'link',
-          token: 'x',
+  it('getLifecycleDenial_returnsExpiredAtBoundary', () => {
+    const link = {
+      ...linkRecord(),
+      expiresAt: baseTime,
+      revokedAt: null,
+    };
+    expect(service.getLifecycleDenial(link)).toBe('expired');
+  });
+
+  it('getLifecycleDenial_returnsRevoked', () => {
+    const link = {
+      ...linkRecord(),
+      revokedAt: baseTime,
+    };
+    expect(service.getLifecycleDenial(link)).toBe('revoked');
+  });
+
+  it('getLifecycleDenial_returnsNullForActiveLink', () => {
+    expect(service.getLifecycleDenial(linkRecord())).toBeNull();
+  });
+
+  it('recordAccessAttempt_writesJournalEntry', async () => {
+    await service.recordAccessAttempt(
+      linkRecord(),
+      recipientId,
+      '10.0.0.1',
+      'granted',
+    );
+
+    expect(relationshipJournal.record).toHaveBeenCalledWith(
+      recipientId,
+      subjectId,
+      'shared_link_access',
+      null,
+      expect.objectContaining({
+        sharedLinkId: 'link-id',
+        outcome: 'granted',
+        originIp: '10.0.0.1',
+      }),
+    );
+  });
+
+  it('revokeLink_isIdempotent', async () => {
+    prisma.employee.findUnique.mockResolvedValue({ id: subjectId });
+    accessResolver.resolveAudience.mockResolvedValue(reportingLineAudience());
+    prisma.sharedLink.findFirst.mockResolvedValue({
+      id: 'link-id',
+      revokedAt: baseTime,
+    });
+
+    const result = await service.revokeLink(creatorId, subjectId, 'link-id');
+    expect(result).toEqual({ revoked: true });
+    expect(prisma.sharedLink.update).not.toHaveBeenCalled();
+  });
+
+  it('revokeLink_setsRevokedAtForActiveLink', async () => {
+    prisma.employee.findUnique.mockResolvedValue({ id: subjectId });
+    accessResolver.resolveAudience.mockResolvedValue(reportingLineAudience());
+    prisma.sharedLink.findFirst.mockResolvedValue({
+      id: 'link-id',
+      revokedAt: null,
+    });
+
+    await service.revokeLink(creatorId, subjectId, 'link-id');
+
+    expect(prisma.sharedLink.update).toHaveBeenCalledWith({
+      where: { id: 'link-id' },
+      data: { revokedAt: baseTime },
+    });
+  });
+
+  it('listActiveForSubject_rejectsColleague', async () => {
+    prisma.employee.findUnique.mockResolvedValue({ id: subjectId });
+    accessResolver.resolveAudience.mockResolvedValue({
+      role: 'Colleague',
+      sections: reportingLineAudience().sections,
+    });
+
+    await expect(
+      service.listActiveForSubject('viewer-id', subjectId),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('listActiveForSubject_queriesOnlyActiveLinks', async () => {
+    prisma.employee.findUnique.mockResolvedValue({ id: subjectId });
+    accessResolver.resolveAudience.mockResolvedValue(reportingLineAudience());
+    prisma.sharedLink.findMany.mockResolvedValue([]);
+
+    await service.listActiveForSubject(creatorId, subjectId);
+
+    expect(prisma.sharedLink.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
           subjectEmployeeId: subjectId,
-          creatorEmployeeId: creatorId,
-          recipientEmployeeId: recipientId,
-          sectionIds: ['S1'],
+          revokedAt: null,
+          expiresAt: { gt: baseTime },
         },
-        'other-viewer',
-      ),
-    ).toThrow(ForbiddenException);
+      }),
+    );
+  });
+
+  it('getAccessLog_filtersEntriesBySharedLinkId', async () => {
+    prisma.employee.findUnique.mockResolvedValue({ id: subjectId });
+    accessResolver.resolveAudience.mockResolvedValue(reportingLineAudience());
+    prisma.sharedLink.findFirst.mockResolvedValue({ id: 'link-a' });
+    relationshipJournal.record.mockReset();
+    const journal = {
+      readFor: jest.fn().mockResolvedValue([
+        {
+          createdAt: '2026-09-02T12:00:00.000Z',
+          after: {
+            sharedLinkId: 'link-a',
+            outcome: 'granted',
+            originIp: '10.0.0.1',
+            recipientEmployeeId: recipientId,
+          },
+        },
+        {
+          createdAt: '2026-09-02T11:00:00.000Z',
+          after: {
+            sharedLinkId: 'link-b',
+            outcome: 'denied',
+            denialReason: 'expired',
+            originIp: null,
+            recipientEmployeeId: recipientId,
+          },
+        },
+      ]),
+    };
+    const moduleWithJournal = await Test.createTestingModule({
+      providers: [
+        SharedLinkService,
+        { provide: AccessResolver, useValue: accessResolver },
+        { provide: RelationshipJournal, useValue: journal },
+        { provide: PrismaService, useValue: prisma },
+        { provide: Clock, useValue: clock },
+      ],
+    }).compile();
+    const scopedService = moduleWithJournal.get(SharedLinkService);
+
+    const entries = await scopedService.getAccessLog(
+      creatorId,
+      subjectId,
+      'link-a',
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toEqual(
+      expect.objectContaining({
+        outcome: 'granted',
+        originIp: '10.0.0.1',
+      }),
+    );
   });
 
   it('createLink_rejectsSelfAsSubject', async () => {

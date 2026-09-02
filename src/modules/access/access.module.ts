@@ -21,6 +21,8 @@ import { SharedLinkService } from './shared-link.service';
 import { IdentitySectionProvider } from './identity-section.provider';
 import { ProjectsSectionProvider } from './projects-section.provider';
 import { SectionAccessGateService } from './section-access-gate.service';
+import { RelationshipJournal } from '../contracts/relationship-journal.contract';
+import { RelationshipJournalService } from './relationship-journal.service';
 
 /**
  * `access` — implements C1 `AccessResolver`, C3 `ProjectAssignment`, and C8
@@ -54,6 +56,7 @@ import { SectionAccessGateService } from './section-access-gate.service';
     FunctionalRoleAssignmentService,
     ProfileAssemblerService,
     SharedLinkService,
+    { provide: RelationshipJournal, useClass: RelationshipJournalService },
     IdentitySectionProvider,
     ProjectsSectionProvider,
     { provide: SectionAccessGate, useClass: SectionAccessGateService },
@@ -66,6 +69,7 @@ import { SectionAccessGateService } from './section-access-gate.service';
     FunctionalRoleAssignmentService,
     ProfileAssemblerService,
     SectionAccessGate,
+    RelationshipJournal,
   ],
 })
 export class AccessModule {}

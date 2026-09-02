@@ -3,6 +3,7 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Post,
@@ -12,12 +13,25 @@ import { ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { CurrentUserProvider } from '../contracts/current-user-provider.contract';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CreateSharedLinkDto } from './dto/create-shared-link.dto';
+import {
+  CreateSharedLinkDto,
+  ListSharedLinksResponseDto,
+  RevokeSharedLinkResponseDto,
+  SharedLinkAccessLogResponseDto,
+} from './dto/create-shared-link.dto';
 import { EmployeeProfileEntity } from './entities/employee-profile.entity';
 import { ProfileAssemblerService } from './profile-assembler.service';
-import { SharedLinkService } from './shared-link.service';
+import {
+  INACTIVE_LINK_MESSAGE,
+  SharedLinkService,
+} from './shared-link.service';
 import { SwaggerGetEmployeeProfile } from './profile.swagger';
-import { SwaggerCreateSharedLink } from './shared-link.swagger';
+import {
+  SwaggerCreateSharedLink,
+  SwaggerGetSharedLinkAccessLog,
+  SwaggerListSharedLinks,
+  SwaggerRevokeSharedLink,
+} from './shared-link.swagger';
 
 @ApiTags('shared-links')
 @Controller()
@@ -40,6 +54,47 @@ export class SharedLinkController {
     return this.sharedLinks.createLink(creatorEmployeeId, employeeId, dto);
   }
 
+  @Get('employees/:employeeId/shared-links')
+  @SwaggerListSharedLinks()
+  async listActive(
+    @Req() request: Request,
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+  ): Promise<ListSharedLinksResponseDto> {
+    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
+    const links = await this.sharedLinks.listActiveForSubject(
+      viewerEmployeeId,
+      employeeId,
+    );
+    return { links };
+  }
+
+  @Post('employees/:employeeId/shared-links/:linkId/revoke')
+  @SwaggerRevokeSharedLink()
+  async revoke(
+    @Req() request: Request,
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Param('linkId', ParseUUIDPipe) linkId: string,
+  ): Promise<RevokeSharedLinkResponseDto> {
+    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
+    return this.sharedLinks.revokeLink(viewerEmployeeId, employeeId, linkId);
+  }
+
+  @Get('employees/:employeeId/shared-links/:linkId/access-log')
+  @SwaggerGetSharedLinkAccessLog()
+  async accessLog(
+    @Req() request: Request,
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Param('linkId', ParseUUIDPipe) linkId: string,
+  ): Promise<SharedLinkAccessLogResponseDto> {
+    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
+    const entries = await this.sharedLinks.getAccessLog(
+      viewerEmployeeId,
+      employeeId,
+      linkId,
+    );
+    return { entries };
+  }
+
   @Get('shared-links/:token/profile')
   @SwaggerGetEmployeeProfile()
   async consumeProfile(
@@ -47,9 +102,42 @@ export class SharedLinkController {
     @Param('token') token: string,
   ): Promise<EmployeeProfileEntity> {
     const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
+    const originIp = extractClientIp(request);
     const link = await this.sharedLinks.findLinkByToken(token);
-    this.sharedLinks.assertRecipient(link, viewerEmployeeId);
-    return this.assembler.assembleProfileViaSharedLink(link);
+
+    const lifecycleDenial = this.sharedLinks.getLifecycleDenial(link);
+    if (lifecycleDenial) {
+      await this.sharedLinks.recordAccessAttempt(
+        link,
+        viewerEmployeeId,
+        originIp,
+        'denied',
+        lifecycleDenial,
+      );
+      throw new NotFoundException(INACTIVE_LINK_MESSAGE);
+    }
+
+    if (link.recipientEmployeeId !== viewerEmployeeId) {
+      await this.sharedLinks.recordAccessAttempt(
+        link,
+        viewerEmployeeId,
+        originIp,
+        'denied',
+        'wrong_recipient',
+      );
+      throw new ForbiddenException('You are not the recipient of this link');
+    }
+
+    const profile = await this.assembler.assembleProfileViaSharedLink(link);
+
+    await this.sharedLinks.recordAccessAttempt(
+      link,
+      viewerEmployeeId,
+      originIp,
+      'granted',
+    );
+
+    return profile;
   }
 
   private async resolveViewerEmployeeId(request: Request): Promise<string> {
@@ -63,4 +151,16 @@ export class SharedLinkController {
     }
     return employee.id;
   }
+}
+
+function extractClientIp(request: Request): string | null {
+  const forwarded = request.headers['x-forwarded-for'];
+  const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+  if (typeof raw === 'string' && raw.length > 0) {
+    const ip = raw.split(',')[0]?.trim();
+    if (ip) {
+      return ip;
+    }
+  }
+  return request.ip ?? null;
 }

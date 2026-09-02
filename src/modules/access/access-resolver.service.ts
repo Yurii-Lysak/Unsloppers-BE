@@ -115,6 +115,13 @@ const PP_SECTIONS: Record<SectionId, SectionAccessLevel> = {
   S16: 'RW',
 };
 
+/** Full profile access — every section read/write (access-model.md § Full profile access). */
+const FULL_ACCESS_SECTIONS: Record<SectionId, SectionAccessLevel> =
+  Object.fromEntries(ALL_SECTION_IDS.map((id) => [id, 'RW'])) as Record<
+    SectionId,
+    SectionAccessLevel
+  >;
+
 /**
  * `access-model.md` Rule 4 — Colleague whitelist (S1, S10, S11 — plus the
  * documented S16 exception, see `COLLEAGUE_SECTION_GRANTS`'s own doc comment).
@@ -208,6 +215,13 @@ export class AccessResolverService extends AccessResolver {
     const pp = await this.resolvePp(viewerId, subjectId);
     if (pp) {
       matched.push(pp);
+    }
+
+    if (await this.hasActiveFullAccessGrant(viewerId)) {
+      matched.push({
+        role: 'FullAccess',
+        sections: { ...FULL_ACCESS_SECTIONS },
+      });
     }
 
     if (matched.length === 0) {
@@ -442,5 +456,13 @@ export class AccessResolverService extends AccessResolver {
     }
 
     return false;
+  }
+
+  private async hasActiveFullAccessGrant(viewerId: string): Promise<boolean> {
+    const grant = await this.prisma.fullAccessGrant.findFirst({
+      where: { employeeId: viewerId, revokedAt: null },
+      select: { id: true },
+    });
+    return grant !== null;
   }
 }

@@ -93,6 +93,11 @@ model Employee {
   sharedLinksReceived  SharedLink[] @relation("SharedLinkRecipient")
   sharedLinksAsSubject SharedLink[] @relation("SharedLinkSubject")
 
+  journalEntriesAsActor   RelationshipJournalEntry[] @relation("JournalActor")
+  journalEntriesAsSubject RelationshipJournalEntry[] @relation("JournalSubject")
+
+  fullAccessGrants FullAccessGrant[]
+
   @@index([managerId])
   @@index([peoplePartnerId])
   @@map("employees")
@@ -431,4 +436,35 @@ model SharedLinkSection {
 
   @@unique([sharedLinkId, sectionId])
   @@map("shared_link_sections")
+}
+
+// Story 1.12 — C10 RelationshipJournal (shared_link_access only in this story).
+model RelationshipJournalEntry {
+  id                String   @id @default(uuid())
+  actorEmployeeId   String?
+  subjectEmployeeId String
+  kind              String
+  before            Json?
+  after             Json
+  createdAt         DateTime @default(now())
+
+  actorEmployee   Employee? @relation("JournalActor", fields: [actorEmployeeId], references: [id], onDelete: SetNull)
+  subjectEmployee Employee  @relation("JournalSubject", fields: [subjectEmployeeId], references: [id], onDelete: Restrict)
+
+  @@index([subjectEmployeeId, kind, createdAt])
+  @@map("relationship_journal_entries")
+}
+
+// Story 1.12 — dedicated full-profile access grant (access-model.md § Full profile access).
+// Active holder ⇔ revokedAt IS NULL. Grant/revoke UI and journal kinds are out of scope.
+model FullAccessGrant {
+  id         String    @id @default(uuid())
+  employeeId String
+  grantedAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, revokedAt])
+  @@map("full_access_grants")
 }

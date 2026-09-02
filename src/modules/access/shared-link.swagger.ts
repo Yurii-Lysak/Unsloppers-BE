@@ -4,9 +4,15 @@ import {
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
+  ApiOkResponse,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { CreateSharedLinkResponseDto } from './dto/create-shared-link.dto';
+import {
+  CreateSharedLinkResponseDto,
+  ListSharedLinksResponseDto,
+  RevokeSharedLinkResponseDto,
+  SharedLinkAccessLogResponseDto,
+} from './dto/create-shared-link.dto';
 
 export const SwaggerCreateSharedLink = () =>
   applyDecorators(
@@ -19,6 +25,43 @@ export const SwaggerCreateSharedLink = () =>
     ApiNotFoundResponse({ description: 'Subject employee not found' }),
     ApiBadRequestResponse({
       description:
-        'Invalid recipient, forbidden section, duplicate section ids, or creator lacks grant for a requested section. Note: expiresAt is stored (default 24h) but not enforced until Story 1.12.',
+        'Invalid recipient, forbidden section, duplicate section ids, invalid expiresInHours, or creator lacks grant for a requested section',
+    }),
+  );
+
+export const SwaggerListSharedLinks = () =>
+  applyDecorators(
+    ApiOkResponse({ type: ListSharedLinksResponseDto }),
+    ApiUnauthorizedResponse({ description: 'Unauthenticated' }),
+    ApiForbiddenResponse({
+      description:
+        'Authenticated user has no employee record, or lacks manage access over the subject',
+    }),
+    ApiNotFoundResponse({ description: 'Subject employee not found' }),
+  );
+
+export const SwaggerRevokeSharedLink = () =>
+  applyDecorators(
+    ApiOkResponse({ type: RevokeSharedLinkResponseDto }),
+    ApiUnauthorizedResponse({ description: 'Unauthenticated' }),
+    ApiForbiddenResponse({
+      description:
+        'Authenticated user has no employee record, or lacks manage access over the subject',
+    }),
+    ApiNotFoundResponse({
+      description: 'Subject employee or shared link not found',
+    }),
+  );
+
+export const SwaggerGetSharedLinkAccessLog = () =>
+  applyDecorators(
+    ApiOkResponse({ type: SharedLinkAccessLogResponseDto }),
+    ApiUnauthorizedResponse({ description: 'Unauthenticated' }),
+    ApiForbiddenResponse({
+      description:
+        'Authenticated user has no employee record, or lacks manage access over the subject',
+    }),
+    ApiNotFoundResponse({
+      description: 'Subject employee or shared link not found',
     }),
   );
