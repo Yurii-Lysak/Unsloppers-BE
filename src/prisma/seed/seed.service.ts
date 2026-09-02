@@ -14,6 +14,7 @@ import {
 import { BootcampIdentity, loadBootcampSeedManifest } from './seed.manifest';
 import { buildSyntheticProfile } from './seed.synthetic';
 import { seedFunctionalRoles } from './seed.functional-roles';
+import { seedDemoMentorshipPair } from './seed.mentorship';
 import { FunctionalRoleAssignmentService } from '../../modules/access/functional-role-assignment.service';
 
 export interface SeedSummary {
@@ -21,6 +22,7 @@ export interface SeedSummary {
   duplicateEmailsSkipped: number;
   functionalRolesUpserted: number;
   hrAdminAssignments: number;
+  mentorshipPairsSeeded: number;
 }
 
 /**
@@ -80,9 +82,16 @@ export class SeedService {
       this.logger,
     );
 
+    const mentorshipPairsSeeded = await seedDemoMentorshipPair(
+      this.prisma,
+      identities,
+      this.logger,
+    );
+
     this.logger.log(
       `Seed complete: ${identitiesUpserted} identities upserted, ${duplicateEmails.length} duplicate ` +
-        `email(s) deduped, ${functionalRoleSeed.rolesUpserted} built-in functional roles upserted.`,
+        `email(s) deduped, ${functionalRoleSeed.rolesUpserted} built-in functional roles upserted, ` +
+        `${mentorshipPairsSeeded} mentorship pair(s) seeded.`,
     );
 
     return {
@@ -90,6 +99,7 @@ export class SeedService {
       duplicateEmailsSkipped: duplicateEmails.length,
       functionalRolesUpserted: functionalRoleSeed.rolesUpserted,
       hrAdminAssignments: functionalRoleSeed.hrAdminAssignments,
+      mentorshipPairsSeeded,
     };
   }
 

@@ -20,9 +20,8 @@ export class IdentitySectionDto {
 
   @ApiPropertyOptional({
     description:
-      'Deferred until mentorship schema lands. Omitted for Colleague viewers (D5).',
+      'Active mentor for the subject. Omitted for audiences outside D5 (ReportingLine, ProjectLine, PP).',
     type: IdentityRelationEntity,
-    nullable: true,
   })
-  mentor?: IdentityRelationEntity | null;
+  mentor?: IdentityRelationEntity;
 }
