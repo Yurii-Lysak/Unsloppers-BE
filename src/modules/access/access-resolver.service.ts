@@ -115,7 +115,10 @@ const PP_SECTIONS: Record<SectionId, SectionAccessLevel> = {
   S16: 'RW',
 };
 
-/** `access-model.md` Rule 4 — Colleague whitelist (S1, S10, S11 only). */
+/**
+ * `access-model.md` Rule 4 — Colleague whitelist (S1, S10, S11 — plus the
+ * documented S16 exception, see `COLLEAGUE_SECTION_GRANTS`'s own doc comment).
+ */
 const COLLEAGUE_SECTIONS = COLLEAGUE_SECTION_GRANTS;
 
 const ACCESS_LEVEL_RANK: Record<SectionAccessLevel, number> = {

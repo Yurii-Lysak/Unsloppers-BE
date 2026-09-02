@@ -126,7 +126,15 @@ describe('Colleague whitelist enforcement (e2e)', () => {
       sections: Record<string, unknown>;
     };
     expect(body.audience.role).toBe('Colleague');
-    expect(Object.keys(body.sections).sort()).toEqual(['S1', 'S10', 'S11']);
+    // S16 is now a documented CAP-2 exception (Story 1.10): the section is
+    // present, but per-field visibility still hides the management-tier
+    // field defined in this suite (see the empty-fields assertion below).
+    expect(Object.keys(body.sections).sort()).toEqual([
+      'S1',
+      'S10',
+      'S11',
+      'S16',
+    ]);
   });
 
   it('masks leave type on the parallel leaves route for colleagues', async () => {
@@ -184,10 +192,11 @@ describe('Colleague whitelist enforcement (e2e)', () => {
       .expect(404);
   });
 
-  it('denies colleague custom field values with 403', async () => {
-    await colleagueAgent
+  it('passes the S16 gate for colleague custom field value reads but returns no management-tier values (Story 1.10)', async () => {
+    const res = await colleagueAgent
       .get(`/api/v1/custom-fields/values/${reportEmployeeId}`)
-      .expect(403);
+      .expect(200);
+    expect(res.body).toEqual([]);
   });
 
   it('returns 404 for unknown employees on custom field values', async () => {

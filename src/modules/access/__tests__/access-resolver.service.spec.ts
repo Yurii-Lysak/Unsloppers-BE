@@ -232,6 +232,9 @@ describe('AccessResolverService', () => {
     expect(result.sections.S11).toBe('R');
     expect(result.sections.S2).toBe('none');
     expect(result.sections.S9).toBe('none');
+    // Story 1.10 / CAP-2 exception: S16 is granted so per-field visibility
+    // can filter it, unlike the flat 'none' on every other denied section.
+    expect(result.sections.S16).toBe('R');
   });
 
   it('resolves Colleague and never loops on a cyclical manager chain', async () => {
