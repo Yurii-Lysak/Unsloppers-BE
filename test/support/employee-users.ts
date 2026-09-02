@@ -30,9 +30,6 @@ export const loginAsEmployee = async (
   password: string,
 ): Promise<ReturnType<typeof request.agent>> => {
   const agent = request.agent(testApp.server);
-  await agent
-    .post('/api/v1/auth/login')
-    .send({ email, password })
-    .expect(200);
+  await agent.post('/api/v1/auth/login').send({ email, password }).expect(200);
   return agent;
 };

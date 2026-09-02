@@ -6,6 +6,7 @@ import {
   PERMISSION_KEYS,
 } from '../src/modules/contracts/permission-keys';
 import { LeavesSyncService } from '../src/modules/integrations/leaves-sync.service';
+import { ActiveMentorLookup } from '../src/modules/contracts/active-mentor-lookup.contract';
 import { createTestApp, TestApp } from './support/app-harness';
 
 const PASSWORD = 'test-only-employee-profile-password';
@@ -14,12 +15,20 @@ const REPORT_EMAIL = 'profile-report@example.com';
 const COLLEAGUE_EMAIL = 'profile-colleague@example.com';
 const HR_ADMIN_EMAIL = 'profile-hr-admin@example.com';
 const NO_EMPLOYEE_EMAIL = 'profile-no-employee@example.com';
+const MENTOR_EMAIL = 'profile-mentor@example.com';
+const DM_EMAIL = 'profile-dm@example.com';
+const PP_EMAIL = 'profile-pp@example.com';
 
 describe('Employee profile assembly (e2e)', () => {
   let testApp: TestApp;
   let managerAgent: ReturnType<typeof request.agent>;
   let colleagueAgent: ReturnType<typeof request.agent>;
+  let reportAgent: ReturnType<typeof request.agent>;
+  let dmAgent: ReturnType<typeof request.agent>;
+  let ppAgent: ReturnType<typeof request.agent>;
   let reportEmployeeId: string;
+  let mentorEmployeeId: string;
+  let managerEmployeeId: string;
 
   beforeAll(async () => {
     testApp = await createTestApp({
@@ -45,8 +54,13 @@ describe('Employee profile assembly (e2e)', () => {
     });
     const seeded = await seedProfileGraph(testApp);
     reportEmployeeId = seeded.reportEmployeeId;
+    mentorEmployeeId = seeded.mentorEmployeeId;
+    managerEmployeeId = seeded.managerEmployeeId;
     managerAgent = await loginAgent(testApp, MANAGER_EMAIL);
     colleagueAgent = await loginAgent(testApp, COLLEAGUE_EMAIL);
+    reportAgent = await loginAgent(testApp, REPORT_EMAIL);
+    dmAgent = await loginAgent(testApp, DM_EMAIL);
+    ppAgent = await loginAgent(testApp, PP_EMAIL);
   });
 
   afterAll(async () => {
@@ -145,6 +159,265 @@ describe('Employee profile assembly (e2e)', () => {
     expect(body.sections.S6?.status).toBe('unavailable');
   });
 
+  it('includes mentor in S1 for ReportingLine viewers when an active pair exists', async () => {
+    const res = await managerAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s1 = (
+      res.body as {
+        sections: {
+          S1?: {
+            data?: {
+              mentor?: { id: string; displayName: string };
+            };
+          };
+        };
+      }
+    ).sections.S1;
+
+    expect(s1?.data?.mentor).toEqual({
+      id: mentorEmployeeId,
+      displayName: MENTOR_EMAIL,
+    });
+  });
+
+  it('omits mentor in S1 for Colleague viewers even when an active pair exists', async () => {
+    const res = await colleagueAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s1 = (
+      res.body as {
+        sections: {
+          S1?: { data?: Record<string, unknown> };
+        };
+      }
+    ).sections.S1;
+
+    expect(s1?.data).toBeDefined();
+    expect(s1?.data).not.toHaveProperty('mentor');
+  });
+
+  it('omits mentor in S1 for Self viewers (D5 allow-list)', async () => {
+    const res = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s1 = (
+      res.body as {
+        sections: {
+          S1?: { data?: Record<string, unknown> };
+        };
+      }
+    ).sections.S1;
+
+    expect(s1?.data).toBeDefined();
+    expect(s1?.data).not.toHaveProperty('mentor');
+  });
+
+  it('includes mentor in S1 for ProjectLine viewers', async () => {
+    const res = await dmAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const body = res.body as {
+      audience: { role: string };
+      sections: {
+        S1?: { data?: { mentor?: { id: string } } };
+      };
+    };
+
+    expect(body.audience.role).toBe('ProjectLine');
+    expect(body.sections.S1?.data?.mentor?.id).toBe(mentorEmployeeId);
+  });
+
+  it('reflects mentorship pair changes on the next profile response', async () => {
+    const before = await managerAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    await testApp.prisma.mentorshipPair.updateMany({
+      where: { menteeId: reportEmployeeId, endedAt: null },
+      data: { endedAt: new Date() },
+    });
+
+    const afterEnd = await managerAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const beforeMentor = (
+      before.body as {
+        sections: { S1?: { data?: Record<string, unknown> } };
+      }
+    ).sections.S1?.data;
+    const afterMentor = (
+      afterEnd.body as {
+        sections: { S1?: { data?: Record<string, unknown> } };
+      }
+    ).sections.S1?.data;
+
+    expect(beforeMentor).toHaveProperty('mentor');
+    expect(afterMentor).not.toHaveProperty('mentor');
+
+    await testApp.prisma.mentorshipPair.create({
+      data: {
+        mentorId: mentorEmployeeId,
+        menteeId: reportEmployeeId,
+      },
+    });
+
+    const afterRecreate = await managerAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    expect(
+      (
+        afterRecreate.body as {
+          sections: { S1?: { data?: { mentor?: { id: string } } } };
+        }
+      ).sections.S1?.data?.mentor?.id,
+    ).toBe(mentorEmployeeId);
+  });
+
+  it('includes mentor in S1 for PP viewers when an active pair exists', async () => {
+    const res = await ppAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const body = res.body as {
+      audience: { role: string };
+      sections: {
+        S1?: { data?: { mentor?: { id: string } } };
+      };
+    };
+
+    expect(body.audience.role).toBe('PP');
+    expect(body.sections.S1?.data?.mentor?.id).toBe(mentorEmployeeId);
+  });
+
+  it('still returns S1 data when mentor lookup fails', async () => {
+    const failingApp = await createTestApp({
+      providerOverrides: [
+        {
+          provide: ActiveMentorLookup,
+          useValue: {
+            getActiveMentorForMentee: jest
+              .fn()
+              .mockRejectedValue(new Error('lookup unavailable')),
+          },
+        },
+        {
+          provide: LeavesSyncService,
+          useValue: {
+            getLeavesForEmployee: jest.fn().mockResolvedValue({
+              availability: 'ok',
+              leaves: [],
+            }),
+            getManageLeaveUrl: jest.fn().mockReturnValue(null),
+          },
+        },
+      ],
+    });
+
+    try {
+      const seeded = await seedProfileGraph(failingApp);
+      const agent = await loginAgent(failingApp, MANAGER_EMAIL);
+
+      const res = await agent
+        .get(`/api/v1/employees/${seeded.reportEmployeeId}/profile`)
+        .expect(200);
+
+      const s1 = (
+        res.body as {
+          sections: {
+            S1?: { data?: Record<string, unknown>; status?: string };
+          };
+        }
+      ).sections.S1;
+
+      expect(s1).toHaveProperty('data');
+      expect(s1?.status).toBeUndefined();
+      expect(s1?.data).not.toHaveProperty('mentor');
+      expect(s1?.data).toHaveProperty('manager');
+    } finally {
+      await failingApp.close();
+    }
+  });
+
+  it('reflects manager reassignment on the next profile response', async () => {
+    const before = await colleagueAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    expect(
+      (
+        before.body as {
+          sections: { S1?: { data?: { manager?: { id: string } } } };
+        }
+      ).sections.S1?.data?.manager?.id,
+    ).toBe(managerEmployeeId);
+
+    await testApp.prisma.employee.update({
+      where: { id: reportEmployeeId },
+      data: { managerId: mentorEmployeeId },
+    });
+
+    const after = await colleagueAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    expect(
+      (
+        after.body as {
+          sections: { S1?: { data?: { manager?: { id: string } } } };
+        }
+      ).sections.S1?.data?.manager?.id,
+    ).toBe(mentorEmployeeId);
+  });
+
+  it('reflects people partner reassignment on the next profile response', async () => {
+    const ppUser = await testApp.prisma.user.findUniqueOrThrow({
+      where: { email: PP_EMAIL },
+    });
+    const ppEmployee = await testApp.prisma.employee.findUniqueOrThrow({
+      where: { userId: ppUser.id },
+    });
+
+    const before = await colleagueAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    expect(
+      (
+        before.body as {
+          sections: {
+            S1?: { data?: { peoplePartner?: { id: string } | null } };
+          };
+        }
+      ).sections.S1?.data?.peoplePartner?.id,
+    ).toBe(ppEmployee.id);
+
+    await testApp.prisma.employee.update({
+      where: { id: reportEmployeeId },
+      data: { peoplePartnerId: mentorEmployeeId },
+    });
+
+    const after = await colleagueAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    expect(
+      (
+        after.body as {
+          sections: {
+            S1?: { data?: { peoplePartner?: { id: string } | null } };
+          };
+        }
+      ).sections.S1?.data?.peoplePartner?.id,
+    ).toBe(mentorEmployeeId);
+  });
+
   it('keeps assembled profile sections unchanged after a C8 role assignment', async () => {
     const before = await colleagueAgent
       .get(`/api/v1/employees/${reportEmployeeId}/profile`)
@@ -223,6 +496,15 @@ const seedProfileGraph = async (testApp: TestApp) => {
   const managerUser = await testApp.prisma.user.create({
     data: { email: MANAGER_EMAIL, passwordHash },
   });
+  const mentorUser = await testApp.prisma.user.create({
+    data: { email: MENTOR_EMAIL, passwordHash },
+  });
+  const dmUser = await testApp.prisma.user.create({
+    data: { email: DM_EMAIL, passwordHash },
+  });
+  const ppUser = await testApp.prisma.user.create({
+    data: { email: PP_EMAIL, passwordHash },
+  });
   const reportUser = await testApp.prisma.user.create({
     data: { email: REPORT_EMAIL, passwordHash },
   });
@@ -243,12 +525,46 @@ const seedProfileGraph = async (testApp: TestApp) => {
   const managerEmployee = await testApp.prisma.employee.create({
     data: { userId: managerUser.id },
   });
+  const mentorEmployee = await testApp.prisma.employee.create({
+    data: { userId: mentorUser.id },
+  });
+  const dmEmployee = await testApp.prisma.employee.create({
+    data: { userId: dmUser.id },
+  });
+  const ppEmployee = await testApp.prisma.employee.create({
+    data: { userId: ppUser.id },
+  });
   const reportEmployee = await testApp.prisma.employee.create({
-    data: { userId: reportUser.id, managerId: managerEmployee.id },
+    data: {
+      userId: reportUser.id,
+      managerId: managerEmployee.id,
+      peoplePartnerId: ppEmployee.id,
+    },
+  });
+  await testApp.prisma.mentorshipPair.create({
+    data: {
+      mentorId: mentorEmployee.id,
+      menteeId: reportEmployee.id,
+    },
+  });
+  await testApp.prisma.projectAssignment.create({
+    data: {
+      employeeId: reportEmployee.id,
+      projectId: 'profile-project',
+      pmId: managerEmployee.id,
+      dmId: dmEmployee.id,
+      startDate: new Date('2026-01-01'),
+      confirmed: true,
+      confirmedAt: new Date(),
+    },
   });
   await testApp.prisma.employee.create({
     data: { userId: colleagueUser.id },
   });
 
-  return { reportEmployeeId: reportEmployee.id };
+  return {
+    reportEmployeeId: reportEmployee.id,
+    mentorEmployeeId: mentorEmployee.id,
+    managerEmployeeId: managerEmployee.id,
+  };
 };

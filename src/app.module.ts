@@ -15,6 +15,7 @@ import { DirectoryModule } from './modules/directory/directory.module';
 import { TimelineModule } from './modules/timeline/timeline.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { ManagementNotesModule } from './modules/management-notes/management-notes.module';
+import { MentorshipModule } from './modules/mentorship/mentorship.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { ManagementNotesModule } from './modules/management-notes/management-not
     TimetrackerModule,
     IntegrationsModule,
     ManagementNotesModule,
+    MentorshipModule,
     HealthModule,
     UsersModule,
   ],

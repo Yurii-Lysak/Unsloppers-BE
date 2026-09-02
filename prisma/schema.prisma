@@ -77,6 +77,10 @@ model Employee {
   managementNotesAbout   ManagementNote[] @relation("ManagementNoteSubject")
   managementNotesAuthored ManagementNote[] @relation("ManagementNoteAuthor")
 
+  // Story 1.7 — active mentorship pairs where this employee is mentor or mentee.
+  mentorPairs MentorshipPair[] @relation("MentorPairs")
+  menteePairs MentorshipPair[] @relation("MenteePairs")
+
   @@index([managerId])
   @@index([peoplePartnerId])
   @@map("employees")
@@ -364,4 +368,22 @@ model ManagementNote {
 
   @@index([subjectEmployeeId])
   @@map("management_notes")
+}
+
+// Story 1.7 — minimal read substrate for profile-header mentor resolution.
+// Epic 9 adds closure note, consent checks, and write APIs. Partial unique on
+// active mentee is enforced in migration SQL — see Design Notes in spec 1.7.
+model MentorshipPair {
+  id        String    @id @default(uuid())
+  mentorId  String
+  menteeId  String
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  mentor Employee @relation("MentorPairs", fields: [mentorId], references: [id], onDelete: Restrict)
+  mentee Employee @relation("MenteePairs", fields: [menteeId], references: [id], onDelete: Restrict)
+
+  @@index([menteeId, endedAt])
+  @@index([mentorId])
+  @@map("mentorship_pairs")
 }

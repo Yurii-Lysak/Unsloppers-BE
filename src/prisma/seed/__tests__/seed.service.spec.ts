@@ -319,11 +319,36 @@ function makePrismaMock() {
   const functionalRoleAssignmentUpsert = jest.fn(() =>
     Promise.resolve({ id: 'assign-1' }),
   );
+  const functionalRoleAssignmentFindMany = jest.fn(() => Promise.resolve([]));
+
+  const functionalRoleFindMany = jest.fn(
+    ({
+      where,
+    }: {
+      where?: {
+        permissions?: { some?: { permissionKey?: string } };
+      };
+    } = {}) => {
+      let result = [...roles.values()];
+      const permissionKey = where?.permissions?.some?.permissionKey;
+      if (permissionKey) {
+        result = result.filter((role) =>
+          role.permissions.some(
+            (entry) => entry.permissionKey === permissionKey,
+          ),
+        );
+      }
+      return Promise.resolve(result);
+    },
+  );
 
   const grade = historyDelegate('grade');
   const position = historyDelegate('position');
   const department = historyDelegate('department');
   const employmentType = historyDelegate('employmentType');
+
+  const mentorshipPairFindFirst = jest.fn(() => Promise.resolve(null));
+  const mentorshipPairCreate = jest.fn(() => Promise.resolve({ id: 'pair-1' }));
 
   const prisma = {
     user: {
@@ -341,6 +366,7 @@ function makePrismaMock() {
       upsert: functionalRoleUpsert,
       findFirst: functionalRoleFindFirst,
       findFirstOrThrow: functionalRoleFindFirstOrThrow,
+      findMany: functionalRoleFindMany,
       create: functionalRoleCreate,
       update: functionalRoleUpdate,
       findUnique: functionalRoleFindUnique,
@@ -352,11 +378,16 @@ function makePrismaMock() {
     },
     functionalRoleAssignment: {
       upsert: functionalRoleAssignmentUpsert,
+      findMany: functionalRoleAssignmentFindMany,
     },
     gradeHistory: grade,
     positionHistory: position,
     departmentHistory: department,
     employmentTypeHistory: employmentType,
+    mentorshipPair: {
+      findFirst: mentorshipPairFindFirst,
+      create: mentorshipPairCreate,
+    },
   } as unknown as PrismaService;
 
   return {
@@ -372,6 +403,8 @@ function makePrismaMock() {
     externalIdentityUpsert,
     functionalRoleCreate,
     functionalRoleAssignmentUpsert,
+    mentorshipPairCreate,
+    mentorshipPairFindFirst,
   };
 }
 
@@ -388,6 +421,7 @@ describe('SeedService', () => {
       departmentCreate,
       employmentTypeCreate,
       externalIdentityUpsert,
+      mentorshipPairCreate,
     } = makePrismaMock();
 
     const summary = await new SeedService(
@@ -399,8 +433,10 @@ describe('SeedService', () => {
     expect(summary.identitiesUpserted).toBe(3);
     expect(summary.functionalRolesUpserted).toBe(5);
     expect(summary.hrAdminAssignments).toBe(1);
+    expect(summary.mentorshipPairsSeeded).toBe(1);
     expect(userUpsert).toHaveBeenCalledTimes(3);
     expect(externalIdentityUpsert).toHaveBeenCalledTimes(3);
+    expect(mentorshipPairCreate).toHaveBeenCalledTimes(1);
     expect(gradeCreate).toHaveBeenCalledTimes(3);
     expect(positionCreate).toHaveBeenCalledTimes(3);
     expect(departmentCreate).toHaveBeenCalledTimes(3);

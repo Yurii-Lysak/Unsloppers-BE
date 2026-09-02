@@ -1,20 +1,33 @@
 import { Injectable } from '@nestjs/common';
-import { ResolvedAudience } from '../contracts/access-resolver.contract';
+import {
+  AccessRole,
+  ResolvedAudience,
+} from '../contracts/access-resolver.contract';
+import { ActiveMentorLookup } from '../contracts/active-mentor-lookup.contract';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SectionProvider } from '../contracts/section-provider.contract';
 import { RegisterProvider } from '../registry/register-provider.decorator';
 import { IdentitySectionDto } from './entities/identity-section.entity';
 
+const MENTOR_VISIBLE_ROLES: ReadonlySet<AccessRole> = new Set([
+  'ReportingLine',
+  'ProjectLine',
+  'PP',
+]);
+
 /**
  * S1 identity stub — bootcamp schema exposes User name/email plus manager and
- * people-partner links. Photo, position, department, and mentor are deferred
- * until their owning stories add Prisma columns; mentor is omitted for Colleague
- * viewers when present (D5).
+ * people-partner links. Photo, position, and department are deferred until their
+ * owning stories add Prisma columns. Mentor is resolved from active
+ * `MentorshipPair` rows for D5-allowed audiences only (Story 1.7).
  */
 @Injectable()
 @RegisterProvider('section', 'S1')
 export class IdentitySectionProvider extends SectionProvider {
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly activeMentorLookup: ActiveMentorLookup,
+  ) {
     super();
   }
 
@@ -56,8 +69,16 @@ export class IdentitySectionProvider extends SectionProvider {
         : null,
     };
 
-    if (audience?.role !== 'Colleague') {
-      // Mentor relation deferred until mentorship schema lands (Story 1.7+).
+    if (audience && MENTOR_VISIBLE_ROLES.has(audience.role)) {
+      try {
+        const mentor =
+          await this.activeMentorLookup.getActiveMentorForMentee(subjectId);
+        if (mentor) {
+          section.mentor = mentor;
+        }
+      } catch {
+        // Mentor resolution failures omit mentor only — S1 still returns manager/PP.
+      }
     }
 
     return section;
