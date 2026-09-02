@@ -9,6 +9,7 @@ import { SectionProvider } from '../../contracts/section-provider.contract';
 import { ProviderRegistryService } from '../../registry/provider-registry.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ProfileAssemblerService } from '../profile-assembler.service';
+import { SharedLinkService } from '../shared-link.service';
 
 const ALL_SECTIONS_NONE: Record<SectionId, 'none'> = {
   S1: 'none',
@@ -34,6 +35,11 @@ describe('ProfileAssemblerService', () => {
   const accessResolver = { resolveAudience: jest.fn() };
   const registry = { get: jest.fn() };
   const prisma = { employee: { findUnique: jest.fn() } };
+  const sharedLinks = {
+    computeClampedSectionIds: jest.fn(),
+    buildSharedLinkAudience: jest.fn(),
+    getCreatorAudienceForLink: jest.fn(),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -48,6 +54,7 @@ describe('ProfileAssemblerService', () => {
         { provide: AccessResolver, useValue: accessResolver },
         { provide: ProviderRegistryService, useValue: registry },
         { provide: PrismaService, useValue: prisma },
+        { provide: SharedLinkService, useValue: sharedLinks },
       ],
     }).compile();
 
@@ -324,5 +331,89 @@ describe('ProfileAssemblerService', () => {
       accessLevel: 'RW',
       status: 'unavailable',
     });
+  });
+
+  it('assembleProfileViaSharedLink passes creator audience to providers', async () => {
+    const creatorAudience: ResolvedAudience = {
+      role: 'ProjectLine',
+      sections: {
+        ...ALL_SECTIONS_NONE,
+        S1: 'R',
+        S5: 'R',
+      },
+    };
+    const responseAudience: ResolvedAudience = {
+      role: 'SharedLink',
+      sections: {
+        ...ALL_SECTIONS_NONE,
+        S1: 'R',
+        S5: 'R',
+      },
+    };
+
+    sharedLinks.computeClampedSectionIds.mockResolvedValue(['S1', 'S5']);
+    sharedLinks.buildSharedLinkAudience.mockReturnValue(responseAudience);
+    sharedLinks.getCreatorAudienceForLink.mockResolvedValue(creatorAudience);
+
+    const s1Provider: SectionProvider = {
+      getSection: jest.fn().mockResolvedValue({ displayName: 'Subject User' }),
+    };
+    const getS5Section = jest.fn().mockResolvedValue({ documents: [] });
+    const s5Provider: SectionProvider = {
+      getSection: getS5Section,
+    };
+
+    registry.get.mockImplementation((_family: string, id: string) => {
+      if (id === 'S1') {
+        return { status: 'available', provider: s1Provider };
+      }
+      if (id === 'S5') {
+        return { status: 'available', provider: s5Provider };
+      }
+      return { status: 'unavailable' };
+    });
+
+    const profile = await service.assembleProfileViaSharedLink({
+      id: 'link-1',
+      token: 'a'.repeat(43),
+      subjectEmployeeId: 'subject-1',
+      creatorEmployeeId: 'creator-1',
+      recipientEmployeeId: 'recipient-1',
+      sectionIds: ['S1', 'S5'],
+    });
+
+    expect(getS5Section).toHaveBeenCalledWith(
+      'recipient-1',
+      'subject-1',
+      creatorAudience,
+    );
+    expect(profile.audience.role).toBe('SharedLink');
+    expect(Object.keys(profile.sections).sort()).toEqual(['S1', 'S5']);
+  });
+
+  it('assembleProfileViaSharedLink returns empty sections when D14 clamps all', async () => {
+    const emptyAudience: ResolvedAudience = {
+      role: 'SharedLink',
+      sections: { ...ALL_SECTIONS_NONE },
+    };
+
+    sharedLinks.computeClampedSectionIds.mockResolvedValue([]);
+    sharedLinks.buildSharedLinkAudience.mockReturnValue(emptyAudience);
+    sharedLinks.getCreatorAudienceForLink.mockResolvedValue({
+      role: 'Colleague',
+      sections: { ...ALL_SECTIONS_NONE },
+    });
+
+    const profile = await service.assembleProfileViaSharedLink({
+      id: 'link-1',
+      token: 'a'.repeat(43),
+      subjectEmployeeId: 'subject-1',
+      creatorEmployeeId: 'creator-1',
+      recipientEmployeeId: 'recipient-1',
+      sectionIds: ['S1', 'S9'],
+    });
+
+    expect(profile.sections).toEqual({});
+    expect(profile.audience.sections.S1).toBe('none');
   });
 });

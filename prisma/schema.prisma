@@ -30,12 +30,20 @@ model User {
   @@map("users")
 }
 
+// PRD §4.16 — employment status is the single source for whether someone has left.
+// Story 1.11 uses this to reject dismissed employees as shared-link recipients.
+enum EmploymentStatus {
+  active
+  dismissed
+}
+
 // Story 1.20 — minimal Wave-0 shape (1:1 with User); later stories (1.1, 1.6)
 // add fields as they're needed. An Employee has no lifecycle independent of
 // its User, hence Cascade.
 model Employee {
   id        String   @id @default(uuid())
   userId    String   @unique
+  employmentStatus EmploymentStatus @default(active)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -80,6 +88,10 @@ model Employee {
   // Story 1.7 — active mentorship pairs where this employee is mentor or mentee.
   mentorPairs MentorshipPair[] @relation("MentorPairs")
   menteePairs MentorshipPair[] @relation("MenteePairs")
+
+  sharedLinksCreated   SharedLink[] @relation("SharedLinkCreator")
+  sharedLinksReceived  SharedLink[] @relation("SharedLinkRecipient")
+  sharedLinksAsSubject SharedLink[] @relation("SharedLinkSubject")
 
   @@index([managerId])
   @@index([peoplePartnerId])
@@ -386,4 +398,37 @@ model MentorshipPair {
   @@index([menteeId, endedAt])
   @@index([mentorId])
   @@map("mentorship_pairs")
+}
+
+// Story 1.11 — shareable profile links (section-scoped, named recipient).
+// Expiry enforcement, access logging, and revocation are Story 1.12.
+model SharedLink {
+  id                  String    @id @default(uuid())
+  token               String    @unique
+  subjectEmployeeId   String
+  creatorEmployeeId   String
+  recipientEmployeeId String
+  expiresAt           DateTime
+  revokedAt           DateTime?
+  createdAt           DateTime  @default(now())
+
+  subjectEmployee   Employee @relation("SharedLinkSubject", fields: [subjectEmployeeId], references: [id], onDelete: Restrict)
+  creatorEmployee   Employee @relation("SharedLinkCreator", fields: [creatorEmployeeId], references: [id], onDelete: Restrict)
+  recipientEmployee Employee @relation("SharedLinkRecipient", fields: [recipientEmployeeId], references: [id], onDelete: Restrict)
+  sections          SharedLinkSection[]
+
+  @@index([subjectEmployeeId])
+  @@index([recipientEmployeeId])
+  @@map("shared_links")
+}
+
+model SharedLinkSection {
+  id           String @id @default(uuid())
+  sharedLinkId String
+  sectionId    String
+
+  sharedLink SharedLink @relation(fields: [sharedLinkId], references: [id], onDelete: Cascade)
+
+  @@unique([sharedLinkId, sectionId])
+  @@map("shared_link_sections")
 }

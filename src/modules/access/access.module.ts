@@ -15,7 +15,9 @@ import {
 } from './functional-roles.controller';
 import { EmployeeFunctionalRolesController } from './employee-functional-roles.controller';
 import { ProfileController } from './profile.controller';
+import { SharedLinkController } from './shared-link.controller';
 import { ProfileAssemblerService } from './profile-assembler.service';
+import { SharedLinkService } from './shared-link.service';
 import { IdentitySectionProvider } from './identity-section.provider';
 import { ProjectsSectionProvider } from './projects-section.provider';
 import { SectionAccessGateService } from './section-access-gate.service';
@@ -41,6 +43,7 @@ import { SectionAccessGateService } from './section-access-gate.service';
     PermissionsCatalogController,
     EmployeeFunctionalRolesController,
     ProfileController,
+    SharedLinkController,
   ],
   providers: [
     { provide: AccessResolver, useClass: AccessResolverService },
@@ -50,6 +53,7 @@ import { SectionAccessGateService } from './section-access-gate.service';
     FunctionalRoleService,
     FunctionalRoleAssignmentService,
     ProfileAssemblerService,
+    SharedLinkService,
     IdentitySectionProvider,
     ProjectsSectionProvider,
     { provide: SectionAccessGate, useClass: SectionAccessGateService },

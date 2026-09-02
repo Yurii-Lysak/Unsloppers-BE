@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   AccessResolver,
+  ResolvedAudience,
   SectionAccessLevel,
   SectionId,
 } from '../contracts/access-resolver.contract';
@@ -14,6 +15,7 @@ import {
   ProfileSectionDataEntity,
 } from './entities/employee-profile.entity';
 import { IdentitySectionDto } from './entities/identity-section.entity';
+import { SharedLinkRecord, SharedLinkService } from './shared-link.service';
 
 const ALL_SECTION_IDS: SectionId[] = [
   'S1',
@@ -47,11 +49,47 @@ export class ProfileAssemblerService {
     private readonly accessResolver: AccessResolver,
     private readonly registry: ProviderRegistryService,
     private readonly prisma: PrismaService,
+    private readonly sharedLinks: SharedLinkService,
   ) {}
 
   async assembleProfile(
     viewerEmployeeId: string,
     subjectEmployeeId: string,
+  ): Promise<EmployeeProfileEntity> {
+    const audience = await this.accessResolver.resolveAudience(
+      viewerEmployeeId,
+      subjectEmployeeId,
+    );
+    return this.assembleWithAudiences(
+      viewerEmployeeId,
+      subjectEmployeeId,
+      audience,
+      audience,
+    );
+  }
+
+  async assembleProfileViaSharedLink(
+    link: SharedLinkRecord,
+  ): Promise<EmployeeProfileEntity> {
+    const clampedSections =
+      await this.sharedLinks.computeClampedSectionIds(link);
+    const responseAudience =
+      this.sharedLinks.buildSharedLinkAudience(clampedSections);
+    const providerAudience =
+      await this.sharedLinks.getCreatorAudienceForLink(link);
+    return this.assembleWithAudiences(
+      link.recipientEmployeeId,
+      link.subjectEmployeeId,
+      responseAudience,
+      providerAudience,
+    );
+  }
+
+  private async assembleWithAudiences(
+    viewerEmployeeId: string,
+    subjectEmployeeId: string,
+    responseAudience: ResolvedAudience,
+    providerAudience: ResolvedAudience,
   ): Promise<EmployeeProfileEntity> {
     const subject = await this.prisma.employee.findUnique({
       where: { id: subjectEmployeeId },
@@ -61,16 +99,11 @@ export class ProfileAssemblerService {
       throw new NotFoundException('Employee not found');
     }
 
-    const audience = await this.accessResolver.resolveAudience(
-      viewerEmployeeId,
-      subjectEmployeeId,
-    );
-
     const sections: Record<string, AssembledProfileSection> = {};
     let displayName = subject.user.name?.trim() || subject.user.email;
 
     for (const sectionId of ALL_SECTION_IDS) {
-      const accessLevel = audience.sections[sectionId];
+      const accessLevel = responseAudience.sections[sectionId];
       if (accessLevel === 'none') {
         continue;
       }
@@ -80,7 +113,7 @@ export class ProfileAssemblerService {
         accessLevel,
         viewerEmployeeId,
         subjectEmployeeId,
-        audience,
+        providerAudience,
       );
       sections[sectionId] = envelope;
 
@@ -96,8 +129,8 @@ export class ProfileAssemblerService {
       employeeId: subjectEmployeeId,
       displayName,
       audience: {
-        role: audience.role,
-        sections: audience.sections,
+        role: responseAudience.role,
+        sections: responseAudience.sections,
       },
       sections,
     };

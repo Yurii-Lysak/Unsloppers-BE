@@ -24,7 +24,9 @@ describe('ActiveMentorLookupService', () => {
   it('returns null when no active pair exists', async () => {
     prisma.mentorshipPair.findFirst.mockResolvedValue(null);
 
-    await expect(service.getActiveMentorForMentee('mentee-1')).resolves.toBeNull();
+    await expect(
+      service.getActiveMentorForMentee('mentee-1'),
+    ).resolves.toBeNull();
   });
 
   it('returns mentor display name from the latest active pair', async () => {
@@ -35,10 +37,12 @@ describe('ActiveMentorLookupService', () => {
       },
     });
 
-    await expect(service.getActiveMentorForMentee('mentee-1')).resolves.toEqual({
-      id: 'mentor-1',
-      displayName: 'Mentor Name',
-    });
+    await expect(service.getActiveMentorForMentee('mentee-1')).resolves.toEqual(
+      {
+        id: 'mentor-1',
+        displayName: 'Mentor Name',
+      },
+    );
 
     expect(prisma.mentorshipPair.findFirst).toHaveBeenCalledWith({
       where: { menteeId: 'mentee-1', endedAt: null },
@@ -56,7 +60,9 @@ describe('ActiveMentorLookupService', () => {
       mentor: null,
     });
 
-    await expect(service.getActiveMentorForMentee('mentee-1')).resolves.toBeNull();
+    await expect(
+      service.getActiveMentorForMentee('mentee-1'),
+    ).resolves.toBeNull();
   });
 
   it('falls back to email when mentor name is blank', async () => {
@@ -67,9 +73,11 @@ describe('ActiveMentorLookupService', () => {
       },
     });
 
-    await expect(service.getActiveMentorForMentee('mentee-1')).resolves.toEqual({
-      id: 'mentor-1',
-      displayName: 'mentor@example.com',
-    });
+    await expect(service.getActiveMentorForMentee('mentee-1')).resolves.toEqual(
+      {
+        id: 'mentor-1',
+        displayName: 'mentor@example.com',
+      },
+    );
   });
 });
