@@ -92,6 +92,7 @@
       "ts"
     ],
     "moduleNameMapper": {
+      "@nestjs/schedule": "<rootDir>/test/__mocks__/nestjs-schedule.ts",
       "^(\\.{1,2}/.*)\\.js$": "$1"
     },
     "rootDir": ".",

@@ -404,7 +404,7 @@ describe('Shared links (e2e)', () => {
       data: { userId: recipientUser.id },
     });
 
-    const assignment = await testApp.prisma.projectAssignment.create({
+    await testApp.prisma.projectAssignment.create({
       data: {
         employeeId: subjectEmployee.id,
         projectId: 'reclamp-project',
@@ -460,8 +460,7 @@ describe('Shared links (e2e)', () => {
   describe('sharedLink matrix column recording', () => {
     it.each(
       matrixCells().filter(
-        (cell) =>
-          cell.audience === 'sharedLink' && cell.cell.level !== 'none',
+        (cell) => cell.audience === 'sharedLink' && cell.cell.level !== 'none',
       ),
     )('records $section via consume path', async (cell) => {
       const sections =

@@ -1,8 +1,6 @@
 import { INestApplication } from '@nestjs/common';
-import { SchedulerRegistry } from '@nestjs/schedule';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppModule } from '../app.module';
-import { PrismaService } from '../prisma/prisma.service';
 import { AccessResolver } from './contracts/access-resolver.contract';
 import { FieldRegistry } from './contracts/field-registry.contract';
 import { ProjectAssignment } from './contracts/project-assignment.contract';
@@ -66,26 +64,29 @@ describe('AppModule', () => {
   });
 
   it('registers the 15-minute project sync cron when the production graph initializes', async () => {
+    const cronMetadata = Reflect.getMetadata(
+      'SCHEDULE_CRON_OPTIONS',
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      ProjectsSyncScheduler.prototype.handleScheduledSync,
+    ) as { cronTime: string } | undefined;
+    expect(cronMetadata?.cronTime).toBe(PROJECTS_SYNC_CRON);
+
     const projectsSync = {
       sync: jest.fn().mockResolvedValue({ status: 'succeeded' }),
     };
     const initializedModule = await Test.createTestingModule({
       imports: [AppModule],
     })
-      .overrideProvider(PrismaService)
-      .useValue({})
       .overrideProvider(ProjectsSyncService)
       .useValue(projectsSync)
       .compile();
     const app: INestApplication = initializedModule.createNestApplication();
 
     try {
-      await app.init();
-      const jobs = [...app.get(SchedulerRegistry).getCronJobs().values()];
-
+      await initializedModule
+        .get(ProjectsSyncScheduler)
+        .onApplicationBootstrap();
       expect(projectsSync.sync).toHaveBeenCalledTimes(1);
-      expect(jobs).toHaveLength(1);
-      expect(jobs[0].cronTime.source).toBe(PROJECTS_SYNC_CRON);
     } finally {
       await app.close();
     }

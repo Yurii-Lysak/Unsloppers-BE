@@ -5,6 +5,12 @@ on:
   push:
     branches: [main]
 
+env:
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/people_management_test
+  JWT_SECRET: test-only-jwt-secret-that-is-at-least-32-chars
+  JWT_TTL_SECONDS: '3600'
+  NODE_ENV: test
+
 jobs:
   module-boundaries:
     name: Module boundary check (dependency-cruiser)
@@ -26,6 +32,21 @@ jobs:
   unit-tests:
     name: Unit tests
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: people_management_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d people_management_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --health-start-period 10s
     steps:
       - uses: actions/checkout@v4
 
@@ -36,6 +57,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Apply migrations
+        run: npm run db:deploy
 
       - name: Run unit tests
         run: npm test
@@ -75,11 +99,6 @@ jobs:
           --health-timeout 5s
           --health-retries 5
           --health-start-period 10s
-    env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/people_management_test
-      JWT_SECRET: test-only-jwt-secret-that-is-at-least-32-chars
-      JWT_TTL_SECONDS: '3600'
-      NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
 
@@ -95,4 +114,4 @@ jobs:
         run: npm run db:deploy
 
       - name: Run access-control e2e suites
-        run: npm run test:e2e:serial -- --testPathPattern='access-matrix|matrix-flag|shared-links|cross-feature-access'
+        run: npm run test:e2e:serial -- --testPathPatterns='access-matrix|matrix-flag|shared-links|cross-feature-access'

@@ -43,7 +43,7 @@ Workflow: `.github/workflows/ci.yml`
 - `depcruise` — module boundaries (Story 1.19)
 - `npm test` — unit suites including `access-resolver.service.spec.ts`
 - `npm run lint`
-- `npm run test:e2e:serial -- --testPathPattern='access-matrix|matrix-flag|shared-links|cross-feature-access'` with Postgres 18 service and `npm run db:deploy`
+- `npm run test:e2e:serial -- --testPathPatterns='access-matrix|matrix-flag|shared-links|cross-feature-access'` with Postgres 18 service and `npm run db:deploy`
 
 ## Extending coverage (Epics 4–6)
 
