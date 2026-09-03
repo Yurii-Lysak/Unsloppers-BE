@@ -2,6 +2,10 @@
 import 'dotenv/config';
 import { provisionSchemas } from './support/schema-provisioning';
 import { testSchemaNames } from './support/test-schema';
+import {
+  resetDeniedCoverage,
+  resetMatrixCoverage,
+} from './support/matrix-coverage-collector';
 
 interface JestGlobalConfig {
   readonly maxWorkers?: number;
@@ -15,5 +19,7 @@ interface JestGlobalConfig {
 export default async function setupTestSchemas(
   globalConfig: JestGlobalConfig,
 ): Promise<void> {
+  resetDeniedCoverage();
+  resetMatrixCoverage();
   await provisionSchemas(testSchemaNames(globalConfig.maxWorkers ?? 1));
 }

@@ -1,21 +1,21 @@
 import { aGraph } from './graph-factory';
 
 describe('relationship graph', () => {
-  describe('reports-to closure', () => {
-    it('grants manager access to the direct supervisor', () => {
+  describe('reports-to closure (reporting line)', () => {
+    it('grants reporting-line access to the direct supervisor', () => {
       const graph = aGraph().reportsTo('ic', 'lead').build();
 
-      expect(graph.audienceFor('lead', 'ic')).toBe('managerLine');
+      expect(graph.audienceFor('lead', 'ic')).toBe('reportingLine');
     });
 
-    it('grants manager access at arbitrary depth', () => {
+    it('grants reporting-line access at arbitrary depth', () => {
       const graph = aGraph()
         .reportsTo('ic', 'lead')
         .reportsTo('lead', 'head')
         .reportsTo('head', 'cto')
         .build();
 
-      expect(graph.managerLineOf('ic')).toEqual(
+      expect(graph.reportingLineOf('ic')).toEqual(
         new Set(['lead', 'head', 'cto']),
       );
     });
@@ -38,18 +38,20 @@ describe('relationship graph', () => {
     it('terminates on a cyclic reporting line', () => {
       const graph = aGraph().reportsTo('a', 'b').reportsTo('b', 'a').build();
 
-      expect(graph.managerLineOf('a')).toEqual(new Set(['b']));
+      expect(graph.reportingLineOf('a')).toEqual(new Set(['b']));
     });
   });
 
-  describe('project assignment', () => {
-    it('grants manager access to the PM and the DM', () => {
+  describe('project assignment (project line)', () => {
+    it('grants project-line access to the PM and the DM', () => {
       const graph = aGraph()
         .project('atlas', { pm: 'pm', dm: 'dm' })
         .assign('ic', 'atlas')
         .build();
 
-      expect(graph.managerLineOf('ic')).toEqual(new Set(['pm', 'dm']));
+      expect(graph.projectLineOf('ic')).toEqual(new Set(['pm', 'dm']));
+      expect(graph.audienceFor('pm', 'ic')).toBe('projectLine');
+      expect(graph.audienceFor('dm', 'ic')).toBe('projectLine');
     });
 
     it('grants nothing once the assignment has ended', () => {
@@ -71,24 +73,40 @@ describe('relationship graph', () => {
       expect(graph.audienceFor('peer', 'ic')).toBe('colleague');
     });
 
-    it('unions the two relations, so a unit manager and a DM both see the person', () => {
+    it('keeps reporting line and project line separate on the oracle', () => {
       const graph = aGraph()
         .reportsTo('ic', 'unitManager')
         .project('atlas', { dm: 'dm' })
         .assign('ic', 'atlas')
         .build();
 
-      expect(graph.managerLineOf('ic')).toEqual(new Set(['unitManager', 'dm']));
+      expect(graph.reportingLineOf('ic')).toEqual(new Set(['unitManager']));
+      expect(graph.projectLineOf('ic')).toEqual(new Set(['dm']));
+      expect(graph.rolesFor('unitManager', 'ic')).toEqual(
+        new Set(['reportingLine']),
+      );
+      expect(graph.rolesFor('dm', 'ic')).toEqual(new Set(['projectLine']));
     });
 
-    it('closes over the union, so the manager of a PM also sees the PM\u2019s people', () => {
+    it('closes project line over the PM reporting chain', () => {
       const graph = aGraph()
         .project('atlas', { pm: 'pm' })
         .assign('ic', 'atlas')
         .reportsTo('pm', 'head')
         .build();
 
-      expect(graph.managerLineOf('ic')).toEqual(new Set(['pm', 'head']));
+      expect(graph.projectLineOf('ic')).toEqual(new Set(['pm', 'head']));
+      expect(graph.reportingLineOf('ic')).toEqual(new Set());
+    });
+
+    it('resolves project-line-only viewers to projectLine, not colleague', () => {
+      const graph = aGraph()
+        .project('atlas', { pm: 'pm' })
+        .assign('ic', 'atlas')
+        .build();
+
+      expect(graph.audienceFor('pm', 'ic')).toBe('projectLine');
+      expect(graph.audienceFor('pm', 'ic')).not.toBe('colleague');
     });
   });
 
@@ -131,14 +149,14 @@ describe('relationship graph', () => {
       expect(graph.rolesFor('ic', 'ic')).toEqual(new Set(['self']));
     });
 
-    it('reports both roles when a viewer holds manager and PP access', () => {
+    it('reports both roles when a viewer holds reporting line and PP access', () => {
       const graph = aGraph()
         .reportsTo('ic', 'both')
         .peoplePartner('ic', 'both')
         .build();
 
       expect(graph.rolesFor('both', 'ic')).toEqual(
-        new Set(['managerLine', 'pp']),
+        new Set(['reportingLine', 'pp']),
       );
     });
 

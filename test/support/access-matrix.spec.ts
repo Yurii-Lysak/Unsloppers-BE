@@ -90,12 +90,12 @@ describe('access matrix', () => {
 
   describe('documented exceptions stay attached to their cell', () => {
     it('keeps the PM read-only carve-out on management notes', () => {
-      expect(ACCESS_MATRIX.S7.managerLine.exception).toContain('PM');
+      expect(ACCESS_MATRIX.S7.reportingLine.exception).toContain('PM');
     });
 
     it('keeps the S9 write narrowing on manager line', () => {
-      expect(ACCESS_MATRIX.S9.managerLine.exception).toContain('PP');
-      expect(ACCESS_MATRIX.S9.managerLine.exception).toContain('ProjectLine');
+      expect(ACCESS_MATRIX.S9.reportingLine.exception).toContain('PP');
+      expect(ACCESS_MATRIX.S9.reportingLine.exception).toContain('ProjectLine');
     });
 
     it('keeps the mentor-field rule on the colleague identity card', () => {
@@ -160,7 +160,7 @@ describe('access matrix', () => {
       const denied = deniedMatrixCells();
       expect(
         denied.some(
-          (cell) => cell.section === 'S6' && cell.audience === 'managerLine',
+          (cell) => cell.section === 'S6' && cell.audience === 'reportingLine',
         ),
       ).toBe(false);
       expect(
