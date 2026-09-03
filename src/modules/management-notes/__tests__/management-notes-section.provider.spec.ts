@@ -4,6 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { deniedMatrixCells } from '../../../../test/support/access-matrix';
+import { recordDeniedCoverage } from '../../../../test/support/matrix-coverage-collector';
 import { AccessResolver } from '../../contracts/access-resolver.contract';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ManagementNotesService } from '../management-notes.service';
@@ -39,6 +41,31 @@ describe('ManagementNotesSectionProvider', () => {
       }),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
+
+  it.each(deniedMatrixCells().filter((cell) => cell.section === 'S7'))(
+    'throws for denied matrix audience $audience',
+    async ({ audience }) => {
+      const role =
+        audience === 'colleague'
+          ? 'Colleague'
+          : audience === 'sharedLink'
+            ? 'SharedLink'
+            : 'Self';
+
+      await expect(
+        provider.getSection('viewer', 'subject', {
+          role,
+          sections: { S7: 'none' } as never,
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+
+      recordDeniedCoverage({
+        kind: 'matrix',
+        section: 'S7',
+        audience,
+      });
+    },
+  );
 
   it('delegates RW audience to service with RW access level', async () => {
     const audience = {
