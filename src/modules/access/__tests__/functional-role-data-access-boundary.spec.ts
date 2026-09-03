@@ -6,6 +6,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { Clock } from '../../../clock/clock.service';
 import { PermissionCheckerService } from '../permission-checker.service';
 import { AccessResolverService } from '../access-resolver.service';
+import { RelationshipGraphGenerationService } from '../relationship-graph-generation.service';
 
 describe('Functional role data-access boundary', () => {
   let permissionChecker: PermissionCheckerService;
@@ -21,6 +22,9 @@ describe('Functional role data-access boundary', () => {
     departmentHistory: {
       findFirst: jest.fn(),
     },
+    fullAccessGrant: {
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
   };
 
   const projectAssignment = {
@@ -33,6 +37,16 @@ describe('Functional role data-access boundary', () => {
 
   const clock = {
     now: jest.fn().mockReturnValue(new Date('2026-09-01T00:00:00.000Z')),
+    nowMs: jest
+      .fn()
+      .mockReturnValue(new Date('2026-09-01T00:00:00.000Z').getTime()),
+  };
+
+  const graphGeneration = {
+    cacheKey: jest.fn(),
+    getCacheEntry: jest.fn(),
+    getGeneration: jest.fn().mockReturnValue(0n),
+    setCacheEntry: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -70,6 +84,10 @@ describe('Functional role data-access boundary', () => {
         { provide: ProjectAssignment, useValue: projectAssignment },
         { provide: ConfigService, useValue: configService },
         { provide: Clock, useValue: clock },
+        {
+          provide: RelationshipGraphGenerationService,
+          useValue: graphGeneration,
+        },
       ],
     }).compile();
 

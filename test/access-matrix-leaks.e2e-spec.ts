@@ -10,7 +10,7 @@ import { FixedClock, DEFAULT_TEST_INSTANT } from './support/fixed-clock';
 import {
   getRecordedDeniedPairs,
   recordDeniedCoverage,
-  resetDeniedCoverage,
+  recordMatrixCoverage,
 } from './support/matrix-coverage-collector';
 import {
   expectParallelRouteDenied,
@@ -34,7 +34,6 @@ describe('Access matrix leak harness (e2e)', () => {
   let actors: MatrixActors;
 
   beforeAll(async () => {
-    resetDeniedCoverage();
     testApp = await createTestApp({
       clock: new FixedClock(DEFAULT_TEST_INSTANT),
       providerOverrides: [matrixLeavesProviderOverride],
@@ -63,6 +62,10 @@ describe('Access matrix leak harness (e2e)', () => {
             section: cell.section,
             audience: cell.audience,
           });
+          recordMatrixCoverage({
+            section: cell.section,
+            audience: cell.audience,
+          });
           return;
         }
 
@@ -82,6 +85,10 @@ describe('Access matrix leak harness (e2e)', () => {
 
           recordDeniedCoverage({
             kind: 'matrix',
+            section: cell.section,
+            audience: cell.audience,
+          });
+          recordMatrixCoverage({
             section: cell.section,
             audience: cell.audience,
           });
@@ -113,6 +120,10 @@ describe('Access matrix leak harness (e2e)', () => {
           );
           recordDeniedCoverage({
             kind: 'matrix',
+            section: cell.section,
+            audience: cell.audience,
+          });
+          recordMatrixCoverage({
             section: cell.section,
             audience: cell.audience,
           });

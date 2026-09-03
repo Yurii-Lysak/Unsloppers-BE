@@ -1,6 +1,7 @@
 {
   "moduleFileExtensions": ["js", "json", "ts"],
   "moduleNameMapper": {
+    "@nestjs/schedule": "<rootDir>/__mocks__/nestjs-schedule.ts",
     "^(\\.{1,2}/.*)\\.js$": "$1"
   },
   "rootDir": ".",
@@ -11,6 +12,7 @@
   },
   "setupFiles": ["<rootDir>/jest-e2e.setup-env.ts"],
   "testTimeout": 30000,
+  "maxWorkers": 1,
   "globalSetup": "<rootDir>/jest-e2e.global-setup.ts",
   "globalTeardown": "<rootDir>/jest-e2e.global-teardown.ts"
 }

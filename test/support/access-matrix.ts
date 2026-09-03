@@ -38,7 +38,7 @@ export type ProfileSection = keyof typeof PROFILE_SECTIONS;
 
 export const PROFILE_AUDIENCES = {
   self: 'Self',
-  managerLine: 'Manager line',
+  reportingLine: 'Manager line (reporting)',
   pp: 'People Partner (assigned PP and the HR line above them)',
   colleague: 'Colleague',
   sharedLink: 'Shared link',
@@ -74,7 +74,7 @@ export const ACCESS_MATRIX: Record<
 > = {
   S1: {
     self: { level: 'read', qualifier: 'own photo is writable' },
-    managerLine: { level: 'readWrite' },
+    reportingLine: { level: 'readWrite' },
     pp: { level: 'readWrite' },
     colleague: {
       level: 'read',
@@ -85,21 +85,21 @@ export const ACCESS_MATRIX: Record<
   },
   S2: {
     self: { level: 'readWrite' },
-    managerLine: { level: 'read' },
+    reportingLine: { level: 'read' },
     pp: { level: 'readWrite' },
     colleague: NO_ACCESS,
     sharedLink: { level: 'read', sharedLinkDefault: 'off' },
   },
   S3: {
     self: { level: 'readWrite' },
-    managerLine: { level: 'read' },
+    reportingLine: { level: 'read' },
     pp: { level: 'readWrite' },
     colleague: NO_ACCESS,
     sharedLink: NO_ACCESS,
   },
   S4: {
     self: { level: 'read' },
-    managerLine: { level: 'readWrite' },
+    reportingLine: { level: 'readWrite' },
     pp: { level: 'readWrite' },
     colleague: NO_ACCESS,
     sharedLink: { level: 'read', sharedLinkDefault: 'off' },
@@ -109,14 +109,14 @@ export const ACCESS_MATRIX: Record<
       level: 'read',
       qualifier: 'own documents only; may upload certificates',
     },
-    managerLine: { level: 'read' },
+    reportingLine: { level: 'read' },
     pp: { level: 'readWrite' },
     colleague: NO_ACCESS,
     sharedLink: { level: 'read', sharedLinkDefault: 'off' },
   },
   S6: {
     self: NO_ACCESS,
-    managerLine: { level: 'readWrite' },
+    reportingLine: { level: 'readWrite' },
     pp: { level: 'readWrite' },
     colleague: NO_ACCESS,
     sharedLink: { level: 'read', sharedLinkDefault: 'off' },
@@ -126,7 +126,7 @@ export const ACCESS_MATRIX: Record<
       level: 'read',
       qualifier: 'only notes flagged "visible for employee"',
     },
-    managerLine: {
+    reportingLine: {
       level: 'readWrite',
       exception:
         'spec rule 2: a PM gets read only, and only notes flagged "visible for PM". This is the single documented exception to "Manager sees everything"',
@@ -140,14 +140,14 @@ export const ACCESS_MATRIX: Record<
       level: 'read',
       qualifier: 'only feedback shared with the employee',
     },
-    managerLine: { level: 'readWrite' },
+    reportingLine: { level: 'readWrite' },
     pp: { level: 'readWrite' },
     colleague: NO_ACCESS,
     sharedLink: { level: 'read', sharedLinkDefault: 'off' },
   },
   S9: {
     self: { level: 'read' },
-    managerLine: {
+    reportingLine: {
       level: 'readWrite',
       exception:
         'spec rule / Epic 7: writes are narrowed to assigned UM (ReportingLine) and PP only — ProjectLine Manager access does not grant timeline writes',
@@ -158,21 +158,21 @@ export const ACCESS_MATRIX: Record<
   },
   S10: {
     self: { level: 'read' },
-    managerLine: { level: 'read' },
+    reportingLine: { level: 'read' },
     pp: { level: 'read' },
     colleague: { level: 'read', qualifier: 'dates only, leave type hidden' },
     sharedLink: { level: 'read', sharedLinkDefault: 'off' },
   },
   S11: {
     self: { level: 'read' },
-    managerLine: { level: 'read' },
+    reportingLine: { level: 'read' },
     pp: { level: 'read' },
     colleague: { level: 'read', qualifier: 'project name only' },
     sharedLink: { level: 'read', sharedLinkDefault: 'off' },
   },
   S12: {
     self: { level: 'read', qualifier: 'may complete own IDP' },
-    managerLine: { level: 'readWrite' },
+    reportingLine: { level: 'readWrite' },
     pp: { level: 'readWrite' },
     colleague: NO_ACCESS,
     sharedLink: { level: 'read', sharedLinkDefault: 'off' },
@@ -183,21 +183,21 @@ export const ACCESS_MATRIX: Record<
       qualifier:
         'writable part is the own open-to-mentor flag; pairs and the closing feedback about own pair are read only',
     },
-    managerLine: { level: 'readWrite' },
+    reportingLine: { level: 'readWrite' },
     pp: { level: 'readWrite' },
     colleague: NO_ACCESS,
     sharedLink: NO_ACCESS,
   },
   S14: {
     self: { level: 'read', qualifier: 'own items; may mark them complete' },
-    managerLine: { level: 'readWrite' },
+    reportingLine: { level: 'readWrite' },
     pp: { level: 'readWrite' },
     colleague: NO_ACCESS,
     sharedLink: NO_ACCESS,
   },
   S15: {
     self: NO_ACCESS,
-    managerLine: { level: 'read' },
+    reportingLine: { level: 'read' },
     pp: { level: 'read' },
     colleague: NO_ACCESS,
     sharedLink: {
@@ -208,7 +208,7 @@ export const ACCESS_MATRIX: Record<
   },
   S16: {
     self: { level: 'perFieldVisibility' },
-    managerLine: { level: 'readWrite' },
+    reportingLine: { level: 'readWrite' },
     pp: { level: 'readWrite' },
     colleague: { level: 'perFieldVisibility' },
     sharedLink: { level: 'read', sharedLinkDefault: 'off' },

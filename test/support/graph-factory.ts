@@ -3,29 +3,15 @@ import { ProfileAudience } from './access-matrix';
 /**
  * Builds the relationship graph that every access-matrix case is a function of.
  *
- * Each cell of the matrix depends on the graph rather than on a role column:
- * reports-to at arbitrary depth, project assignment with a PM and a DM, an
- * assigned people partner and the HR line above them. Without one shared way to
- * describe that graph, every module invents its own fixture shape and the
- * matrix cases stop being comparable across modules.
- *
- * The graph doubles as the oracle for those cases: `rolesFor` computes the
- * audience a viewer holds with respect to a subject straight from the spec
- * rules, independently of the resolver under test. A test that compares the
- * resolver against this is comparing it against the spec, not against itself.
- *
- * TODO(domain-schema): persistence attaches here. `prisma/schema.prisma`
- * currently holds only the starter `User` model, so there is nothing yet to
- * write employees, projects, or assignments into. When the domain models land,
- * add `persist(prisma)` that inserts this graph inside the caller's schema and
- * relies on `truncateAllTables` for teardown; the shape below is already the
- * shape those inserts need.
+ * Reporting line and project line are modeled separately (C1 / AD-14) — never
+ * as a single combined manager audience.
  */
 
 export type EmployeeHandle = string;
 
-/** The access roles that arise from the graph. Functional roles never do. */
-export type GraphRole = Extract<ProfileAudience, 'self' | 'managerLine' | 'pp'>;
+/** Access roles that arise from the graph. Functional roles never do. */
+export type GraphRole =
+  Extract<ProfileAudience, 'self' | 'reportingLine' | 'pp'> | 'projectLine';
 
 export interface ProjectRoles {
   readonly pm?: EmployeeHandle;
@@ -57,7 +43,6 @@ export class GraphBuilder {
     return this;
   }
 
-  /** `subordinate` reports to `manager`. */
   reportsTo(subordinate: EmployeeHandle, manager: EmployeeHandle): this {
     this.employee(subordinate, manager);
     this.reportsToEdges.set(subordinate, manager);
@@ -75,10 +60,6 @@ export class GraphBuilder {
     return this;
   }
 
-  /**
-   * Puts an employee on a project. An ended assignment grants nothing: derived
-   * managerial access is not sticky.
-   */
   assign(
     employee: EmployeeHandle,
     project: string,
@@ -96,14 +77,12 @@ export class GraphBuilder {
     return this;
   }
 
-  /** `pp` is the assigned people partner of `employee`. */
   peoplePartner(employee: EmployeeHandle, pp: EmployeeHandle): this {
     this.employee(employee, pp);
     this.peoplePartners.set(employee, pp);
     return this;
   }
 
-  /** `above` sits over `pp` in the HR line and inherits their PP access. */
   hrLineAbove(pp: EmployeeHandle, above: EmployeeHandle): this {
     this.employee(pp, above);
     this.hrLine.set(pp, above);
@@ -142,35 +121,45 @@ export class RelationshipGraph {
     return [...this.employeeSet].sort();
   }
 
-  /**
-   * Everyone holding Manager access over `subject`.
-   *
-   * The spec defines this as the transitive closure of two relations, unioned:
-   * reports-to, and is-assigned-to-a-project-managed-by. Taken literally, the
-   * manager of someone who manages the subject also manages the subject, by
-   * either route. That literal reading is what this implements, so a resolver
-   * that stops at the first hop disagrees with it visibly.
-   */
-  managerLineOf(subject: EmployeeHandle): Set<EmployeeHandle> {
-    const managers = new Set<EmployeeHandle>();
-    const frontier: EmployeeHandle[] = [subject];
+  reportingLineOf(subject: EmployeeHandle): Set<EmployeeHandle> {
+    return this.transitiveReportsToAbove(subject);
+  }
 
-    while (frontier.length > 0) {
-      const current = frontier.pop() as EmployeeHandle;
+  projectLineOf(subject: EmployeeHandle): Set<EmployeeHandle> {
+    const viewers = new Set<EmployeeHandle>();
 
-      for (const manager of this.directManagersOf(current)) {
-        if (manager === subject || managers.has(manager)) {
+    for (const assignment of this.assignments) {
+      if (assignment.employee !== subject || !assignment.active) {
+        continue;
+      }
+      const project = this.projects.get(assignment.project);
+      if (project === undefined) {
+        continue;
+      }
+      for (const leg of [project.pm, project.dm]) {
+        if (leg === undefined || leg === subject) {
           continue;
         }
-        managers.add(manager);
-        frontier.push(manager);
+        viewers.add(leg);
+        for (const ancestor of this.transitiveReportsToAbove(leg)) {
+          viewers.add(ancestor);
+        }
       }
     }
 
-    return managers;
+    viewers.delete(subject);
+    return viewers;
   }
 
-  /** The assigned people partner plus the HR line above them. */
+  /** @deprecated Use `reportingLineOf` or `projectLineOf` instead. */
+  managerLineOf(subject: EmployeeHandle): Set<EmployeeHandle> {
+    const combined = new Set(this.reportingLineOf(subject));
+    for (const viewer of this.projectLineOf(subject)) {
+      combined.add(viewer);
+    }
+    return combined;
+  }
+
   peoplePartnerLineOf(subject: EmployeeHandle): Set<EmployeeHandle> {
     const line = new Set<EmployeeHandle>();
 
@@ -184,7 +173,6 @@ export class RelationshipGraph {
     return line;
   }
 
-  /** Every access role `viewer` holds with respect to `subject`. */
   rolesFor(viewer: EmployeeHandle, subject: EmployeeHandle): Set<GraphRole> {
     const roles = new Set<GraphRole>();
 
@@ -193,8 +181,11 @@ export class RelationshipGraph {
       return roles;
     }
 
-    if (this.managerLineOf(subject).has(viewer)) {
-      roles.add('managerLine');
+    if (this.reportingLineOf(subject).has(viewer)) {
+      roles.add('reportingLine');
+    }
+    if (this.projectLineOf(subject).has(viewer)) {
+      roles.add('projectLine');
     }
     if (this.peoplePartnerLineOf(subject).has(viewer)) {
       roles.add('pp');
@@ -203,17 +194,12 @@ export class RelationshipGraph {
     return roles;
   }
 
-  /**
-   * The single audience a surface should be evaluated against.
-   *
-   * Precedence is `self`, then `pp`, then `managerLine`, then `colleague`. PP
-   * outranks Manager line because no matrix cell grants a manager more than the
-   * PP; where they differ, PP is the wider grant.
-   */
   audienceFor(
     viewer: EmployeeHandle,
     subject: EmployeeHandle,
-  ): Extract<ProfileAudience, 'self' | 'managerLine' | 'pp' | 'colleague'> {
+  ):
+    | Extract<ProfileAudience, 'self' | 'reportingLine' | 'pp' | 'colleague'>
+    | 'projectLine' {
     const roles = this.rolesFor(viewer, subject);
 
     if (roles.has('self')) {
@@ -222,41 +208,40 @@ export class RelationshipGraph {
     if (roles.has('pp')) {
       return 'pp';
     }
-    if (roles.has('managerLine')) {
-      return 'managerLine';
+    if (roles.has('reportingLine')) {
+      return 'reportingLine';
+    }
+    if (roles.has('projectLine')) {
+      return 'projectLine';
     }
     return 'colleague';
   }
 
-  private directManagersOf(employee: EmployeeHandle): EmployeeHandle[] {
-    const managers: EmployeeHandle[] = [];
+  private transitiveReportsToAbove(root: EmployeeHandle): Set<EmployeeHandle> {
+    const managers = new Set<EmployeeHandle>();
+    const visited = new Set<EmployeeHandle>();
+    let current: EmployeeHandle | undefined = root;
 
-    const supervisor = this.reportsToEdges.get(employee);
-    if (supervisor !== undefined) {
-      managers.push(supervisor);
-    }
-
-    for (const assignment of this.assignments) {
-      if (assignment.employee !== employee || !assignment.active) {
-        continue;
+    while (current !== undefined) {
+      const supervisor = this.reportsToEdges.get(current);
+      if (supervisor === undefined) {
+        break;
       }
-      const project = this.projects.get(assignment.project);
-      if (project === undefined) {
-        continue;
+      if (supervisor === root || managers.has(supervisor)) {
+        break;
       }
-      if (project.pm !== undefined && project.pm !== employee) {
-        managers.push(project.pm);
+      if (visited.has(current)) {
+        break;
       }
-      if (project.dm !== undefined && project.dm !== employee) {
-        managers.push(project.dm);
-      }
+      visited.add(current);
+      managers.add(supervisor);
+      current = supervisor;
     }
 
     return managers;
   }
 }
 
-/** Entry point: `aGraph().reportsTo('ic', 'lead').build()`. */
 export function aGraph(): GraphBuilder {
   return new GraphBuilder();
 }

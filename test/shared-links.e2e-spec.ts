@@ -1,7 +1,10 @@
 import { hash } from 'bcryptjs';
 import { randomBytes } from 'node:crypto';
 import request from 'supertest';
+import { matrixCells } from './support/access-matrix';
+import { recordMatrixCoverage } from './support/matrix-coverage-collector';
 import { createTestApp, TestApp } from './support/app-harness';
+import { FixedClock, DEFAULT_TEST_INSTANT } from './support/fixed-clock';
 
 const PASSWORD = 'test-only-shared-links-password';
 const MANAGER_EMAIL = 'shared-link-manager@example.com';
@@ -20,7 +23,9 @@ describe('Shared links (e2e)', () => {
   let dmEmployeeId: string;
 
   beforeAll(async () => {
-    testApp = await createTestApp();
+    testApp = await createTestApp({
+      clock: new FixedClock(DEFAULT_TEST_INSTANT),
+    });
     const seeded = await seedGraph(testApp);
     reportEmployeeId = seeded.reportEmployeeId;
     dmEmployeeId = seeded.dmEmployeeId;
@@ -149,9 +154,15 @@ describe('Shared links (e2e)', () => {
         subjectEmployeeId: reportEmployeeId,
         kind: 'shared_link_access',
       },
+      orderBy: { createdAt: 'desc' },
     });
     expect(journal.length).toBeGreaterThanOrEqual(1);
-    expect(journal[0]?.after).toEqual(
+    const deniedEntry = journal.find(
+      (entry) =>
+        (entry.after as { outcome?: string }).outcome === 'denied' &&
+        (entry.after as { denialReason?: string }).denialReason === 'expired',
+    );
+    expect(deniedEntry?.after).toEqual(
       expect.objectContaining({
         outcome: 'denied',
         denialReason: 'expired',
@@ -174,7 +185,7 @@ describe('Shared links (e2e)', () => {
       .post(
         `/api/v1/employees/${reportEmployeeId}/shared-links/${link!.id}/revoke`,
       )
-      .expect(200);
+      .expect(201);
 
     await dmAgent.get(`/api/v1/shared-links/${token}/profile`).expect(404);
   });
@@ -186,6 +197,8 @@ describe('Shared links (e2e)', () => {
       .expect(201);
 
     const { token } = createRes.body as { token: string };
+
+    await dmAgent.get(`/api/v1/shared-links/${token}/profile`).expect(200);
 
     const listRes = await managerAgent
       .get(`/api/v1/employees/${reportEmployeeId}/shared-links`)
@@ -203,8 +216,10 @@ describe('Shared links (e2e)', () => {
       .post(
         `/api/v1/employees/${reportEmployeeId}/shared-links/${linkId}/revoke`,
       )
-      .expect(200)
+      .expect(201)
       .expect({ revoked: true });
+
+    await dmAgent.get(`/api/v1/shared-links/${token}/profile`).expect(404);
 
     const logRes = await managerAgent
       .get(
@@ -217,8 +232,6 @@ describe('Shared links (e2e)', () => {
     };
     expect(logBody.entries.length).toBeGreaterThanOrEqual(1);
     expect(logBody.entries[0]?.outcome).toBeDefined();
-
-    await dmAgent.get(`/api/v1/shared-links/${token}/profile`).expect(404);
   });
 
   it('wrong recipient on expired link returns 404 not 403', async () => {
@@ -291,7 +304,7 @@ describe('Shared links (e2e)', () => {
       .post(
         `/api/v1/employees/${reportEmployeeId}/shared-links/${link!.id}/revoke`,
       )
-      .expect(200);
+      .expect(201);
   });
 
   it('wrong recipient journals denied/wrong_recipient', async () => {
@@ -335,7 +348,7 @@ describe('Shared links (e2e)', () => {
       .post(
         `/api/v1/employees/${reportEmployeeId}/shared-links/${link!.id}/revoke`,
       )
-      .expect(200);
+      .expect(201);
 
     await dmAgent.get(`/api/v1/shared-links/${token}/profile`).expect(404);
 
@@ -364,6 +377,119 @@ describe('Shared links (e2e)', () => {
       .post(`/api/v1/employees/${reportEmployeeId}/shared-links`)
       .send({ recipientEmployeeId: dmEmployeeId, expiresInHours: '48' })
       .expect(400);
+  });
+
+  it('re-clamps shared link sections when creator project-line access ends (AD-16)', async () => {
+    const passwordHash = await hash(PASSWORD, 12);
+    const dmOnlyUser = await testApp.prisma.user.create({
+      data: { email: 'reclamp-dm-only@example.com', passwordHash },
+    });
+    const subjectUser = await testApp.prisma.user.create({
+      data: { email: 'reclamp-subject@example.com', passwordHash },
+    });
+    const recipientUser = await testApp.prisma.user.create({
+      data: { email: 'reclamp-recipient@example.com', passwordHash },
+    });
+
+    const dmOnlyEmployee = await testApp.prisma.employee.create({
+      data: { userId: dmOnlyUser.id },
+    });
+    const subjectEmployee = await testApp.prisma.employee.create({
+      data: {
+        userId: subjectUser.id,
+        managerId: dmOnlyEmployee.id,
+      },
+    });
+    const recipientEmployee = await testApp.prisma.employee.create({
+      data: { userId: recipientUser.id },
+    });
+
+    await testApp.prisma.projectAssignment.create({
+      data: {
+        employeeId: subjectEmployee.id,
+        projectId: 'reclamp-project',
+        pmId: dmOnlyEmployee.id,
+        dmId: dmOnlyEmployee.id,
+        startDate: new Date('2026-01-01'),
+        confirmed: true,
+        confirmedAt: new Date(DEFAULT_TEST_INSTANT),
+      },
+    });
+
+    const dmOnlyAgent = await loginAgent(
+      testApp,
+      'reclamp-dm-only@example.com',
+    );
+    const recipientAgent = await loginAgent(
+      testApp,
+      'reclamp-recipient@example.com',
+    );
+
+    const createRes = await dmOnlyAgent
+      .post(`/api/v1/employees/${subjectEmployee.id}/shared-links`)
+      .send({
+        recipientEmployeeId: recipientEmployee.id,
+        sections: ['S2'],
+      })
+      .expect(201);
+
+    const { token } = createRes.body as { token: string };
+
+    const firstConsume = await recipientAgent
+      .get(`/api/v1/shared-links/${token}/profile`)
+      .expect(200);
+    expect(
+      (firstConsume.body as { sections: Record<string, unknown> }).sections,
+    ).toHaveProperty('S2');
+
+    await testApp.prisma.employee.update({
+      where: { id: subjectEmployee.id },
+      data: { managerId: null },
+    });
+
+    const secondConsume = await recipientAgent
+      .get(`/api/v1/shared-links/${token}/profile`)
+      .expect(200);
+    const secondBody = secondConsume.body as {
+      sections: Record<string, unknown>;
+    };
+    expect(secondBody.sections).not.toHaveProperty('S2');
+    expect(secondBody.sections).toHaveProperty('S1');
+  });
+
+  describe('sharedLink matrix column recording', () => {
+    it.each(
+      matrixCells().filter(
+        (cell) => cell.audience === 'sharedLink' && cell.cell.level !== 'none',
+      ),
+    )('records $section via consume path', async (cell) => {
+      const sections =
+        cell.cell.sharedLinkDefault === 'off' ? [cell.section] : [];
+
+      const createRes = await managerAgent
+        .post(`/api/v1/employees/${reportEmployeeId}/shared-links`)
+        .send({
+          recipientEmployeeId: dmEmployeeId,
+          ...(sections.length > 0 ? { sections } : {}),
+        })
+        .expect(201);
+
+      const { token } = createRes.body as { token: string };
+      const profileRes = await dmAgent
+        .get(`/api/v1/shared-links/${token}/profile`)
+        .expect(200);
+
+      const body = profileRes.body as {
+        sections: Record<string, { accessLevel?: string }>;
+      };
+      expect(body.sections[cell.section]).toBeDefined();
+      expect(body.sections[cell.section]?.accessLevel).toBe('R');
+
+      recordMatrixCoverage({
+        section: cell.section,
+        audience: cell.audience,
+      });
+    });
   });
 });
 
