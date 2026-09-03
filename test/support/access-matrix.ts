@@ -190,8 +190,14 @@ export const ACCESS_MATRIX: Record<
   },
   S14: {
     self: { level: 'read', qualifier: 'own items; may mark them complete' },
-    reportingLine: { level: 'readWrite' },
-    pp: { level: 'readWrite' },
+    reportingLine: {
+      level: 'readWrite',
+      qualifier: 'may create; cannot mark assignee items complete',
+    },
+    pp: {
+      level: 'readWrite',
+      qualifier: 'may create; cannot mark assignee items complete',
+    },
     colleague: NO_ACCESS,
     sharedLink: NO_ACCESS,
   },
@@ -312,7 +318,8 @@ export type FlagGatedRule =
 export interface FlagGatedCase {
   readonly section: ProfileSection;
   /** C1 role label for the viewer under test. */
-  readonly audience: 'Self' | 'Colleague' | 'ProjectLine' | 'ReportingLine';
+  readonly audience:
+    'Self' | 'Colleague' | 'ProjectLine' | 'ReportingLine' | 'PP';
   readonly rule: FlagGatedRule;
   readonly absentFields?: readonly string[];
   readonly seedRef?: string;
@@ -425,6 +432,24 @@ export function flagGatedCases(): FlagGatedCase[] {
       audience: 'ProjectLine',
       rule: 'write-denied',
       seedRef: 'timeline.e2e-spec.ts',
+    },
+    {
+      section: 'S14',
+      audience: 'ReportingLine',
+      rule: 'write-denied',
+      seedRef: 'action-items.e2e-spec.ts',
+    },
+    {
+      section: 'S14',
+      audience: 'PP',
+      rule: 'write-denied',
+      seedRef: 'action-items.e2e-spec.ts',
+    },
+    {
+      section: 'S14',
+      audience: 'ProjectLine',
+      rule: 'write-denied',
+      seedRef: 'action-items.e2e-spec.ts',
     },
   ];
 }

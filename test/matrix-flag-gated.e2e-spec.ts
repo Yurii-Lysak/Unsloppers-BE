@@ -305,6 +305,47 @@ describe('Matrix flag-gated leak cases (e2e)', () => {
     });
   });
 
+  it('denies non-assignee viewers from completing S14 action items', async () => {
+    const createRes = await actors.reportingLineAgent
+      .post(`/api/v1/employees/${actors.subjectEmployeeId}/action-items`)
+      .send({ title: 'Complete deny matrix task', dueDate: '2026-09-20' })
+      .expect(201);
+    const itemId = (createRes.body as { id: string }).id;
+
+    await actors.reportingLineAgent
+      .post(
+        `/api/v1/employees/${actors.subjectEmployeeId}/action-items/${itemId}/complete`,
+      )
+      .expect(403);
+    recordFlagGatedCoverage({
+      section: 'S14',
+      audience: 'ReportingLine',
+      rule: 'write-denied',
+    });
+
+    await actors.ppAgent
+      .post(
+        `/api/v1/employees/${actors.subjectEmployeeId}/action-items/${itemId}/complete`,
+      )
+      .expect(403);
+    recordFlagGatedCoverage({
+      section: 'S14',
+      audience: 'PP',
+      rule: 'write-denied',
+    });
+
+    await actors.projectLinePmAgent
+      .post(
+        `/api/v1/employees/${actors.subjectEmployeeId}/action-items/${itemId}/complete`,
+      )
+      .expect(403);
+    recordFlagGatedCoverage({
+      section: 'S14',
+      audience: 'ProjectLine',
+      rule: 'write-denied',
+    });
+  });
+
   it('denies ProjectLine timeline writes while ReportingLine may write', async () => {
     await actors.projectLineDmAgent
       .post(`/api/v1/employees/${actors.subjectEmployeeId}/timeline`)

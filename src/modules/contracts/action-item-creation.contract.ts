@@ -25,6 +25,8 @@ export interface ActionItemDto extends CreateActionItemInput {
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
+  cancelledAt?: string;
+  cancelledReason?: string;
 }
 
 export abstract class ActionItemCreation {

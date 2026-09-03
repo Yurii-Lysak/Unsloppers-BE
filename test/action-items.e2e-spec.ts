@@ -21,6 +21,9 @@ interface ActionItemReadDto {
   source: string;
   author: { id: string; displayName: string };
   dueDate: string;
+  completedAt?: string;
+  cancelledAt?: string;
+  cancelledReason?: string;
 }
 
 interface ActionItemsSectionResponse {
@@ -95,6 +98,19 @@ async function grantCreateActionItemsPermission(
   await testApp.prisma.functionalRoleAssignment.create({
     data: { employeeId, roleId: role.id },
   });
+}
+
+async function createOpenItemForReport(
+  testApp: TestApp,
+  managerAgent: ReturnType<typeof request.agent>,
+  reportEmployeeId: string,
+  title = 'Lifecycle task',
+): Promise<ActionItemReadDto> {
+  const res = await managerAgent
+    .post(`/api/v1/employees/${reportEmployeeId}/action-items`)
+    .send({ title, dueDate: '2026-09-20' })
+    .expect(201);
+  return res.body as ActionItemReadDto;
 }
 
 describe('Action items (e2e)', () => {
@@ -287,7 +303,7 @@ describe('Action items (e2e)', () => {
       .expect(201);
   });
 
-  it('rejects colleague viewers on parallel GET and POST', async () => {
+  it('rejects colleague viewers on parallel GET, POST, and complete', async () => {
     const subject = await createEmployeeUser(
       testApp,
       'ai-colleague-subject@example.com',
@@ -295,6 +311,22 @@ describe('Action items (e2e)', () => {
     const colleague = await createEmployeeUser(
       testApp,
       'ai-colleague@example.com',
+    );
+    const manager = await createEmployeeUser(
+      testApp,
+      'ai-colleague-manager@example.com',
+    );
+    await testApp.prisma.employee.update({
+      where: { id: subject.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    const item = await createOpenItemForReport(
+      testApp,
+      managerAgent,
+      subject.employeeId,
+      'Colleague cannot complete',
     );
 
     const colleagueAgent = await loginAs(testApp, colleague.email);
@@ -304,6 +336,11 @@ describe('Action items (e2e)', () => {
     await colleagueAgent
       .post(`/api/v1/employees/${subject.employeeId}/action-items`)
       .send({ title: 'Nope', dueDate: '2026-09-18' })
+      .expect(403);
+    await colleagueAgent
+      .post(
+        `/api/v1/employees/${subject.employeeId}/action-items/${item.id}/complete`,
+      )
       .expect(403);
   });
 
@@ -491,6 +528,467 @@ describe('Action items (e2e)', () => {
     await managerAgent
       .post(`/api/v1/employees/${dismissed.employeeId}/action-items`)
       .send({ title: 'Too late', dueDate: '2026-09-18' })
+      .expect(404);
+  });
+
+  it('lets the assignee complete an open item and surfaces terminal fields on S14', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'ai-complete-manager@example.com',
+    );
+    const report = await createEmployeeUser(
+      testApp,
+      'ai-complete-report@example.com',
+    );
+    await testApp.prisma.employee.update({
+      where: { id: report.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    const item = await createOpenItemForReport(
+      testApp,
+      managerAgent,
+      report.employeeId,
+    );
+
+    const reportAgent = await loginAs(testApp, report.email);
+    const completeRes = await reportAgent
+      .post(
+        `/api/v1/employees/${report.employeeId}/action-items/${item.id}/complete`,
+      )
+      .expect(200);
+
+    expect(completeRes.body).toMatchObject({
+      id: item.id,
+      status: 'completed',
+      completedAt: DEFAULT_TEST_INSTANT,
+    });
+
+    const listRes = await reportAgent
+      .get(`/api/v1/employees/${report.employeeId}/action-items`)
+      .expect(200);
+    expect((listRes.body as ActionItemsSectionResponse).items[0]).toMatchObject(
+      {
+        status: 'completed',
+        completedAt: DEFAULT_TEST_INSTANT,
+      },
+    );
+
+    const profileRes = await reportAgent
+      .get(`/api/v1/employees/${report.employeeId}/profile`)
+      .expect(200);
+    const s14 = (
+      profileRes.body as {
+        sections: { S14?: { data?: ActionItemsSectionResponse } };
+      }
+    ).sections.S14;
+    expect(s14?.data?.items[0]).toMatchObject({
+      status: 'completed',
+      completedAt: DEFAULT_TEST_INSTANT,
+    });
+  });
+
+  it('denies complete for manager, PP, PM, and author-not-assignee', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'ai-deny-manager@example.com',
+    );
+    const report = await createEmployeeUser(
+      testApp,
+      'ai-deny-report@example.com',
+    );
+    const pp = await createEmployeeUser(testApp, 'ai-deny-pp@example.com');
+    const pm = await createEmployeeUser(testApp, 'ai-deny-pm@example.com');
+    const dm = await createEmployeeUser(testApp, 'ai-deny-dm@example.com');
+
+    await testApp.prisma.employee.update({
+      where: { id: report.employeeId },
+      data: {
+        managerId: manager.employeeId,
+        peoplePartnerId: pp.employeeId,
+      },
+    });
+    await assignProjectLine(
+      testApp,
+      report.employeeId,
+      pm.employeeId,
+      dm.employeeId,
+    );
+    await grantCreateActionItemsPermission(testApp, pm.employeeId);
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    const item = await createOpenItemForReport(
+      testApp,
+      managerAgent,
+      report.employeeId,
+      'Deny complete task',
+    );
+
+    await managerAgent
+      .post(
+        `/api/v1/employees/${report.employeeId}/action-items/${item.id}/complete`,
+      )
+      .expect(403);
+
+    const ppAgent = await loginAs(testApp, pp.email);
+    await ppAgent
+      .post(
+        `/api/v1/employees/${report.employeeId}/action-items/${item.id}/complete`,
+      )
+      .expect(403);
+
+    const pmAgent = await loginAs(testApp, pm.email);
+    await pmAgent
+      .post(
+        `/api/v1/employees/${report.employeeId}/action-items/${item.id}/complete`,
+      )
+      .expect(403);
+  });
+
+  it('lets the author cancel with a reason after losing live S14 access', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'ai-cancel-manager@example.com',
+    );
+    const report = await createEmployeeUser(
+      testApp,
+      'ai-cancel-report@example.com',
+    );
+    await testApp.prisma.employee.update({
+      where: { id: report.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    const item = await createOpenItemForReport(
+      testApp,
+      managerAgent,
+      report.employeeId,
+      'Cancel after drift',
+    );
+
+    await testApp.prisma.employee.update({
+      where: { id: report.employeeId },
+      data: { managerId: null },
+    });
+
+    const cancelRes = await managerAgent
+      .post(`/api/v1/me/authored-action-items/${item.id}/cancel`)
+      .send({ reason: 'No longer applicable' })
+      .expect(200);
+
+    expect(cancelRes.body).toMatchObject({
+      status: 'cancelled',
+      cancelledAt: DEFAULT_TEST_INSTANT,
+      cancelledReason: 'No longer applicable',
+    });
+
+    const reportAgent = await loginAs(testApp, report.email);
+    const listRes = await reportAgent
+      .get(`/api/v1/employees/${report.employeeId}/action-items`)
+      .expect(200);
+    expect((listRes.body as ActionItemsSectionResponse).items[0]).toMatchObject({
+      status: 'cancelled',
+      cancelledAt: DEFAULT_TEST_INSTANT,
+      cancelledReason: 'No longer applicable',
+    });
+
+    const profileRes = await reportAgent
+      .get(`/api/v1/employees/${report.employeeId}/profile`)
+      .expect(200);
+    const s14 = (
+      profileRes.body as {
+        sections: { S14?: { data?: ActionItemsSectionResponse } };
+      }
+    ).sections.S14;
+    expect(s14?.data?.items[0]).toMatchObject({
+      status: 'cancelled',
+      cancelledAt: DEFAULT_TEST_INSTANT,
+      cancelledReason: 'No longer applicable',
+    });
+  });
+
+  it('rejects cancel without a valid reason and preserves idempotent cancel', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'ai-cancel-valid-manager@example.com',
+    );
+    const report = await createEmployeeUser(
+      testApp,
+      'ai-cancel-valid-report@example.com',
+    );
+    await testApp.prisma.employee.update({
+      where: { id: report.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    const item = await createOpenItemForReport(
+      testApp,
+      managerAgent,
+      report.employeeId,
+      'Cancel validation task',
+    );
+
+    await managerAgent
+      .post(`/api/v1/me/authored-action-items/${item.id}/cancel`)
+      .send({})
+      .expect(400);
+
+    await managerAgent
+      .post(`/api/v1/me/authored-action-items/${item.id}/cancel`)
+      .send({ reason: 'x'.repeat(2001) })
+      .expect(400);
+
+    const firstCancel = await managerAgent
+      .post(`/api/v1/me/authored-action-items/${item.id}/cancel`)
+      .send({ reason: 'Original reason' })
+      .expect(200);
+
+    const secondCancel = await managerAgent
+      .post(`/api/v1/me/authored-action-items/${item.id}/cancel`)
+      .send({ reason: 'Different reason' })
+      .expect(200);
+
+    expect(secondCancel.body).toMatchObject({
+      status: 'cancelled',
+      cancelledReason: 'Original reason',
+      cancelledAt: (firstCancel.body as ActionItemReadDto).cancelledAt,
+    });
+  });
+
+  it('returns 404 when assignee who is not author attempts cancel', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'ai-cancel-404-manager@example.com',
+    );
+    const report = await createEmployeeUser(
+      testApp,
+      'ai-cancel-404-report@example.com',
+    );
+    await testApp.prisma.employee.update({
+      where: { id: report.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    const item = await createOpenItemForReport(
+      testApp,
+      managerAgent,
+      report.employeeId,
+    );
+
+    const reportAgent = await loginAs(testApp, report.email);
+    await reportAgent
+      .post(`/api/v1/me/authored-action-items/${item.id}/cancel`)
+      .send({ reason: 'Not my item to cancel' })
+      .expect(404);
+  });
+
+  it('removes terminal items from authored list and rejects repeat mutations', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'ai-terminal-manager@example.com',
+    );
+    const report = await createEmployeeUser(
+      testApp,
+      'ai-terminal-report@example.com',
+    );
+    await testApp.prisma.employee.update({
+      where: { id: report.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    const item = await createOpenItemForReport(
+      testApp,
+      managerAgent,
+      report.employeeId,
+      'Terminal lifecycle task',
+    );
+
+    const reportAgent = await loginAs(testApp, report.email);
+    await reportAgent
+      .post(
+        `/api/v1/employees/${report.employeeId}/action-items/${item.id}/complete`,
+      )
+      .expect(200);
+
+    const authoredAfterComplete = await managerAgent
+      .get('/api/v1/me/authored-action-items')
+      .expect(200);
+    expect(authoredAfterComplete.body as AuthoredActionItemReadDto[]).toEqual(
+      [],
+    );
+
+    await reportAgent
+      .post(
+        `/api/v1/employees/${report.employeeId}/action-items/${item.id}/complete`,
+      )
+      .expect(409);
+
+    await managerAgent
+      .post(`/api/v1/me/authored-action-items/${item.id}/cancel`)
+      .send({ reason: 'Too late' })
+      .expect(409);
+
+    const item2 = await createOpenItemForReport(
+      testApp,
+      managerAgent,
+      report.employeeId,
+      'Cancel terminal task',
+    );
+    await managerAgent
+      .post(`/api/v1/me/authored-action-items/${item2.id}/cancel`)
+      .send({ reason: 'Done elsewhere' })
+      .expect(200);
+
+    const authoredAfterCancel = await managerAgent
+      .get('/api/v1/me/authored-action-items')
+      .expect(200);
+    expect(authoredAfterCancel.body as AuthoredActionItemReadDto[]).toEqual([]);
+
+    await managerAgent
+      .post(`/api/v1/me/authored-action-items/${item2.id}/cancel`)
+      .send({ reason: 'Again' })
+      .expect(200);
+  });
+
+  it('lets the assignee complete a campaign-sourced open item', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'ai-campaign-manager@example.com',
+    );
+    const report = await createEmployeeUser(
+      testApp,
+      'ai-campaign-report@example.com',
+    );
+    await testApp.prisma.employee.update({
+      where: { id: report.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+
+    const item = await testApp.prisma.actionItem.create({
+      data: {
+        assigneeId: report.employeeId,
+        authorId: manager.employeeId,
+        title: 'Campaign follow-up',
+        dueDate: new Date('2026-09-20'),
+        source: 'campaign',
+        campaignId: randomUUID(),
+        status: 'open',
+      },
+    });
+
+    const reportAgent = await loginAs(testApp, report.email);
+    const completeRes = await reportAgent
+      .post(
+        `/api/v1/employees/${report.employeeId}/action-items/${item.id}/complete`,
+      )
+      .expect(200);
+
+    expect(completeRes.body).toMatchObject({
+      id: item.id,
+      status: 'completed',
+      source: 'campaign',
+      completedAt: DEFAULT_TEST_INSTANT,
+    });
+  });
+
+  it('returns 403 when canceling without an employee record', async () => {
+    const user = await testApp.prisma.user.create({
+      data: {
+        email: 'ai-no-employee-cancel@example.com',
+        passwordHash: await hash(PASSWORD, 12),
+      },
+    });
+
+    const agent = await loginAs(testApp, user.email);
+    await agent
+      .post(`/api/v1/me/authored-action-items/${randomUUID()}/cancel`)
+      .send({ reason: 'Should not reach item lookup' })
+      .expect(403);
+  });
+
+  it('returns one terminal state when complete and cancel race', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'ai-race-manager@example.com',
+    );
+    const report = await createEmployeeUser(
+      testApp,
+      'ai-race-report@example.com',
+    );
+    await testApp.prisma.employee.update({
+      where: { id: report.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    const item = await createOpenItemForReport(
+      testApp,
+      managerAgent,
+      report.employeeId,
+      'Race task',
+    );
+
+    const reportAgent = await loginAs(testApp, report.email);
+    const [completeRes, cancelRes] = await Promise.all([
+      reportAgent.post(
+        `/api/v1/employees/${report.employeeId}/action-items/${item.id}/complete`,
+      ),
+      managerAgent
+        .post(`/api/v1/me/authored-action-items/${item.id}/cancel`)
+        .send({ reason: 'Race cancel' }),
+    ]);
+
+    const statuses = [completeRes.status, cancelRes.status].sort(
+      (a, b) => a - b,
+    );
+    expect(statuses).toEqual([200, 409]);
+
+    const dbItem = await testApp.prisma.actionItem.findUniqueOrThrow({
+      where: { id: item.id },
+    });
+    expect(['completed', 'cancelled']).toContain(dbItem.status);
+    expect(
+      dbItem.status === 'completed'
+        ? dbItem.completedAt
+        : dbItem.cancelledAt,
+    ).not.toBeNull();
+  });
+
+  it('returns 404 when completing for a dismissed assignee', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'ai-complete-dismissed-manager@example.com',
+    );
+    const dismissed = await createEmployeeUser(
+      testApp,
+      'ai-complete-dismissed@example.com',
+    );
+    await testApp.prisma.employee.update({
+      where: { id: dismissed.employeeId },
+      data: { managerId: manager.employeeId, employmentStatus: 'dismissed' },
+    });
+
+    const item = await testApp.prisma.actionItem.create({
+      data: {
+        assigneeId: dismissed.employeeId,
+        authorId: manager.employeeId,
+        title: 'Legacy open item',
+        dueDate: new Date('2026-09-20'),
+        source: 'manual',
+        status: 'open',
+      },
+    });
+
+    const dismissedAgent = await loginAs(testApp, dismissed.email);
+    await dismissedAgent
+      .post(
+        `/api/v1/employees/${dismissed.employeeId}/action-items/${item.id}/complete`,
+      )
       .expect(404);
   });
 });
