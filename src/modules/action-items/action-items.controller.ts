@@ -3,6 +3,7 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  HttpCode,
   NotFoundException,
   Param,
   ParseUUIDPipe,
@@ -22,6 +23,8 @@ import { ActionItemsSectionProvider } from './action-items-section.provider';
 import { ActionItemsService } from './action-items.service';
 import { CreateActionItemDto } from './dto/create-action-item.dto';
 import {
+  SwaggerCancelActionItem,
+  SwaggerCompleteActionItem,
   SwaggerCreateActionItem,
   SwaggerListActionItems,
   SwaggerListAuthoredActionItems,
@@ -85,6 +88,36 @@ export class ActionItemsController {
   async listAuthored(@Req() request: Request) {
     const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
     return this.actionItems.listAuthoredOpenItems(viewerEmployeeId);
+  }
+
+  @Post('employees/:employeeId/action-items/:itemId/complete')
+  @HttpCode(200)
+  @SwaggerCompleteActionItem()
+  async complete(
+    @Req() request: Request,
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+  ) {
+    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
+    await this.assertSubjectEmployeeExists(employeeId);
+    await this.sectionGate.requireSection(viewerEmployeeId, employeeId, 'S14');
+    return this.actionItems.completeActionItem(
+      employeeId,
+      itemId,
+      viewerEmployeeId,
+    );
+  }
+
+  @Post('me/authored-action-items/:itemId/cancel')
+  @HttpCode(200)
+  @SwaggerCancelActionItem()
+  async cancel(
+    @Req() request: Request,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Body() body: Record<string, unknown> = {},
+  ) {
+    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
+    return this.actionItems.cancelActionItem(itemId, viewerEmployeeId, body);
   }
 
   private async assertCanCreate(

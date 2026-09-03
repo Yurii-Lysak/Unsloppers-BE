@@ -1,6 +1,7 @@
 import { applyDecorators } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
+  ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
@@ -36,5 +37,34 @@ export const SwaggerListAuthoredActionItems = () =>
     ApiOkResponse({ type: [AuthoredActionItemReadEntity] }),
     ApiForbiddenResponse({
       description: 'Authenticated user has no employee record',
+    }),
+  );
+
+export const SwaggerCompleteActionItem = () =>
+  applyDecorators(
+    ApiOkResponse({ type: ActionItemReadEntity }),
+    ApiForbiddenResponse({
+      description: 'Only the assignee may complete this action item',
+    }),
+    ApiNotFoundResponse({
+      description: 'Employee or action item not found',
+    }),
+    ApiConflictResponse({
+      description: 'Action item is not open',
+    }),
+  );
+
+export const SwaggerCancelActionItem = () =>
+  applyDecorators(
+    ApiOkResponse({ type: ActionItemReadEntity }),
+    ApiBadRequestResponse({ description: 'Cancellation reason is required' }),
+    ApiForbiddenResponse({
+      description: 'Authenticated user has no employee record',
+    }),
+    ApiNotFoundResponse({
+      description: 'Action item not found for this author',
+    }),
+    ApiConflictResponse({
+      description: 'Completed action items cannot be cancelled',
     }),
   );

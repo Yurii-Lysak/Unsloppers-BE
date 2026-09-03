@@ -180,7 +180,7 @@ describe('access matrix', () => {
     });
 
     it('exposes an explicit flag-gated catalog', () => {
-      expect(flagGatedCases().length).toBe(10);
+      expect(flagGatedCases().length).toBe(13);
     });
   });
 });

@@ -1,5 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import type { ActionItem, User } from '../../generated/prisma/client';
+import { Clock } from '../../clock/clock.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   AccessResolver,
@@ -37,6 +44,7 @@ export class ActionItemsService extends ActionItemCreation {
   constructor(
     private readonly prisma: PrismaService,
     private readonly accessResolver: AccessResolver,
+    private readonly clock: Clock,
   ) {
     super();
   }
@@ -77,6 +85,116 @@ export class ActionItemsService extends ActionItemCreation {
       campaignId: null,
     });
     return this.toReadDto(item);
+  }
+
+  async completeActionItem(
+    assigneeEmployeeId: string,
+    itemId: string,
+    viewerEmployeeId: string,
+  ): Promise<ActionItemReadEntity> {
+    const item = await this.findItemForAssignee(assigneeEmployeeId, itemId);
+    if (viewerEmployeeId !== item.assigneeId) {
+      throw new ForbiddenException(
+        'Only the assignee may complete this action item',
+      );
+    }
+    if (item.status !== 'open') {
+      throw new ConflictException({
+        message: 'Action item is not open',
+        status: item.status,
+      });
+    }
+
+    const result = await this.prisma.actionItem.updateMany({
+      where: { id: item.id, status: 'open' },
+      data: {
+        status: 'completed',
+        completedAt: this.clock.now(),
+      },
+    });
+    if (result.count === 0) {
+      const current = await this.findItemForAssignee(
+        assigneeEmployeeId,
+        itemId,
+      );
+      throw new ConflictException({
+        message: 'Action item is not open',
+        status: current.status,
+      });
+    }
+
+    const updated = await this.prisma.actionItem.findFirst({
+      where: { id: item.id },
+      include: this.peopleInclude,
+    });
+    if (!updated) {
+      throw new NotFoundException(`Action item ${itemId} not found`);
+    }
+    return this.toReadDto(updated);
+  }
+
+  async cancelActionItem(
+    itemId: string,
+    authorEmployeeId: string,
+    body?: { reason?: unknown },
+  ): Promise<ActionItemReadEntity> {
+    const item = await this.findItemForAuthor(itemId, authorEmployeeId);
+
+    if (item.status === 'cancelled') {
+      return this.toReadDto(item);
+    }
+
+    if (item.status === 'completed') {
+      throw new ConflictException({
+        message: 'Completed action items cannot be cancelled',
+        status: item.status,
+      });
+    }
+
+    const reason =
+      typeof body?.reason === 'string' ? body.reason.trim() : undefined;
+    if (!reason) {
+      throw new BadRequestException('Cancellation reason is required');
+    }
+    if (reason.length > 2000) {
+      throw new BadRequestException(
+        'Cancellation reason must be at most 2000 characters',
+      );
+    }
+
+    const result = await this.prisma.actionItem.updateMany({
+      where: { id: item.id, status: 'open' },
+      data: {
+        status: 'cancelled',
+        cancelledAt: this.clock.now(),
+        cancelledReason: reason,
+      },
+    });
+    if (result.count === 0) {
+      const current = await this.findItemForAuthor(itemId, authorEmployeeId);
+      if (current.status === 'cancelled') {
+        return this.toReadDto(current);
+      }
+      if (current.status === 'completed') {
+        throw new ConflictException({
+          message: 'Completed action items cannot be cancelled',
+          status: current.status,
+        });
+      }
+      throw new ConflictException({
+        message: 'Action item is not open',
+        status: current.status,
+      });
+    }
+
+    const updated = await this.prisma.actionItem.findFirst({
+      where: { id: item.id },
+      include: this.peopleInclude,
+    });
+    if (!updated) {
+      throw new NotFoundException(`Action item ${itemId} not found`);
+    }
+    return this.toReadDto(updated);
   }
 
   async buildSection(
@@ -132,6 +250,34 @@ export class ActionItemsService extends ActionItemCreation {
     },
   } as const;
 
+  private async findItemForAssignee(
+    assigneeEmployeeId: string,
+    itemId: string,
+  ): Promise<ActionItemWithPeople> {
+    const item = await this.prisma.actionItem.findFirst({
+      where: { id: itemId, assigneeId: assigneeEmployeeId },
+      include: this.peopleInclude,
+    });
+    if (!item) {
+      throw new NotFoundException(`Action item ${itemId} not found`);
+    }
+    return item;
+  }
+
+  private async findItemForAuthor(
+    itemId: string,
+    authorEmployeeId: string,
+  ): Promise<ActionItemWithPeople> {
+    const item = await this.prisma.actionItem.findFirst({
+      where: { id: itemId, authorId: authorEmployeeId },
+      include: this.peopleInclude,
+    });
+    if (!item) {
+      throw new NotFoundException(`Action item ${itemId} not found`);
+    }
+    return item;
+  }
+
   private async persistActionItem(data: {
     assigneeId: string;
     authorId: string;
@@ -183,6 +329,15 @@ export class ActionItemsService extends ActionItemCreation {
       },
       createdAt: item.createdAt.toISOString(),
       updatedAt: item.updatedAt.toISOString(),
+      ...(item.completedAt
+        ? { completedAt: item.completedAt.toISOString() }
+        : {}),
+      ...(item.cancelledAt
+        ? { cancelledAt: item.cancelledAt.toISOString() }
+        : {}),
+      ...(item.cancelledReason
+        ? { cancelledReason: item.cancelledReason }
+        : {}),
     };
   }
 
@@ -214,6 +369,12 @@ export class ActionItemsService extends ActionItemCreation {
       updatedAt: item.updatedAt.toISOString(),
       ...(item.completedAt
         ? { completedAt: item.completedAt.toISOString() }
+        : {}),
+      ...(item.cancelledAt
+        ? { cancelledAt: item.cancelledAt.toISOString() }
+        : {}),
+      ...(item.cancelledReason
+        ? { cancelledReason: item.cancelledReason }
         : {}),
     };
   }

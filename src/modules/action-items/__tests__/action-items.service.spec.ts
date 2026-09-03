@@ -1,19 +1,56 @@
-import { BadRequestException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { Clock } from '../../../clock/clock.service';
 import { AccessResolver } from '../../contracts/access-resolver.contract';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ActionItemsService } from '../action-items.service';
 
 describe('ActionItemsService', () => {
   let service: ActionItemsService;
+  const fixedInstant = new Date('2026-09-03T12:00:00.000Z');
+  const clock = { now: jest.fn(() => fixedInstant), nowMs: jest.fn() };
   const prisma = {
     actionItem: {
       create: jest.fn(),
       findMany: jest.fn(),
+      findFirst: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
     },
   };
   const accessResolver = {
     resolveAudience: jest.fn(),
+  };
+
+  const baseItem = {
+    id: 'item-1',
+    assigneeId: 'assignee-1',
+    authorId: 'author-1',
+    title: 'Task',
+    description: null,
+    dueDate: new Date('2026-09-15T00:00:00.000Z'),
+    link: null,
+    status: 'open' as const,
+    source: 'manual' as const,
+    campaignId: null,
+    completedAt: null,
+    cancelledAt: null,
+    cancelledReason: null,
+    createdAt: new Date('2026-09-01T12:00:00.000Z'),
+    updatedAt: new Date('2026-09-01T12:00:00.000Z'),
+    author: {
+      id: 'author-1',
+      user: { name: 'Author', email: 'author@example.com' },
+    },
+    assignee: {
+      id: 'assignee-1',
+      user: { name: 'Assignee', email: 'assignee@example.com' },
+    },
   };
 
   beforeEach(async () => {
@@ -23,6 +60,7 @@ describe('ActionItemsService', () => {
         ActionItemsService,
         { provide: PrismaService, useValue: prisma },
         { provide: AccessResolver, useValue: accessResolver },
+        { provide: Clock, useValue: clock },
       ],
     }).compile();
 
@@ -238,5 +276,195 @@ describe('ActionItemsService', () => {
         assignee: { id: 'assignee-1', displayName: 'Assignee' },
       }),
     ]);
+  });
+
+  it('completeActionItem sets completedAt from Clock for the assignee', async () => {
+    prisma.actionItem.findFirst
+      .mockResolvedValueOnce(baseItem)
+      .mockResolvedValueOnce({
+        ...baseItem,
+        status: 'completed',
+        completedAt: fixedInstant,
+      });
+    prisma.actionItem.updateMany.mockResolvedValue({ count: 1 });
+
+    const result = await service.completeActionItem(
+      'assignee-1',
+      'item-1',
+      'assignee-1',
+    );
+
+    expect(prisma.actionItem.updateMany).toHaveBeenCalledWith({
+      where: { id: 'item-1', status: 'open' },
+      data: {
+        status: 'completed',
+        completedAt: fixedInstant,
+      },
+    });
+    expect(result).toMatchObject({
+      status: 'completed',
+      completedAt: fixedInstant.toISOString(),
+    });
+  });
+
+  it('completeActionItem rejects non-assignee viewers', async () => {
+    prisma.actionItem.findFirst.mockResolvedValue(baseItem);
+
+    await expect(
+      service.completeActionItem('assignee-1', 'item-1', 'author-1'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.actionItem.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('completeActionItem rejects terminal items', async () => {
+    prisma.actionItem.findFirst.mockResolvedValue({
+      ...baseItem,
+      status: 'completed',
+      completedAt: fixedInstant,
+    });
+
+    await expect(
+      service.completeActionItem('assignee-1', 'item-1', 'assignee-1'),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('cancelActionItem stores reason and cancelledAt for open items', async () => {
+    prisma.actionItem.findFirst
+      .mockResolvedValueOnce(baseItem)
+      .mockResolvedValueOnce({
+        ...baseItem,
+        status: 'cancelled',
+        cancelledAt: fixedInstant,
+        cancelledReason: 'No longer needed',
+      });
+    prisma.actionItem.updateMany.mockResolvedValue({ count: 1 });
+
+    const result = await service.cancelActionItem('item-1', 'author-1', {
+      reason: 'No longer needed',
+    });
+
+    expect(prisma.actionItem.updateMany).toHaveBeenCalledWith({
+      where: { id: 'item-1', status: 'open' },
+      data: {
+        status: 'cancelled',
+        cancelledAt: fixedInstant,
+        cancelledReason: 'No longer needed',
+      },
+    });
+    expect(result).toMatchObject({
+      status: 'cancelled',
+      cancelledAt: fixedInstant.toISOString(),
+      cancelledReason: 'No longer needed',
+    });
+  });
+
+  it('cancelActionItem is idempotent for already-cancelled items', async () => {
+    prisma.actionItem.findFirst.mockResolvedValue({
+      ...baseItem,
+      status: 'cancelled',
+      cancelledAt: fixedInstant,
+      cancelledReason: 'Original reason',
+    });
+
+    const result = await service.cancelActionItem('item-1', 'author-1', {});
+
+    expect(prisma.actionItem.updateMany).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      status: 'cancelled',
+      cancelledReason: 'Original reason',
+    });
+  });
+
+  it('completeActionItem returns 409 when a concurrent mutation closed the item', async () => {
+    prisma.actionItem.findFirst
+      .mockResolvedValueOnce(baseItem)
+      .mockResolvedValueOnce({
+        ...baseItem,
+        status: 'cancelled',
+        cancelledAt: fixedInstant,
+        cancelledReason: 'Beat you to it',
+      });
+    prisma.actionItem.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(
+      service.completeActionItem('assignee-1', 'item-1', 'assignee-1'),
+    ).rejects.toMatchObject({
+      response: {
+        message: 'Action item is not open',
+        status: 'cancelled',
+      },
+    });
+  });
+
+  it('cancelActionItem returns idempotent result when a concurrent cancel won the race', async () => {
+    prisma.actionItem.findFirst
+      .mockResolvedValueOnce(baseItem)
+      .mockResolvedValueOnce({
+        ...baseItem,
+        status: 'cancelled',
+        cancelledAt: fixedInstant,
+        cancelledReason: 'First reason',
+      });
+    prisma.actionItem.updateMany.mockResolvedValue({ count: 0 });
+
+    const result = await service.cancelActionItem('item-1', 'author-1', {
+      reason: 'Second reason',
+    });
+
+    expect(result).toMatchObject({
+      status: 'cancelled',
+      cancelledReason: 'First reason',
+    });
+  });
+
+  it('cancelActionItem rejects completed items', async () => {
+    prisma.actionItem.findFirst.mockResolvedValue({
+      ...baseItem,
+      status: 'completed',
+      completedAt: fixedInstant,
+    });
+
+    await expect(
+      service.cancelActionItem('item-1', 'author-1', { reason: 'Too late' }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('cancelActionItem requires a trimmed reason for open items', async () => {
+    prisma.actionItem.findFirst.mockResolvedValue(baseItem);
+
+    await expect(
+      service.cancelActionItem('item-1', 'author-1', { reason: '   ' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.cancelActionItem('item-1', 'author-1', {}),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('cancelActionItem returns 404 when the viewer is not the author', async () => {
+    prisma.actionItem.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.cancelActionItem('item-1', 'other-author', { reason: 'Nope' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('buildSection includes terminal fields on completed items', async () => {
+    prisma.actionItem.findMany.mockResolvedValue([
+      {
+        ...baseItem,
+        status: 'completed',
+        completedAt: fixedInstant,
+      },
+    ]);
+
+    const result = await service.buildSection('assignee-1', {
+      role: 'ReportingLine',
+      sections: { S14: 'RW' },
+    });
+
+    expect(result.items[0]).toMatchObject({
+      status: 'completed',
+      completedAt: fixedInstant.toISOString(),
+    });
   });
 });

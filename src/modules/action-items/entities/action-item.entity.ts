@@ -38,6 +38,15 @@ export class ActionItemReadEntity {
 
   @ApiProperty({ format: 'date-time' })
   updatedAt!: string;
+
+  @ApiPropertyOptional({ format: 'date-time' })
+  completedAt?: string;
+
+  @ApiPropertyOptional({ format: 'date-time' })
+  cancelledAt?: string;
+
+  @ApiPropertyOptional()
+  cancelledReason?: string;
 }
 
 export class AuthoredActionItemReadEntity extends ActionItemReadEntity {
