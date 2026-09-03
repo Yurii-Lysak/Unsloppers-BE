@@ -14,6 +14,10 @@ import {
   ProjectAssignment,
   ProjectAssignmentDto,
 } from '../contracts/project-assignment.contract';
+import {
+  AccessResolutionCacheEntry,
+  RelationshipGraphGenerationService,
+} from './relationship-graph-generation.service';
 
 /** `decisions.md` D3/D19 — a confirmation is fresh for 4h, boundary inclusive. */
 const CONFIRMATION_FRESHNESS_WINDOW_MS = 4 * 60 * 60 * 1000;
@@ -168,22 +172,31 @@ function unionSectionMaps(
  * C1 — real implementation. Resolves `Self`, `ReportingLine`, `ProjectLine`
  * (Stories 1.1–1.2), and `PP` (Story 1.3) from live relationship data.
  * Effective section access is the least-restrictive union across all matched
- * audiences (D13 / Rule 10). Never cached across requests.
+ * audiences (D13 / Rule 10). Cross-request caching is generation-gated
+ * (Story 1.13 / D1) with clock-driven revalidation on hits.
  */
 @Injectable()
 export class AccessResolverService extends AccessResolver {
   private readonly logger = new Logger(AccessResolverService.name);
   private readonly hrDepartmentValue: string;
+  private readonly cacheEnabled: boolean;
+  private readonly cacheTtlMs: number | null;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly projectAssignment: ProjectAssignment,
     private readonly clock: Clock,
+    private readonly graphGeneration: RelationshipGraphGenerationService,
     configService: ConfigService,
   ) {
     super();
     this.hrDepartmentValue =
       configService.get<string>('HR_DEPARTMENT_VALUE') ?? 'HR';
+    this.cacheEnabled =
+      configService.get<boolean>('ACCESS_RESOLUTION_CACHE_ENABLED') ?? false;
+    const ttl = configService.get<number>('ACCESS_RESOLUTION_CACHE_TTL_MS');
+    this.cacheTtlMs =
+      typeof ttl === 'number' && Number.isFinite(ttl) && ttl > 0 ? ttl : null;
   }
 
   async resolveAudience(
@@ -194,27 +207,106 @@ export class AccessResolverService extends AccessResolver {
       return { role: 'Self', sections: { ...SELF_SECTIONS } };
     }
 
-    const matched: ResolvedAudience[] = [];
+    if (this.cacheEnabled) {
+      const cacheKey = this.graphGeneration.cacheKey(viewerId, subjectId);
+      const cached = this.graphGeneration.getCacheEntry(cacheKey);
+      const currentGeneration = this.graphGeneration.getGeneration();
 
-    const reportingLineMatched = await this.isInReportingLine(
+      if (
+        cached &&
+        cached.generation === currentGeneration &&
+        !this.isCacheEntryExpired(cached) &&
+        (await this.isCachedAudienceStillValid(viewerId, subjectId, cached))
+      ) {
+        return this.cloneAudience(cached.audience);
+      }
+    }
+
+    const computed = await this.computeAudience(viewerId, subjectId);
+
+    if (this.cacheEnabled) {
+      const cacheKey = this.graphGeneration.cacheKey(viewerId, subjectId);
+      this.graphGeneration.setCacheEntry(cacheKey, {
+        generation: this.graphGeneration.getGeneration(),
+        audience: this.cloneAudience(computed.audience),
+        computedAt: this.clock.nowMs(),
+        revalidation: computed.revalidation,
+      });
+    }
+
+    return computed.audience;
+  }
+
+  private isCacheEntryExpired(entry: AccessResolutionCacheEntry): boolean {
+    if (this.cacheTtlMs === null) {
+      return false;
+    }
+    return this.clock.nowMs() - entry.computedAt > this.cacheTtlMs;
+  }
+
+  private cloneAudience(audience: ResolvedAudience): ResolvedAudience {
+    return {
+      role: audience.role,
+      sections: { ...audience.sections },
+    };
+  }
+
+  private audiencesEqual(a: ResolvedAudience, b: ResolvedAudience): boolean {
+    if (a.role !== b.role) {
+      return false;
+    }
+    for (const sectionId of ALL_SECTION_IDS) {
+      if (a.sections[sectionId] !== b.sections[sectionId]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private async isCachedAudienceStillValid(
+    viewerId: string,
+    subjectId: string,
+    entry: AccessResolutionCacheEntry,
+  ): Promise<boolean> {
+    const rebuilt = await this.audienceFromRevalidation(
       viewerId,
       subjectId,
+      entry.revalidation,
     );
-    if (reportingLineMatched) {
+    return this.audiencesEqual(entry.audience, rebuilt);
+  }
+
+  private async audienceFromRevalidation(
+    viewerId: string,
+    subjectId: string,
+    revalidation: AccessResolutionCacheEntry['revalidation'],
+  ): Promise<ResolvedAudience> {
+    const matched: ResolvedAudience[] = [];
+
+    if (revalidation.reportingLineMatched) {
       matched.push({
         role: 'ReportingLine',
         sections: { ...REPORTING_LINE_SECTIONS },
       });
     } else {
-      const projectLine = await this.resolveProjectLine(viewerId, subjectId);
+      const projectLine = await this.resolveProjectLineFromAssignments(
+        viewerId,
+        revalidation.assignments,
+      );
       if (projectLine) {
         matched.push(projectLine);
       }
     }
 
-    const pp = await this.resolvePp(viewerId, subjectId);
-    if (pp) {
-      matched.push(pp);
+    if (revalidation.peoplePartnerId) {
+      const pp = await this.resolvePp(
+        viewerId,
+        subjectId,
+        revalidation.peoplePartnerId,
+      );
+      if (pp) {
+        matched.push(pp);
+      }
     }
 
     if (await this.hasActiveFullAccessGrant(viewerId)) {
@@ -236,19 +328,100 @@ export class AccessResolverService extends AccessResolver {
     return { role, sections };
   }
 
-  private async resolvePp(
+  private async computeAudience(
     viewerId: string,
     subjectId: string,
-  ): Promise<ResolvedAudience | null> {
+  ): Promise<{
+    audience: ResolvedAudience;
+    revalidation: AccessResolutionCacheEntry['revalidation'];
+  }> {
+    const matched: ResolvedAudience[] = [];
+
     const subject = await this.prisma.employee.findUnique({
       where: { id: subjectId },
       select: { peoplePartnerId: true },
     });
-    if (!subject?.peoplePartnerId) {
+    const peoplePartnerId = subject?.peoplePartnerId ?? null;
+
+    const reportingLineMatched = await this.isInReportingLine(
+      viewerId,
+      subjectId,
+    );
+
+    const assignments = reportingLineMatched
+      ? []
+      : await this.projectAssignment.listByEmployee(subjectId);
+
+    if (reportingLineMatched) {
+      matched.push({
+        role: 'ReportingLine',
+        sections: { ...REPORTING_LINE_SECTIONS },
+      });
+    } else {
+      const projectLine = await this.resolveProjectLineFromAssignments(
+        viewerId,
+        assignments,
+      );
+      if (projectLine) {
+        matched.push(projectLine);
+      }
+    }
+
+    const pp = await this.resolvePp(viewerId, subjectId, peoplePartnerId);
+    const ppMatched = pp !== null;
+    if (pp) {
+      matched.push(pp);
+    }
+
+    const fullAccess = await this.hasActiveFullAccessGrant(viewerId);
+    if (fullAccess) {
+      matched.push({
+        role: 'FullAccess',
+        sections: { ...FULL_ACCESS_SECTIONS },
+      });
+    }
+
+    let audience: ResolvedAudience;
+    if (matched.length === 0) {
+      audience = { role: 'Colleague', sections: { ...COLLEAGUE_SECTIONS } };
+    } else {
+      const sections = unionSectionMaps(matched.map((m) => m.sections));
+      const role = matched.reduce((best, current) =>
+        ROLE_RANK[current.role] > ROLE_RANK[best.role] ? current : best,
+      ).role;
+      audience = { role, sections };
+    }
+
+    return {
+      audience,
+      revalidation: {
+        reportingLineMatched,
+        assignments: assignments.map((row) => ({ ...row })),
+        peoplePartnerId,
+        ppMatched,
+        fullAccess,
+      },
+    };
+  }
+
+  private async resolvePp(
+    viewerId: string,
+    subjectId: string,
+    peoplePartnerId?: string | null,
+  ): Promise<ResolvedAudience | null> {
+    const assignedPpId =
+      peoplePartnerId ??
+      (
+        await this.prisma.employee.findUnique({
+          where: { id: subjectId },
+          select: { peoplePartnerId: true },
+        })
+      )?.peoplePartnerId;
+    if (!assignedPpId) {
       return null;
     }
 
-    const ppMatched = await this.isInHrLine(viewerId, subject.peoplePartnerId);
+    const ppMatched = await this.isInHrLine(viewerId, assignedPpId);
     if (!ppMatched) {
       return null;
     }
@@ -334,7 +507,13 @@ export class AccessResolverService extends AccessResolver {
     subjectId: string,
   ): Promise<ResolvedAudience | null> {
     const assignments = await this.projectAssignment.listByEmployee(subjectId);
+    return this.resolveProjectLineFromAssignments(viewerId, assignments);
+  }
 
+  private async resolveProjectLineFromAssignments(
+    viewerId: string,
+    assignments: ProjectAssignmentDto[],
+  ): Promise<ResolvedAudience | null> {
     const reportingLineCache = new Map<string, Promise<boolean>>();
     const isViewerInReportingLine = (id: string): Promise<boolean> => {
       let result = reportingLineCache.get(id);

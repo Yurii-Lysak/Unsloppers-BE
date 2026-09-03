@@ -5,6 +5,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { Clock } from '../../../clock/clock.service';
 import { ProjectAssignment } from '../../contracts/project-assignment.contract';
 import { AccessResolverService } from '../access-resolver.service';
+import { RelationshipGraphGenerationService } from '../relationship-graph-generation.service';
 
 describe('AccessResolverService', () => {
   let service: AccessResolverService;
@@ -70,6 +71,18 @@ describe('AccessResolverService', () => {
   const clock = {
     now: jest.fn(() => NOW),
     nowMs: jest.fn(() => NOW.getTime()),
+  };
+
+  const cacheStore = new Map<string, unknown>();
+  const graphGeneration = {
+    getGeneration: jest.fn(() => 0n),
+    cacheKey: jest.fn(
+      (viewerId: string, subjectId: string) => `${viewerId}:${subjectId}`,
+    ),
+    getCacheEntry: jest.fn(),
+    setCacheEntry: jest.fn(),
+    deleteCacheEntry: jest.fn(),
+    clearCache: jest.fn(),
   };
 
   /** Chains a sequence of `managerId` lookups by employee id. */
@@ -142,6 +155,16 @@ describe('AccessResolverService', () => {
 
     clock.now.mockReturnValue(NOW);
     clock.nowMs.mockReturnValue(NOW.getTime());
+    cacheStore.clear();
+    graphGeneration.getGeneration.mockReturnValue(0n);
+    graphGeneration.getCacheEntry.mockImplementation((key: string) =>
+      cacheStore.get(key),
+    );
+    graphGeneration.setCacheEntry.mockImplementation(
+      (key: string, entry: unknown) => {
+        cacheStore.set(key, entry);
+      },
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -150,6 +173,10 @@ describe('AccessResolverService', () => {
         { provide: ProjectAssignment, useValue: projectAssignment },
         { provide: Clock, useValue: clock },
         { provide: ConfigService, useValue: configService },
+        {
+          provide: RelationshipGraphGenerationService,
+          useValue: graphGeneration,
+        },
       ],
     }).compile();
 
@@ -562,6 +589,10 @@ describe('AccessResolverService', () => {
           { provide: ProjectAssignment, useValue: projectAssignment },
           { provide: Clock, useValue: clock },
           { provide: ConfigService, useValue: configService },
+          {
+            provide: RelationshipGraphGenerationService,
+            useValue: graphGeneration,
+          },
         ],
       }).compile();
       const configuredService = module.get(AccessResolverService);
@@ -707,6 +738,269 @@ describe('AccessResolverService', () => {
       expect(result.role).toBe('FullAccess');
       expect(result.sections.S3).toBe('RW');
       expect(result.sections.S7).toBe('RW');
+    });
+  });
+
+  describe('generation-gated cache (Story 1.13)', () => {
+    beforeEach(async () => {
+      prisma.fullAccessGrant.findFirst.mockResolvedValue(null);
+      configService.get.mockImplementation((key: string) => {
+        if (key === 'HR_DEPARTMENT_VALUE') {
+          return 'HR';
+        }
+        if (key === 'ACCESS_RESOLUTION_CACHE_ENABLED') {
+          return true;
+        }
+        return undefined;
+      });
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          AccessResolverService,
+          { provide: PrismaService, useValue: prisma },
+          { provide: ProjectAssignment, useValue: projectAssignment },
+          { provide: Clock, useValue: clock },
+          { provide: ConfigService, useValue: configService },
+          {
+            provide: RelationshipGraphGenerationService,
+            useValue: graphGeneration,
+          },
+        ],
+      }).compile();
+
+      service = module.get(AccessResolverService);
+    });
+
+    it('serves a cache hit without re-fetching project assignments when generation is unchanged', async () => {
+      mockChain({ D: 'M', B: 'D' });
+
+      await service.resolveAudience('M', 'B');
+      await service.resolveAudience('M', 'B');
+
+      expect(projectAssignment.listByEmployee).not.toHaveBeenCalled();
+    });
+
+    it('recomputes when generation bumps after a warm cache', async () => {
+      projectAssignment.listByEmployee.mockResolvedValue([
+        row({ dmId: 'D', pmId: 'P' }),
+      ]);
+
+      await service.resolveAudience('D', 'B');
+      graphGeneration.getGeneration.mockReturnValue(1n);
+      projectAssignment.listByEmployee.mockResolvedValue([]);
+
+      const result = await service.resolveAudience('D', 'B');
+
+      expect(projectAssignment.listByEmployee).toHaveBeenCalledTimes(2);
+      expect(result.role).toBe('Colleague');
+    });
+
+    it('discards a warm cache entry when confirmedAt freshness expires without a generation bump', async () => {
+      const confirmedAt = new Date(NOW.getTime() - 2 * 60 * 60 * 1000);
+      projectAssignment.listByEmployee.mockResolvedValue([
+        row({
+          dmId: 'D',
+          pmId: 'P',
+          confirmedAt: confirmedAt.toISOString(),
+        }),
+      ]);
+
+      const first = await service.resolveAudience('D', 'B');
+      expect(first.role).toBe('ProjectLine');
+
+      clock.now.mockReturnValue(
+        new Date(confirmedAt.getTime() + 4 * 60 * 60 * 1000 + 1),
+      );
+      clock.nowMs.mockReturnValue(
+        confirmedAt.getTime() + 4 * 60 * 60 * 1000 + 1,
+      );
+
+      const second = await service.resolveAudience('D', 'B');
+
+      expect(second.role).toBe('Colleague');
+      expect(projectAssignment.listByEmployee).toHaveBeenCalledTimes(2);
+    });
+
+    it('grants ProjectLine after startDate arrives when cache is warm and generation unchanged', async () => {
+      const futureStart = new Date(
+        Date.UTC(NOW.getUTCFullYear(), NOW.getUTCMonth(), NOW.getUTCDate() + 1),
+      );
+      const afterStart = new Date(futureStart.getTime() + 12 * 60 * 60 * 1000);
+      projectAssignment.listByEmployee.mockResolvedValue([
+        row({
+          dmId: 'D',
+          pmId: 'P',
+          startDate: futureStart.toISOString().slice(0, 10),
+          confirmedAt: afterStart.toISOString(),
+        }),
+      ]);
+
+      const denied = await service.resolveAudience('D', 'B');
+      expect(denied.role).toBe('Colleague');
+
+      clock.now.mockReturnValue(afterStart);
+      clock.nowMs.mockReturnValue(afterStart.getTime());
+
+      const granted = await service.resolveAudience('D', 'B');
+      expect(granted.role).toBe('ProjectLine');
+    });
+
+    it('discards a warm cache entry when endDate boundary passes without a generation bump', async () => {
+      const endDate = TODAY.toISOString().slice(0, 10);
+      projectAssignment.listByEmployee.mockResolvedValue([
+        row({ dmId: 'D', pmId: 'P', endDate }),
+      ]);
+
+      const active = await service.resolveAudience('D', 'B');
+      expect(active.role).toBe('ProjectLine');
+
+      const afterEnd = new Date(
+        Date.UTC(
+          TODAY.getUTCFullYear(),
+          TODAY.getUTCMonth(),
+          TODAY.getUTCDate() + 1,
+        ),
+      );
+      clock.now.mockReturnValue(afterEnd);
+      clock.nowMs.mockReturnValue(afterEnd.getTime());
+
+      const denied = await service.resolveAudience('D', 'B');
+
+      expect(denied.role).toBe('Colleague');
+      expect(projectAssignment.listByEmployee).toHaveBeenCalledTimes(2);
+    });
+
+    it('recomputes ProjectLine when generation bumps after a confirmed flip on a warm cache', async () => {
+      projectAssignment.listByEmployee.mockResolvedValue([
+        row({ dmId: 'D', pmId: 'P' }),
+      ]);
+
+      await service.resolveAudience('D', 'B');
+      graphGeneration.getGeneration.mockReturnValue(1n);
+      projectAssignment.listByEmployee.mockResolvedValue([
+        row({ dmId: 'D', pmId: 'P', confirmed: false, confirmedAt: null }),
+      ]);
+
+      const denied = await service.resolveAudience('D', 'B');
+
+      expect(denied.role).toBe('Colleague');
+      expect(projectAssignment.listByEmployee).toHaveBeenCalledTimes(2);
+    });
+
+    it('recomputes reporting-line audience after generation bumps following a warm cache', async () => {
+      mockChain({ B: 'M', M: null });
+      projectAssignment.listByEmployee.mockResolvedValue([]);
+
+      const before = await service.resolveAudience('M', 'B');
+      expect(before.role).toBe('ReportingLine');
+
+      graphGeneration.getGeneration.mockReturnValue(1n);
+      mockChain({ B: 'N', N: null });
+
+      const after = await service.resolveAudience('M', 'B');
+
+      expect(after.role).toBe('Colleague');
+      expect(prisma.employee.findUnique).toHaveBeenCalled();
+    });
+
+    it('recomputes PP audience after generation bumps following a warm cache', async () => {
+      mockSubjectPp('B', 'X');
+      mockChain({ X: null });
+      projectAssignment.listByEmployee.mockResolvedValue([]);
+
+      const before = await service.resolveAudience('X', 'B');
+      expect(before.role).toBe('PP');
+
+      graphGeneration.getGeneration.mockReturnValue(1n);
+      mockSubjectPp('B', 'Y');
+
+      const former = await service.resolveAudience('X', 'B');
+      const current = await service.resolveAudience('Y', 'B');
+
+      expect(former.role).toBe('Colleague');
+      expect(current.role).toBe('PP');
+    });
+
+    it('re-runs PP HR-line predicates on cache hit when department membership changes without a generation bump', async () => {
+      mockSubjectPp('B', 'X');
+      mockChain({ X: 'H', H: null });
+      mockDepartment('H', 'HR');
+      projectAssignment.listByEmployee.mockResolvedValue([]);
+
+      const granted = await service.resolveAudience('H', 'B');
+      expect(granted.role).toBe('PP');
+
+      mockDepartment('H', 'Engineering');
+
+      const denied = await service.resolveAudience('H', 'B');
+
+      expect(denied.role).toBe('Colleague');
+      expect(prisma.departmentHistory.findFirst).toHaveBeenCalled();
+    });
+
+    it('re-queries FullAccessGrant on cache hit when grant is revoked without a generation bump', async () => {
+      projectAssignment.listByEmployee.mockResolvedValue([]);
+      prisma.fullAccessGrant.findFirst.mockResolvedValue({ id: 'grant-1' });
+
+      const granted = await service.resolveAudience('fa-viewer', 'subject');
+      expect(granted.role).toBe('FullAccess');
+      const callsAfterGrant =
+        prisma.fullAccessGrant.findFirst.mock.calls.length;
+
+      prisma.fullAccessGrant.findFirst.mockResolvedValue(null);
+
+      const denied = await service.resolveAudience('fa-viewer', 'subject');
+
+      expect(denied.role).toBe('Colleague');
+      expect(
+        prisma.fullAccessGrant.findFirst.mock.calls.length,
+      ).toBeGreaterThan(callsAfterGrant);
+    });
+
+    it('evicts a warm cache entry when TTL expires and recomputes the same audience', async () => {
+      configService.get.mockImplementation((key: string) => {
+        if (key === 'HR_DEPARTMENT_VALUE') {
+          return 'HR';
+        }
+        if (key === 'ACCESS_RESOLUTION_CACHE_ENABLED') {
+          return true;
+        }
+        if (key === 'ACCESS_RESOLUTION_CACHE_TTL_MS') {
+          return 1_000;
+        }
+        return undefined;
+      });
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          AccessResolverService,
+          { provide: PrismaService, useValue: prisma },
+          { provide: ProjectAssignment, useValue: projectAssignment },
+          { provide: Clock, useValue: clock },
+          { provide: ConfigService, useValue: configService },
+          {
+            provide: RelationshipGraphGenerationService,
+            useValue: graphGeneration,
+          },
+        ],
+      }).compile();
+      const ttlService = module.get(AccessResolverService);
+
+      mockChain({ B: 'M', M: null });
+      projectAssignment.listByEmployee.mockResolvedValue([]);
+
+      const first = await ttlService.resolveAudience('M', 'B');
+      expect(first.role).toBe('ReportingLine');
+      const callsAfterFirst = prisma.employee.findUnique.mock.calls.length;
+
+      clock.nowMs.mockReturnValue(NOW.getTime() + 2_000);
+
+      const second = await ttlService.resolveAudience('M', 'B');
+
+      expect(second.role).toBe('ReportingLine');
+      expect(prisma.employee.findUnique.mock.calls.length).toBeGreaterThan(
+        callsAfterFirst,
+      );
     });
   });
 });

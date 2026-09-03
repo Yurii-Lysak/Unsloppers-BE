@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from './prisma.service';
 import { TimelineEventWriter } from '../modules/contracts/timeline-event-writer.contract';
 import { createTemporalHistoryExtension } from './extensions/temporal-history.extension';
+import { createRelationshipGraphExtension } from './extensions/relationship-graph.extension';
 
 /**
  * `@Global()` so every feature module can inject `PrismaService` without
@@ -35,8 +36,11 @@ import { createTemporalHistoryExtension } from './extensions/temporal-history.ex
         timelineEventWriter: TimelineEventWriter,
       ) => {
         const raw = new PrismaService(config);
-        const extended = raw.$extends(
+        const withTemporal = raw.$extends(
           createTemporalHistoryExtension(timelineEventWriter, raw),
+        );
+        const extended = withTemporal.$extends(
+          createRelationshipGraphExtension(),
         );
 
         (extended as unknown as PrismaService).onModuleInit =
