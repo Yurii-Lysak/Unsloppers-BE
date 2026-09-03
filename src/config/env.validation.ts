@@ -29,4 +29,7 @@ export const envValidationSchema = Joi.object({
   TIMETRACKER_MANAGE_LEAVE_URL: Joi.string().uri().optional(),
   // Story 1.3 — open `DepartmentHistory.value` treated as HR for PP HR-line walk.
   HR_DEPARTMENT_VALUE: Joi.string().default('HR'),
+  // Story 1.13 — generation-gated access-resolution cache (AD-4: off by default).
+  ACCESS_RESOLUTION_CACHE_ENABLED: Joi.boolean().default(false),
+  ACCESS_RESOLUTION_CACHE_TTL_MS: Joi.number().integer().positive().optional(),
 });

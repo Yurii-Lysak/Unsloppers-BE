@@ -2,6 +2,11 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ProjectAssignmentService } from '../project-assignment.service';
 import { ProjectAssignment as ProjectAssignmentRow } from '../../../generated/prisma/client';
+import {
+  invokeRelationshipGraphBump,
+  registerRelationshipGraphBump,
+  resetRelationshipGraphBumpRegistry,
+} from '../../../prisma/relationship-graph-bump.registry';
 
 describe('ProjectAssignmentService', () => {
   let service: ProjectAssignmentService;
@@ -10,6 +15,7 @@ describe('ProjectAssignmentService', () => {
     projectAssignment: {
       findMany: jest.fn(),
       create: jest.fn(),
+      update: jest.fn(),
     },
   };
 
@@ -149,6 +155,49 @@ describe('ProjectAssignmentService', () => {
       });
       expect(result.confirmed).toBe(true);
       expect(result.confirmedAt).toBe(confirmedAt.toISOString());
+    });
+  });
+
+  describe('update', () => {
+    it('patches endDate, confirmed, and confirmedAt through Prisma', async () => {
+      const endDate = new Date('2026-09-01T00:00:00.000Z');
+      prisma.projectAssignment.update.mockResolvedValue({
+        ...row,
+        endDate,
+        confirmed: false,
+        confirmedAt: null,
+      });
+
+      const result = await service.update('row-1', {
+        endDate,
+        confirmed: false,
+        confirmedAt: null,
+      });
+
+      expect(prisma.projectAssignment.update).toHaveBeenCalledWith({
+        where: { id: 'row-1' },
+        data: { endDate, confirmed: false, confirmedAt: null },
+      });
+      expect(result.endDate).toBe(endDate.toISOString());
+      expect(result.confirmed).toBe(false);
+    });
+
+    it('routes lifecycle patches through Prisma so the relationship-graph extension can bump generation', async () => {
+      const bump = jest.fn();
+      resetRelationshipGraphBumpRegistry();
+      registerRelationshipGraphBump(bump);
+      prisma.projectAssignment.update.mockImplementation(
+        async (args: { data: Partial<ProjectAssignmentRow> }) => {
+          await invokeRelationshipGraphBump();
+          return { ...row, ...args.data };
+        },
+      );
+
+      await service.update('row-1', { confirmed: false });
+
+      expect(prisma.projectAssignment.update).toHaveBeenCalled();
+      expect(bump).toHaveBeenCalledTimes(1);
+      resetRelationshipGraphBumpRegistry();
     });
   });
 });

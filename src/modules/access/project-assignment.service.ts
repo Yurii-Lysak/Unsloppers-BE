@@ -23,6 +23,12 @@ export interface CreateProjectAssignmentInput {
   confirmedAt?: Date | null;
 }
 
+export interface UpdateProjectAssignmentInput {
+  endDate?: Date | null;
+  confirmed?: boolean;
+  confirmedAt?: Date | null;
+}
+
 @Injectable()
 export class ProjectAssignmentService extends ProjectAssignment {
   constructor(private readonly prisma: PrismaService) {
@@ -62,6 +68,29 @@ export class ProjectAssignmentService extends ProjectAssignment {
         endDate: input.endDate ?? null,
         confirmed: input.confirmed ?? false,
         confirmedAt: input.confirmedAt ?? null,
+      },
+    });
+    return this.toDto(row);
+  }
+
+  /**
+   * Lifecycle / confirmation patches (Story 1.13). Routes through Prisma so
+   * the relationship-graph extension bumps the generation counter.
+   */
+  async update(
+    id: string,
+    patch: UpdateProjectAssignmentInput,
+  ): Promise<ProjectAssignmentDto> {
+    const row = await this.prisma.projectAssignment.update({
+      where: { id },
+      data: {
+        ...(patch.endDate !== undefined ? { endDate: patch.endDate } : {}),
+        ...(patch.confirmed !== undefined
+          ? { confirmed: patch.confirmed }
+          : {}),
+        ...(patch.confirmedAt !== undefined
+          ? { confirmedAt: patch.confirmedAt }
+          : {}),
       },
     });
     return this.toDto(row);

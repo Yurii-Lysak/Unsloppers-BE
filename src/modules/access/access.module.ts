@@ -23,6 +23,7 @@ import { ProjectsSectionProvider } from './projects-section.provider';
 import { SectionAccessGateService } from './section-access-gate.service';
 import { RelationshipJournal } from '../contracts/relationship-journal.contract';
 import { RelationshipJournalService } from './relationship-journal.service';
+import { RelationshipGraphGenerationService } from './relationship-graph-generation.service';
 
 /**
  * `access` — implements C1 `AccessResolver`, C3 `ProjectAssignment`, and C8
@@ -60,6 +61,7 @@ import { RelationshipJournalService } from './relationship-journal.service';
     IdentitySectionProvider,
     ProjectsSectionProvider,
     { provide: SectionAccessGate, useClass: SectionAccessGateService },
+    RelationshipGraphGenerationService,
   ],
   exports: [
     AccessResolver,
@@ -70,6 +72,7 @@ import { RelationshipJournalService } from './relationship-journal.service';
     ProfileAssemblerService,
     SectionAccessGate,
     RelationshipJournal,
+    RelationshipGraphGenerationService,
   ],
 })
 export class AccessModule {}

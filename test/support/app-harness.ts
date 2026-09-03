@@ -9,6 +9,8 @@ import { Clock } from '../../src/clock/clock.service';
 import { PrismaClient } from '../../src/generated/prisma/client';
 import { TimelineEventWriter } from '../../src/modules/contracts/timeline-event-writer.contract';
 import { createTemporalHistoryExtension } from '../../src/prisma/extensions/temporal-history.extension';
+import { createRelationshipGraphExtension } from '../../src/prisma/extensions/relationship-graph.extension';
+import { RelationshipGraphGenerationService } from '../../src/modules/access/relationship-graph-generation.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { truncateAllTables } from './test-database';
 import { databaseUrl, testSchemaName } from './test-schema';
@@ -90,8 +92,11 @@ export async function createTestApp(
     .useFactory({
       factory: (timelineEventWriter: TimelineEventWriter) => {
         const raw = new SchemaScopedPrismaService(schema);
-        const extended = raw.$extends(
+        const withTemporal = raw.$extends(
           createTemporalHistoryExtension(timelineEventWriter, raw),
+        );
+        const extended = withTemporal.$extends(
+          createRelationshipGraphExtension(),
         );
 
         (extended as unknown as PrismaService).onModuleInit =
@@ -127,6 +132,14 @@ export async function createTestApp(
 
   if (options.truncate !== false) {
     await resetDatabase();
+    await prisma.accessGraphGeneration.upsert({
+      where: { id: 'default' },
+      update: { generation: 0 },
+      create: { id: 'default', generation: 0 },
+    });
+    const graphGeneration = app.get(RelationshipGraphGenerationService);
+    graphGeneration.clearCache();
+    await graphGeneration.loadGeneration();
   }
 
   return {

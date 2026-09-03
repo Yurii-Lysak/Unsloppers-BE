@@ -455,6 +455,15 @@ model RelationshipJournalEntry {
   @@map("relationship_journal_entries")
 }
 
+// Story 1.13 — monotonic generation counter for D1/AD-4 access-resolution cache
+// invalidation. Single row; bumped synchronously on relationship-graph writes.
+model AccessGraphGeneration {
+  id         String @id @default("default")
+  generation BigInt @default(0)
+
+  @@map("access_graph_generation")
+}
+
 // Story 1.12 — dedicated full-profile access grant (access-model.md § Full profile access).
 // Active holder ⇔ revokedAt IS NULL. Grant/revoke UI and journal kinds are out of scope.
 model FullAccessGrant {
