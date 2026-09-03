@@ -1,23 +1,1 @@
-import { randomUUID } from 'crypto';
-import { Injectable } from '@nestjs/common';
-import {
-  ActionItemCreation,
-  ActionItemDto,
-  CreateActionItemInput,
-} from '../action-item-creation.contract';
-
-/** Wave-0 stub — creates an in-memory-shaped DTO, does not persist. */
-@Injectable()
-export class ActionItemCreationStub extends ActionItemCreation {
-  createActionItem(input: CreateActionItemInput): Promise<ActionItemDto> {
-    const now = new Date().toISOString();
-    return Promise.resolve({
-      id: randomUUID(),
-      ...input,
-      status: 'open',
-      createdAt: now,
-      updatedAt: now,
-      isOverdue: false,
-    });
-  }
-}
+import { randomUUID } from 'crypto';import {  BadRequestException,  ConflictException,  Injectable,} from '@nestjs/common';import {  ActionItemCreation,  ActionItemDto,  ActionItemWriteContext,  CreateActionItemInput,  CreateCampaignActionItemsInput,} from '../action-item-creation.contract';/** Wave-0 stub — creates in-memory-shaped DTOs, does not persist. */@Injectable()export class ActionItemCreationStub extends ActionItemCreation {  private readonly campaignItems = new Map<string, ActionItemDto[]>();  createActionItem(input: CreateActionItemInput): Promise<ActionItemDto> {    if (input.source === 'campaign') {      throw new BadRequestException(        'use createCampaignActionItems for campaign activation',      );    }    const now = new Date().toISOString();    return Promise.resolve({      id: randomUUID(),      ...input,      status: 'open',      createdAt: now,      updatedAt: now,      isOverdue: false,    });  }  async createCampaignActionItems(    input: CreateCampaignActionItemsInput,    tx?: ActionItemWriteContext,  ): Promise<ActionItemDto[]> {    if (this.campaignItems.has(input.campaignId)) {      throw new ConflictException('campaign already has action items');    }    if (tx) {      const existing = await tx.actionItem.count({        where: { campaignId: input.campaignId },      });      if (existing > 0) {        throw new ConflictException('campaign already has action items');      }      if (input.assigneeIds.length > 0) {        await tx.actionItem.createMany({          data: input.assigneeIds.map((assigneeId) => ({            assigneeId,            authorId: input.authorId,            title: input.title,            description: input.description ?? null,            dueDate: new Date(`${input.dueDate}T00:00:00.000Z`),            link: input.link ?? null,            source: 'campaign' as const,            campaignId: input.campaignId,            status: 'open' as const,          })),        });      }    }    if (input.assigneeIds.length === 0) {      return [];    }    const now = new Date().toISOString();    const items: ActionItemDto[] = input.assigneeIds.map((assigneeId) => ({      id: randomUUID(),      assigneeId,      authorId: input.authorId,      title: input.title,      ...(input.description ? { description: input.description } : {}),      dueDate: input.dueDate,      ...(input.link ? { link: input.link } : {}),      source: 'campaign',      campaignId: input.campaignId,      status: 'open',      createdAt: now,      updatedAt: now,      isOverdue: false,    }));    this.campaignItems.set(input.campaignId, items);    return sortCampaignContractDtos(items);  }}function sortCampaignContractDtos(items: ActionItemDto[]): ActionItemDto[] {  return [...items].sort((a, b) => {    const dueCmp = a.dueDate.localeCompare(b.dueDate);    if (dueCmp !== 0) {      return dueCmp;    }    const assigneeCmp = a.assigneeId.localeCompare(b.assigneeId);    if (assigneeCmp !== 0) {      return assigneeCmp;    }    return a.createdAt.localeCompare(b.createdAt);  });}

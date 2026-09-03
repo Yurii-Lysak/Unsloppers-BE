@@ -2,6 +2,7 @@ import { hash } from 'bcryptjs';
 import { randomUUID } from 'crypto';
 import request from 'supertest';
 import { ActionItemsSectionProvider } from '../src/modules/action-items/action-items-section.provider';
+import { ActionItemsService } from '../src/modules/action-items/action-items.service';
 import { PERMISSION_KEYS } from '../src/modules/contracts/permission-keys';
 import { createTestApp, TestApp } from './support/app-harness';
 import { DEFAULT_TEST_INSTANT, FixedClock } from './support/fixed-clock';
@@ -1222,6 +1223,343 @@ describe('Action items overdue highlighting (e2e)', () => {
     expect(
       (afterRetreat.body as ActionItemsSectionResponse).items[0].isOverdue,
     ).toBe(false);
+  });
+
+  describe('createCampaignActionItems (C6 bulk)', () => {
+    it('creates one campaign item per frozen recipient and exposes them on S14', async () => {
+      const sender = await createEmployeeUser(
+        testApp,
+        'ai-bulk-sender@example.com',
+        'Campaign Sender',
+      );
+      const recipientA = await createEmployeeUser(
+        testApp,
+        'ai-bulk-recipient-a@example.com',
+        'Recipient A',
+      );
+      const recipientB = await createEmployeeUser(
+        testApp,
+        'ai-bulk-recipient-b@example.com',
+        'Recipient B',
+      );
+      const recipientC = await createEmployeeUser(
+        testApp,
+        'ai-bulk-recipient-c@example.com',
+        'Recipient C',
+      );
+      await testApp.prisma.employee.update({
+        where: { id: recipientA.employeeId },
+        data: { managerId: sender.employeeId },
+      });
+      await testApp.prisma.employee.update({
+        where: { id: recipientB.employeeId },
+        data: { managerId: sender.employeeId },
+      });
+      await testApp.prisma.employee.update({
+        where: { id: recipientC.employeeId },
+        data: { managerId: sender.employeeId },
+      });
+
+      const campaignId = randomUUID();
+      const actionItems = testApp.app.get(ActionItemsService);
+      const created = await actionItems.createCampaignActionItems({
+        campaignId,
+        authorId: sender.employeeId,
+        title: 'Annual Engagement Survey',
+        description: 'Please complete the survey',
+        dueDate: '2025-12-31',
+        link: 'https://forms.example.com/survey',
+        assigneeIds: [
+          recipientA.employeeId,
+          recipientB.employeeId,
+          recipientC.employeeId,
+        ],
+      });
+
+      expect(created).toHaveLength(3);
+      expect(created.every((item) => item.source === 'campaign')).toBe(true);
+      expect(created.every((item) => item.campaignId === campaignId)).toBe(
+        true,
+      );
+      expect(created.every((item) => item.isOverdue === true)).toBe(true);
+
+      const senderAgent = await loginAs(testApp, sender.email);
+      const listRes = await senderAgent
+        .get(`/api/v1/employees/${recipientA.employeeId}/action-items`)
+        .expect(200);
+      const listed = (listRes.body as ActionItemsSectionResponse).items;
+      expect(listed).toHaveLength(1);
+      expect(listed[0]).toMatchObject({
+        title: 'Annual Engagement Survey',
+        source: 'campaign',
+        author: { id: sender.employeeId, displayName: 'Campaign Sender' },
+        isOverdue: true,
+      });
+
+      const profileRes = await senderAgent
+        .get(`/api/v1/employees/${recipientB.employeeId}/profile`)
+        .expect(200);
+      const profileBody = profileRes.body as {
+        sections: { S14?: { data?: ActionItemsSectionResponse } };
+      };
+      const profileItems = profileBody.sections.S14?.data?.items ?? [];
+      expect(profileItems).toHaveLength(1);
+      expect(profileItems[0].source).toBe('campaign');
+    });
+
+    it('rejects a second bulk create for the same campaign', async () => {
+      const sender = await createEmployeeUser(
+        testApp,
+        'ai-bulk-conflict-sender@example.com',
+      );
+      const recipient = await createEmployeeUser(
+        testApp,
+        'ai-bulk-conflict-recipient@example.com',
+      );
+      const campaignId = randomUUID();
+      const actionItems = testApp.app.get(ActionItemsService);
+
+      await actionItems.createCampaignActionItems({
+        campaignId,
+        authorId: sender.employeeId,
+        title: 'One-shot campaign',
+        dueDate: '2026-09-20',
+        assigneeIds: [recipient.employeeId],
+      });
+
+      await expect(
+        actionItems.createCampaignActionItems({
+          campaignId,
+          authorId: sender.employeeId,
+          title: 'Retry campaign',
+          dueDate: '2026-09-21',
+          assigneeIds: [recipient.employeeId],
+        }),
+      ).rejects.toMatchObject({
+        response: { message: 'campaign already has action items' },
+      });
+    });
+
+    it('lets assignees complete campaign-sourced items from bulk activation', async () => {
+      const sender = await createEmployeeUser(
+        testApp,
+        'ai-bulk-complete-sender@example.com',
+      );
+      const recipient = await createEmployeeUser(
+        testApp,
+        'ai-bulk-complete-recipient@example.com',
+      );
+      await testApp.prisma.employee.update({
+        where: { id: recipient.employeeId },
+        data: { managerId: sender.employeeId },
+      });
+
+      const campaignId = randomUUID();
+      const actionItems = testApp.app.get(ActionItemsService);
+      const [item] = await actionItems.createCampaignActionItems({
+        campaignId,
+        authorId: sender.employeeId,
+        title: 'Complete me',
+        dueDate: '2026-09-20',
+        assigneeIds: [recipient.employeeId],
+      });
+
+      const recipientAgent = await loginAs(testApp, recipient.email);
+      const completeRes = await recipientAgent
+        .post(
+          `/api/v1/employees/${recipient.employeeId}/action-items/${item.id}/complete`,
+        )
+        .expect(200);
+
+      expect(completeRes.body).toMatchObject({
+        id: item.id,
+        status: 'completed',
+        source: 'campaign',
+        completedAt: DEFAULT_TEST_INSTANT,
+      });
+    });
+
+    it('rejects inactive author with 400', async () => {
+      const sender = await createEmployeeUser(
+        testApp,
+        'ai-bulk-inactive-author@example.com',
+      );
+      const recipient = await createEmployeeUser(
+        testApp,
+        'ai-bulk-inactive-recipient@example.com',
+      );
+      await testApp.prisma.employee.update({
+        where: { id: sender.employeeId },
+        data: { employmentStatus: 'dismissed' },
+      });
+
+      const actionItems = testApp.app.get(ActionItemsService);
+      await expect(
+        actionItems.createCampaignActionItems({
+          campaignId: randomUUID(),
+          authorId: sender.employeeId,
+          title: 'Should fail',
+          dueDate: '2026-09-20',
+          assigneeIds: [recipient.employeeId],
+        }),
+      ).rejects.toMatchObject({
+        response: { message: 'authorId must be an active employee' },
+      });
+    });
+
+    it('returns invalidAssigneeIds for inactive recipients', async () => {
+      const sender = await createEmployeeUser(
+        testApp,
+        'ai-bulk-invalid-assignee-sender@example.com',
+      );
+      const activeRecipient = await createEmployeeUser(
+        testApp,
+        'ai-bulk-invalid-assignee-active@example.com',
+      );
+      const dismissedRecipient = await createEmployeeUser(
+        testApp,
+        'ai-bulk-invalid-assignee-dismissed@example.com',
+      );
+      await testApp.prisma.employee.update({
+        where: { id: dismissedRecipient.employeeId },
+        data: { employmentStatus: 'dismissed' },
+      });
+
+      const actionItems = testApp.app.get(ActionItemsService);
+      await expect(
+        actionItems.createCampaignActionItems({
+          campaignId: randomUUID(),
+          authorId: sender.employeeId,
+          title: 'Should fail',
+          dueDate: '2026-09-20',
+          assigneeIds: [
+            activeRecipient.employeeId,
+            dismissedRecipient.employeeId,
+          ],
+        }),
+      ).rejects.toMatchObject({
+        response: {
+          message: 'assigneeIds must reference active employees',
+          invalidAssigneeIds: [dismissedRecipient.employeeId],
+        },
+      });
+
+      const persisted = await testApp.prisma.actionItem.count({
+        where: { authorId: sender.employeeId },
+      });
+      expect(persisted).toBe(0);
+    });
+
+    it('rejects empty audience when campaign rows already exist', async () => {
+      const sender = await createEmployeeUser(
+        testApp,
+        'ai-bulk-empty-conflict-sender@example.com',
+      );
+      const recipient = await createEmployeeUser(
+        testApp,
+        'ai-bulk-empty-conflict-recipient@example.com',
+      );
+      const campaignId = randomUUID();
+      const actionItems = testApp.app.get(ActionItemsService);
+
+      await actionItems.createCampaignActionItems({
+        campaignId,
+        authorId: sender.employeeId,
+        title: 'First wave',
+        dueDate: '2026-09-20',
+        assigneeIds: [recipient.employeeId],
+      });
+
+      await expect(
+        actionItems.createCampaignActionItems({
+          campaignId,
+          authorId: sender.employeeId,
+          title: 'Empty retry',
+          dueDate: '2026-09-21',
+          assigneeIds: [],
+        }),
+      ).rejects.toMatchObject({
+        response: { message: 'campaign already has action items' },
+      });
+    });
+
+    it('rejects re-activation after all items are completed', async () => {
+      const sender = await createEmployeeUser(
+        testApp,
+        'ai-bulk-completed-conflict-sender@example.com',
+      );
+      const recipient = await createEmployeeUser(
+        testApp,
+        'ai-bulk-completed-conflict-recipient@example.com',
+      );
+      await testApp.prisma.employee.update({
+        where: { id: recipient.employeeId },
+        data: { managerId: sender.employeeId },
+      });
+
+      const campaignId = randomUUID();
+      const actionItems = testApp.app.get(ActionItemsService);
+      const [item] = await actionItems.createCampaignActionItems({
+        campaignId,
+        authorId: sender.employeeId,
+        title: 'Finishable campaign',
+        dueDate: '2026-09-20',
+        assigneeIds: [recipient.employeeId],
+      });
+
+      const recipientAgent = await loginAs(testApp, recipient.email);
+      await recipientAgent
+        .post(
+          `/api/v1/employees/${recipient.employeeId}/action-items/${item.id}/complete`,
+        )
+        .expect(200);
+
+      await expect(
+        actionItems.createCampaignActionItems({
+          campaignId,
+          authorId: sender.employeeId,
+          title: 'Retry after completion',
+          dueDate: '2026-09-21',
+          assigneeIds: [recipient.employeeId],
+        }),
+      ).rejects.toMatchObject({
+        response: { message: 'campaign already has action items' },
+      });
+    });
+
+    it('rolls back campaign rows when the caller transaction aborts', async () => {
+      const sender = await createEmployeeUser(
+        testApp,
+        'ai-bulk-tx-rollback-sender@example.com',
+      );
+      const recipient = await createEmployeeUser(
+        testApp,
+        'ai-bulk-tx-rollback-recipient@example.com',
+      );
+      const campaignId = randomUUID();
+      const actionItems = testApp.app.get(ActionItemsService);
+
+      await expect(
+        testApp.prisma.$transaction(async (tx) => {
+          await actionItems.createCampaignActionItems(
+            {
+              campaignId,
+              authorId: sender.employeeId,
+              title: 'Transactional campaign',
+              dueDate: '2026-09-20',
+              assigneeIds: [recipient.employeeId],
+            },
+            tx,
+          );
+          throw new Error('abort activation');
+        }),
+      ).rejects.toThrow('abort activation');
+
+      const persisted = await testApp.prisma.actionItem.count({
+        where: { campaignId },
+      });
+      expect(persisted).toBe(0);
+    });
   });
 });
 
