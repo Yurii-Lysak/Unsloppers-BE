@@ -5,10 +5,13 @@ import { envValidationSchema } from '../config/env.validation';
 
 describe('AppModule startup configuration', () => {
   it('starts normally without BOOTCAMP_INITIAL_PASSWORD', async () => {
+    const databaseUrl =
+      process.env.DATABASE_URL ??
+      'postgresql://postgres:postgres@localhost:5432/app';
     const validation = envValidationSchema.validate({
       NODE_ENV: 'test',
       CORS_ORIGIN: 'http://localhost:4200',
-      DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/app',
+      DATABASE_URL: databaseUrl,
       JWT_SECRET: 'test-only-jwt-secret-at-least-32-characters',
       JWT_TTL_SECONDS: 3600,
     });

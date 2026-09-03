@@ -1,6 +1,7 @@
 {
   "moduleFileExtensions": ["js", "json", "ts"],
   "moduleNameMapper": {
+    "@nestjs/schedule": "<rootDir>/__mocks__/nestjs-schedule.ts",
     "^(\\.{1,2}/.*)\\.js$": "$1"
   },
   "rootDir": ".",
