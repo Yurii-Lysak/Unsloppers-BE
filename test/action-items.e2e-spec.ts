@@ -5,7 +5,6 @@ import { ActionItemsSectionProvider } from '../src/modules/action-items/action-i
 import { PERMISSION_KEYS } from '../src/modules/contracts/permission-keys';
 import { createTestApp, TestApp } from './support/app-harness';
 import { DEFAULT_TEST_INSTANT, FixedClock } from './support/fixed-clock';
-import { recordFlagGatedCoverage } from './support/matrix-coverage-collector';
 
 const PASSWORD = 'test-only-action-items-password';
 
@@ -631,11 +630,6 @@ describe('Action items (e2e)', () => {
         `/api/v1/employees/${report.employeeId}/action-items/${item.id}/complete`,
       )
       .expect(403);
-    recordFlagGatedCoverage({
-      section: 'S14',
-      audience: 'ReportingLine',
-      rule: 'write-denied',
-    });
 
     const ppAgent = await loginAs(testApp, pp.email);
     await ppAgent
@@ -643,11 +637,6 @@ describe('Action items (e2e)', () => {
         `/api/v1/employees/${report.employeeId}/action-items/${item.id}/complete`,
       )
       .expect(403);
-    recordFlagGatedCoverage({
-      section: 'S14',
-      audience: 'PP',
-      rule: 'write-denied',
-    });
 
     const pmAgent = await loginAs(testApp, pm.email);
     await pmAgent
@@ -655,11 +644,6 @@ describe('Action items (e2e)', () => {
         `/api/v1/employees/${report.employeeId}/action-items/${item.id}/complete`,
       )
       .expect(403);
-    recordFlagGatedCoverage({
-      section: 'S14',
-      audience: 'ProjectLine',
-      rule: 'write-denied',
-    });
   });
 
   it('lets the author cancel with a reason after losing live S14 access', async () => {
