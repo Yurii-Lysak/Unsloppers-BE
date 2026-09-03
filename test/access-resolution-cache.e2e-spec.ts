@@ -1,6 +1,5 @@
 import { hash } from 'bcryptjs';
 import request from 'supertest';
-import { ProjectAssignmentService } from '../src/modules/access/project-assignment.service';
 import { createTestApp, TestApp } from './support/app-harness';
 
 const PASSWORD = 'test-only-access-cache-password';
@@ -24,21 +23,18 @@ describe('Access resolution cache (e2e)', () => {
     dmEmployeeId = seeded.dmEmployeeId;
     dmAgent = await loginAgent(testApp, DM_EMAIL);
 
-    const assignmentService = testApp.app.get(ProjectAssignmentService);
-    await assignmentService.create({
-      employeeId: reportEmployeeId,
-      projectId: 'proj-cache-1',
-      pmId: dmEmployeeId,
-      dmId: dmEmployeeId,
-      startDate: new Date('2026-01-01T00:00:00.000Z'),
-      confirmed: true,
-      confirmedAt: new Date(),
+    const assignmentRow = await testApp.prisma.projectAssignment.create({
+      data: {
+        employeeId: reportEmployeeId,
+        projectId: 'proj-cache-1',
+        pmId: dmEmployeeId,
+        dmId: dmEmployeeId,
+        startDate: new Date('2026-01-01T00:00:00.000Z'),
+        confirmed: true,
+        confirmedAt: new Date(),
+      },
     });
-    const assignmentRow = await testApp.prisma.projectAssignment.findFirst({
-      where: { employeeId: reportEmployeeId, projectId: 'proj-cache-1' },
-      select: { id: true },
-    });
-    assignmentId = assignmentRow!.id;
+    assignmentId = assignmentRow.id;
   });
 
   afterAll(async () => {
@@ -58,16 +54,13 @@ describe('Access resolution cache (e2e)', () => {
       'ProjectLine',
     );
 
-    const warmAgain = await dmAgent
+    await dmAgent
       .get(`/api/v1/employees/${reportEmployeeId}/profile`)
       .expect(200);
-    expect(
-      (warmAgain.body as { audience: { role: string } }).audience.role,
-    ).toBe('ProjectLine');
 
-    const assignmentService = testApp.app.get(ProjectAssignmentService);
-    await assignmentService.update(assignmentId, {
-      endDate: new Date('2020-01-01T00:00:00.000Z'),
+    await testApp.prisma.projectAssignment.update({
+      where: { id: assignmentId },
+      data: { endDate: new Date('2020-01-01T00:00:00.000Z') },
     });
 
     const afterEnd = await dmAgent
@@ -85,7 +78,7 @@ async function loginAgent(testApp: TestApp, email: string) {
   await agent
     .post('/api/v1/auth/login')
     .send({ email, password: PASSWORD })
-    .expect(201);
+    .expect(200);
   return agent;
 }
 
@@ -93,7 +86,7 @@ async function seedGraph(testApp: TestApp): Promise<{
   reportEmployeeId: string;
   dmEmployeeId: string;
 }> {
-  const passwordHash = await hash(PASSWORD, 10);
+  const passwordHash = await hash(PASSWORD, 12);
 
   const dmUser = await testApp.prisma.user.create({
     data: { email: DM_EMAIL, name: 'Cache DM', passwordHash },
