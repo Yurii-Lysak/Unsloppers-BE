@@ -17,6 +17,7 @@ export class ActionItemCreationStub extends ActionItemCreation {
       status: 'open',
       createdAt: now,
       updatedAt: now,
+      isOverdue: false,
     });
   }
 }

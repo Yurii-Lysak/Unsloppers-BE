@@ -47,6 +47,9 @@ export class ActionItemReadEntity {
 
   @ApiPropertyOptional()
   cancelledReason?: string;
+
+  @ApiProperty()
+  isOverdue!: boolean;
 }
 
 export class AuthoredActionItemReadEntity extends ActionItemReadEntity {

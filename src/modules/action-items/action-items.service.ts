@@ -19,6 +19,7 @@ import {
 } from '../contracts/action-item-creation.contract';
 import {
   formatActionItemDueDate,
+  isActionItemOverdue,
   normalizeActionItemFields,
 } from './action-item-input';
 import { CreateActionItemDto } from './dto/create-action-item.dto';
@@ -338,6 +339,7 @@ export class ActionItemsService extends ActionItemCreation {
       ...(item.cancelledReason
         ? { cancelledReason: item.cancelledReason }
         : {}),
+      isOverdue: isActionItemOverdue(item.status, item.dueDate, this.clock),
     };
   }
 
@@ -376,6 +378,7 @@ export class ActionItemsService extends ActionItemCreation {
       ...(item.cancelledReason
         ? { cancelledReason: item.cancelledReason }
         : {}),
+      isOverdue: isActionItemOverdue(item.status, item.dueDate, this.clock),
     };
   }
 

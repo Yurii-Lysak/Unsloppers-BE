@@ -80,6 +80,7 @@ describe('ActionItemsSectionProvider', () => {
           updatedAt: '2026-09-03T12:00:00.000Z',
           cancelledAt: '2026-09-03T12:00:00.000Z',
           cancelledReason: 'Superseded',
+          isOverdue: false,
         },
       ],
     });
@@ -91,6 +92,7 @@ describe('ActionItemsSectionProvider', () => {
             status: 'cancelled',
             cancelledAt: '2026-09-03T12:00:00.000Z',
             cancelledReason: 'Superseded',
+            isOverdue: false,
           }),
         ],
       },

@@ -21,6 +21,7 @@ interface ActionItemReadDto {
   source: string;
   author: { id: string; displayName: string };
   dueDate: string;
+  isOverdue: boolean;
   completedAt?: string;
   cancelledAt?: string;
   cancelledReason?: string;
@@ -490,6 +491,7 @@ describe('Action items (e2e)', () => {
 
     expect((res.body as ActionItemReadDto).dueDate).toBe('2026-08-01');
     expect((res.body as ActionItemReadDto).link).toBeUndefined();
+    expect((res.body as ActionItemReadDto).isOverdue).toBe(false);
   });
 
   it('returns 404 for unknown assignee and 400 for malformed UUID', async () => {
@@ -688,11 +690,13 @@ describe('Action items (e2e)', () => {
     const listRes = await reportAgent
       .get(`/api/v1/employees/${report.employeeId}/action-items`)
       .expect(200);
-    expect((listRes.body as ActionItemsSectionResponse).items[0]).toMatchObject({
-      status: 'cancelled',
-      cancelledAt: DEFAULT_TEST_INSTANT,
-      cancelledReason: 'No longer applicable',
-    });
+    expect((listRes.body as ActionItemsSectionResponse).items[0]).toMatchObject(
+      {
+        status: 'cancelled',
+        cancelledAt: DEFAULT_TEST_INSTANT,
+        cancelledReason: 'No longer applicable',
+      },
+    );
 
     const profileRes = await reportAgent
       .get(`/api/v1/employees/${report.employeeId}/profile`)
@@ -953,9 +957,7 @@ describe('Action items (e2e)', () => {
     });
     expect(['completed', 'cancelled']).toContain(dbItem.status);
     expect(
-      dbItem.status === 'completed'
-        ? dbItem.completedAt
-        : dbItem.cancelledAt,
+      dbItem.status === 'completed' ? dbItem.completedAt : dbItem.cancelledAt,
     ).not.toBeNull();
   });
 
@@ -990,6 +992,236 @@ describe('Action items (e2e)', () => {
         `/api/v1/employees/${dismissed.employeeId}/action-items/${item.id}/complete`,
       )
       .expect(404);
+  });
+});
+
+describe('Action items overdue highlighting (e2e)', () => {
+  let testApp: TestApp;
+  let clock: FixedClock;
+
+  beforeAll(async () => {
+    clock = new FixedClock(DEFAULT_TEST_INSTANT);
+    testApp = await createTestApp({ clock });
+  });
+
+  afterAll(async () => {
+    await testApp.close();
+  });
+
+  beforeEach(async () => {
+    clock.set(DEFAULT_TEST_INSTANT);
+    await testApp.resetDatabase();
+  });
+
+  async function setupManagerReport(): Promise<{
+    manager: EmployeeUser;
+    report: EmployeeUser;
+    managerAgent: ReturnType<typeof request.agent>;
+  }> {
+    const manager = await createEmployeeUser(
+      testApp,
+      `ai-overdue-mgr-${randomUUID()}@example.com`,
+    );
+    const report = await createEmployeeUser(
+      testApp,
+      `ai-overdue-rpt-${randomUUID()}@example.com`,
+      'Overdue Report',
+    );
+    await testApp.prisma.employee.update({
+      where: { id: report.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+    const managerAgent = await loginAs(testApp, manager.email);
+    return { manager, report, managerAgent };
+  }
+
+  it('marks open past-due items overdue on all read surfaces', async () => {
+    const { report, managerAgent } = await setupManagerReport();
+
+    const createRes = await managerAgent
+      .post(`/api/v1/employees/${report.employeeId}/action-items`)
+      .send({ title: 'Past due task', dueDate: '2025-12-31' })
+      .expect(201);
+
+    const created = createRes.body as ActionItemReadDto;
+    expect(created.isOverdue).toBe(true);
+
+    const listRes = await managerAgent
+      .get(`/api/v1/employees/${report.employeeId}/action-items`)
+      .expect(200);
+    expect(
+      (listRes.body as ActionItemsSectionResponse).items[0].isOverdue,
+    ).toBe(true);
+
+    const profileRes = await managerAgent
+      .get(`/api/v1/employees/${report.employeeId}/profile`)
+      .expect(200);
+    const s14 = (
+      profileRes.body as {
+        sections: { S14?: { data?: ActionItemsSectionResponse } };
+      }
+    ).sections.S14;
+    expect(s14?.data?.items[0].isOverdue).toBe(true);
+
+    const authoredRes = await managerAgent
+      .get('/api/v1/me/authored-action-items')
+      .expect(200);
+    expect((authoredRes.body as AuthoredActionItemReadDto[])[0].isOverdue).toBe(
+      true,
+    );
+  });
+
+  it('does not mark open items due today or in the future as overdue', async () => {
+    const { report, managerAgent } = await setupManagerReport();
+
+    const todayRes = await managerAgent
+      .post(`/api/v1/employees/${report.employeeId}/action-items`)
+      .send({ title: 'Due today', dueDate: '2026-01-05' })
+      .expect(201);
+    expect((todayRes.body as ActionItemReadDto).isOverdue).toBe(false);
+
+    clock.set('2026-01-05T23:59:59.000Z');
+    const listRes = await managerAgent
+      .get(`/api/v1/employees/${report.employeeId}/action-items`)
+      .expect(200);
+    expect(
+      (listRes.body as ActionItemsSectionResponse).items[0].isOverdue,
+    ).toBe(false);
+
+    const futureRes = await managerAgent
+      .post(`/api/v1/employees/${report.employeeId}/action-items`)
+      .send({ title: 'Future task', dueDate: '2026-09-20' })
+      .expect(201);
+    expect((futureRes.body as ActionItemReadDto).isOverdue).toBe(false);
+  });
+
+  it('clears overdue on complete and cancel mutation responses', async () => {
+    const { report, managerAgent } = await setupManagerReport();
+
+    const item = (
+      await managerAgent
+        .post(`/api/v1/employees/${report.employeeId}/action-items`)
+        .send({ title: 'Terminal overdue', dueDate: '2025-12-31' })
+        .expect(201)
+    ).body as ActionItemReadDto;
+    expect(item.isOverdue).toBe(true);
+
+    const reportAgent = await loginAs(testApp, report.email);
+    const completeRes = await reportAgent
+      .post(
+        `/api/v1/employees/${report.employeeId}/action-items/${item.id}/complete`,
+      )
+      .expect(200);
+    expect((completeRes.body as ActionItemReadDto).isOverdue).toBe(false);
+
+    const listAfterComplete = await managerAgent
+      .get(`/api/v1/employees/${report.employeeId}/action-items`)
+      .expect(200);
+    expect(
+      (listAfterComplete.body as ActionItemsSectionResponse).items.find(
+        (row) => row.id === item.id,
+      )?.isOverdue,
+    ).toBe(false);
+
+    const profileAfterComplete = await managerAgent
+      .get(`/api/v1/employees/${report.employeeId}/profile`)
+      .expect(200);
+    const s14AfterComplete = (
+      profileAfterComplete.body as {
+        sections: { S14?: { data?: ActionItemsSectionResponse } };
+      }
+    ).sections.S14;
+    expect(
+      s14AfterComplete?.data?.items.find((row) => row.id === item.id)
+        ?.isOverdue,
+    ).toBe(false);
+
+    const item2 = (
+      await managerAgent
+        .post(`/api/v1/employees/${report.employeeId}/action-items`)
+        .send({ title: 'Cancel overdue', dueDate: '2025-12-31' })
+        .expect(201)
+    ).body as ActionItemReadDto;
+
+    const cancelRes = await managerAgent
+      .post(`/api/v1/me/authored-action-items/${item2.id}/cancel`)
+      .send({ reason: 'No longer needed' })
+      .expect(200);
+    expect((cancelRes.body as ActionItemReadDto).isOverdue).toBe(false);
+
+    const listAfterCancel = await managerAgent
+      .get(`/api/v1/employees/${report.employeeId}/action-items`)
+      .expect(200);
+    expect(
+      (listAfterCancel.body as ActionItemsSectionResponse).items.find(
+        (row) => row.id === item2.id,
+      )?.isOverdue,
+    ).toBe(false);
+
+    const profileAfterCancel = await managerAgent
+      .get(`/api/v1/employees/${report.employeeId}/profile`)
+      .expect(200);
+    const s14AfterCancel = (
+      profileAfterCancel.body as {
+        sections: { S14?: { data?: ActionItemsSectionResponse } };
+      }
+    ).sections.S14;
+    expect(
+      s14AfterCancel?.data?.items.find((row) => row.id === item2.id)?.isOverdue,
+    ).toBe(false);
+  });
+
+  it('uses the same overdue derivation for campaign-sourced items', async () => {
+    const { manager, report } = await setupManagerReport();
+
+    const item = await testApp.prisma.actionItem.create({
+      data: {
+        assigneeId: report.employeeId,
+        authorId: manager.employeeId,
+        title: 'Campaign overdue',
+        dueDate: new Date('2025-12-31T00:00:00.000Z'),
+        source: 'campaign',
+        campaignId: randomUUID(),
+        status: 'open',
+      },
+    });
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    const listRes = await managerAgent
+      .get(`/api/v1/employees/${report.employeeId}/action-items`)
+      .expect(200);
+    const listed = (listRes.body as ActionItemsSectionResponse).items.find(
+      (row) => row.id === item.id,
+    );
+    expect(listed?.isOverdue).toBe(true);
+    expect(listed?.source).toBe('campaign');
+  });
+
+  it('flips isOverdue when the clock advances or retreats without a DB write', async () => {
+    const { report, managerAgent } = await setupManagerReport();
+
+    const createRes = await managerAgent
+      .post(`/api/v1/employees/${report.employeeId}/action-items`)
+      .send({ title: 'Clock boundary', dueDate: '2026-01-06' })
+      .expect(201);
+    const item = createRes.body as ActionItemReadDto;
+    expect(item.isOverdue).toBe(false);
+
+    clock.set('2026-01-07T00:00:00.000Z');
+    const afterAdvance = await managerAgent
+      .get(`/api/v1/employees/${report.employeeId}/action-items`)
+      .expect(200);
+    expect(
+      (afterAdvance.body as ActionItemsSectionResponse).items[0].isOverdue,
+    ).toBe(true);
+
+    clock.set('2026-01-05T09:00:00.000Z');
+    const afterRetreat = await managerAgent
+      .get(`/api/v1/employees/${report.employeeId}/action-items`)
+      .expect(200);
+    expect(
+      (afterRetreat.body as ActionItemsSectionResponse).items[0].isOverdue,
+    ).toBe(false);
   });
 });
 

@@ -115,7 +115,48 @@ describe('ActionItemsService', () => {
       status: 'open',
       source: 'manual',
       dueDate: '2026-09-15',
+      isOverdue: false,
     });
+  });
+
+  it('createActionItem sets isOverdue true for open past-due items', async () => {
+    clock.now.mockReturnValue(new Date('2026-09-03T12:00:00.000Z'));
+    const createdAt = new Date('2026-09-01T12:00:00.000Z');
+    prisma.actionItem.create.mockResolvedValue({
+      id: 'item-overdue',
+      assigneeId: 'assignee-1',
+      authorId: 'author-1',
+      title: 'Late task',
+      description: null,
+      dueDate: new Date('2026-09-01T00:00:00.000Z'),
+      link: null,
+      status: 'open',
+      source: 'manual',
+      campaignId: null,
+      completedAt: null,
+      cancelledAt: null,
+      cancelledReason: null,
+      createdAt,
+      updatedAt: createdAt,
+      author: {
+        id: 'author-1',
+        user: { name: 'Author', email: 'author@example.com' },
+      },
+      assignee: {
+        id: 'assignee-1',
+        user: { name: 'Assignee', email: 'assignee@example.com' },
+      },
+    });
+
+    const result = await service.createActionItem({
+      assigneeId: 'assignee-1',
+      authorId: 'author-1',
+      title: 'Late task',
+      dueDate: '2026-09-01',
+      source: 'manual',
+    });
+
+    expect(result.isOverdue).toBe(true);
   });
 
   it('createActionItem rejects invalid calendar dates', async () => {
@@ -304,6 +345,7 @@ describe('ActionItemsService', () => {
     expect(result).toMatchObject({
       status: 'completed',
       completedAt: fixedInstant.toISOString(),
+      isOverdue: false,
     });
   });
 
@@ -355,6 +397,7 @@ describe('ActionItemsService', () => {
       status: 'cancelled',
       cancelledAt: fixedInstant.toISOString(),
       cancelledReason: 'No longer needed',
+      isOverdue: false,
     });
   });
 
@@ -465,6 +508,41 @@ describe('ActionItemsService', () => {
     expect(result.items[0]).toMatchObject({
       status: 'completed',
       completedAt: fixedInstant.toISOString(),
+      isOverdue: false,
     });
+  });
+
+  it('buildSection marks open past-due items as overdue', async () => {
+    clock.now.mockReturnValue(new Date('2026-09-03T12:00:00.000Z'));
+    prisma.actionItem.findMany.mockResolvedValue([
+      {
+        ...baseItem,
+        dueDate: new Date('2026-09-01T00:00:00.000Z'),
+      },
+    ]);
+
+    const result = await service.buildSection('assignee-1', {
+      role: 'ReportingLine',
+      sections: { S14: 'RW' },
+    });
+
+    expect(result.items[0].isOverdue).toBe(true);
+  });
+
+  it('listAuthoredOpenItems includes isOverdue on authored DTOs', async () => {
+    clock.now.mockReturnValue(new Date('2026-09-03T12:00:00.000Z'));
+    prisma.actionItem.findMany.mockResolvedValue([
+      {
+        ...baseItem,
+        dueDate: new Date('2026-09-01T00:00:00.000Z'),
+      },
+    ]);
+    accessResolver.resolveAudience.mockResolvedValue({
+      role: 'ReportingLine',
+      sections: { S14: 'RW' },
+    });
+
+    const result = await service.listAuthoredOpenItems('author-1');
+    expect(result[0].isOverdue).toBe(true);
   });
 });
