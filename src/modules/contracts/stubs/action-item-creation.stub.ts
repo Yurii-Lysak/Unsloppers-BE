@@ -10,10 +10,13 @@ import {
 @Injectable()
 export class ActionItemCreationStub extends ActionItemCreation {
   createActionItem(input: CreateActionItemInput): Promise<ActionItemDto> {
+    const now = new Date().toISOString();
     return Promise.resolve({
       id: randomUUID(),
       ...input,
-      createdAt: new Date().toISOString(),
+      status: 'open',
+      createdAt: now,
+      updatedAt: now,
     });
   }
 }
