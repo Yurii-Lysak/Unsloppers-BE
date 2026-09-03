@@ -27,6 +27,7 @@ export interface ActionItemDto extends CreateActionItemInput {
   completedAt?: string;
   cancelledAt?: string;
   cancelledReason?: string;
+  isOverdue: boolean;
 }
 
 export abstract class ActionItemCreation {
