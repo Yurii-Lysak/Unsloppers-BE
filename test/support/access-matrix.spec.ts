@@ -1,13 +1,18 @@
 import {
   ACCESS_MATRIX,
+  assertDeniedMatrixCoverage,
+  assertFlagGatedCoverage,
   assertMatrixCoverage,
   COLLEAGUE_WHITELIST,
+  deniedMatrixCells,
+  flagGatedCases,
   matrixCells,
   missingMatrixCoverage,
   PROFILE_AUDIENCES,
   PROFILE_SECTIONS,
   ProfileAudience,
   ProfileSection,
+  projectLineDeniedCells,
 } from './access-matrix';
 
 const sections = Object.keys(PROFILE_SECTIONS) as ProfileSection[];
@@ -115,6 +120,67 @@ describe('access matrix', () => {
       );
 
       expect(() => assertMatrixCoverage(allButOne)).toThrow(/S6\/colleague/);
+    });
+  });
+
+  describe('Story 1.14 denied enumeration', () => {
+    it('lists every level:none cell for self, colleague, and sharedLink', () => {
+      const denied = deniedMatrixCells();
+      expect(denied).toHaveLength(18);
+      expect(
+        denied.filter((cell) => cell.audience === 'self').map((c) => c.section),
+      ).toEqual(['S6', 'S15']);
+      expect(
+        denied.filter((cell) => cell.audience === 'sharedLink').length,
+      ).toBe(4);
+    });
+
+    it('declares ProjectLine AD-14 denial cells', () => {
+      expect(projectLineDeniedCells()).toEqual([
+        { section: 'S2', audience: 'projectLine', rule: 'profile-absent' },
+        { section: 'S3', audience: 'projectLine', rule: 'profile-absent' },
+        { section: 'S5', audience: 'projectLine', rule: 'payload-narrowed' },
+      ]);
+    });
+
+    it('assertDeniedMatrixCoverage fails when a denial pair is missing', () => {
+      const denied = deniedMatrixCells();
+      const covered = denied.slice(1).map((cell) => ({
+        kind: 'matrix' as const,
+        section: cell.section,
+        audience: cell.audience,
+      }));
+
+      expect(() => assertDeniedMatrixCoverage(covered)).toThrow(
+        new RegExp(`${denied[0].section}/${denied[0].audience}`),
+      );
+    });
+
+    it('enumerates only level:none cells, not granted unavailable sections', () => {
+      const denied = deniedMatrixCells();
+      expect(
+        denied.some(
+          (cell) => cell.section === 'S6' && cell.audience === 'managerLine',
+        ),
+      ).toBe(false);
+      expect(
+        denied.some(
+          (cell) => cell.section === 'S6' && cell.audience === 'colleague',
+        ),
+      ).toBe(true);
+    });
+
+    it('assertFlagGatedCoverage fails when a catalog case is missing', () => {
+      const cases = flagGatedCases();
+      const covered = cases.slice(1);
+
+      expect(() => assertFlagGatedCoverage(covered)).toThrow(
+        new RegExp(cases[0].section),
+      );
+    });
+
+    it('exposes an explicit flag-gated catalog', () => {
+      expect(flagGatedCases().length).toBe(10);
     });
   });
 });

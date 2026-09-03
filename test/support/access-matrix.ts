@@ -286,3 +286,238 @@ export function assertMatrixCoverage(covered: Iterable<MatrixPair>): void {
       'Add a case for each, or remove the pair from access-matrix.ts if access-model.md dropped it.',
   );
 }
+
+/** Audiences that can hold `level: 'none'` denial cells in the matrix today. */
+export type DeniedMatrixAudience = Extract<
+  ProfileAudience,
+  'self' | 'colleague' | 'sharedLink'
+>;
+
+export interface DeniedMatrixCell extends MatrixCell {
+  readonly audience: DeniedMatrixAudience;
+}
+
+/** AD-14 — Project line denials not represented as `none` in the combined matrix. */
+export type ProjectLineDeniedRule = 'profile-absent' | 'payload-narrowed';
+
+export interface ProjectLineDeniedCell {
+  readonly section: ProfileSection;
+  readonly audience: 'projectLine';
+  readonly rule: ProjectLineDeniedRule;
+}
+
+export type FlagGatedRule =
+  'field-absent' | 'record-absent' | 'write-denied' | 'payload-narrowed';
+
+export interface FlagGatedCase {
+  readonly section: ProfileSection;
+  /** C1 role label for the viewer under test. */
+  readonly audience: 'Self' | 'Colleague' | 'ProjectLine' | 'ReportingLine';
+  readonly rule: FlagGatedRule;
+  readonly absentFields?: readonly string[];
+  readonly seedRef?: string;
+}
+
+export type FlagGatedCoverageKey = Pick<
+  FlagGatedCase,
+  'section' | 'audience' | 'rule'
+>;
+
+export type DeniedCoveragePair =
+  | {
+      readonly kind: 'matrix';
+      readonly section: ProfileSection;
+      readonly audience: DeniedMatrixAudience;
+    }
+  | {
+      readonly kind: 'projectLine';
+      readonly section: ProfileSection;
+      readonly rule: ProjectLineDeniedRule;
+    };
+
+const deniedAudienceKeys: DeniedMatrixAudience[] = [
+  'self',
+  'colleague',
+  'sharedLink',
+];
+
+/** Every `level: 'none'` cell — the denial enumeration for Story 1.14. */
+export function deniedMatrixCells(): DeniedMatrixCell[] {
+  return matrixCells().filter(
+    (entry): entry is DeniedMatrixCell =>
+      entry.cell.level === 'none' &&
+      (deniedAudienceKeys as readonly string[]).includes(entry.audience),
+  );
+}
+
+/** AD-14 narrowed cells for Project line viewers only. */
+export function projectLineDeniedCells(): ProjectLineDeniedCell[] {
+  return [
+    { section: 'S2', audience: 'projectLine', rule: 'profile-absent' },
+    { section: 'S3', audience: 'projectLine', rule: 'profile-absent' },
+    { section: 'S5', audience: 'projectLine', rule: 'payload-narrowed' },
+  ];
+}
+
+/** Explicit flag-gated catalog — not inferred from matrix exception text. */
+export function flagGatedCases(): FlagGatedCase[] {
+  return [
+    {
+      section: 'S7',
+      audience: 'Self',
+      rule: 'record-absent',
+      seedRef: 'management-notes.e2e-spec.ts',
+    },
+    {
+      section: 'S7',
+      audience: 'ProjectLine',
+      rule: 'record-absent',
+      seedRef: 'management-notes.e2e-spec.ts',
+    },
+    {
+      section: 'S7',
+      audience: 'ProjectLine',
+      rule: 'write-denied',
+      seedRef: 'management-notes.e2e-spec.ts',
+    },
+    {
+      section: 'S1',
+      audience: 'Colleague',
+      rule: 'field-absent',
+      absentFields: ['mentor'],
+      seedRef: 'employee-profile.e2e-spec.ts',
+    },
+    {
+      section: 'S1',
+      audience: 'Self',
+      rule: 'field-absent',
+      absentFields: ['mentor'],
+      seedRef: 'employee-profile.e2e-spec.ts',
+    },
+    {
+      section: 'S10',
+      audience: 'Colleague',
+      rule: 'field-absent',
+      absentFields: ['type', 'approvalState'],
+      seedRef: 'employee-profile.e2e-spec.ts',
+    },
+    {
+      section: 'S11',
+      audience: 'Colleague',
+      rule: 'payload-narrowed',
+      absentFields: ['pm', 'dm', 'period'],
+      seedRef: 'employee-profile.e2e-spec.ts',
+    },
+    {
+      section: 'S16',
+      audience: 'Colleague',
+      rule: 'field-absent',
+      seedRef: 'employee-profile-custom-fields.e2e-spec.ts',
+    },
+    {
+      section: 'S5',
+      audience: 'ProjectLine',
+      rule: 'payload-narrowed',
+      seedRef: 'access-matrix-leaks.e2e-spec.ts',
+    },
+    {
+      section: 'S9',
+      audience: 'ProjectLine',
+      rule: 'write-denied',
+      seedRef: 'timeline.e2e-spec.ts',
+    },
+  ];
+}
+
+export const flagGatedCoverageKey = (key: FlagGatedCoverageKey): string =>
+  `${key.section}/${key.audience}/${key.rule}`;
+
+export function missingFlagGatedCoverage(
+  covered: Iterable<FlagGatedCoverageKey>,
+): FlagGatedCoverageKey[] {
+  const seen = new Set<string>();
+  for (const key of covered) {
+    seen.add(flagGatedCoverageKey(key));
+  }
+
+  return flagGatedCases().filter(
+    (entry) => !seen.has(flagGatedCoverageKey(entry)),
+  );
+}
+
+/** Story 1.14 flag-gated catalog coverage gate. */
+export function assertFlagGatedCoverage(
+  covered: Iterable<FlagGatedCoverageKey>,
+): void {
+  const missing = missingFlagGatedCoverage(covered);
+  if (missing.length === 0) {
+    return;
+  }
+
+  const listed = missing.map(flagGatedCoverageKey).join(', ');
+  throw new Error(
+    `Flag-gated coverage is incomplete. ${missing.length} case(s) have no test: ${listed}.`,
+  );
+}
+
+const deniedCoverageKey = (pair: DeniedCoveragePair): string => {
+  if (pair.kind === 'matrix') {
+    return `matrix:${pair.section}/${pair.audience}`;
+  }
+  return `projectLine:${pair.section}/${pair.rule}`;
+};
+
+/** Pairs from denied + ProjectLine enumerations that lack a recorded test. */
+export function missingDeniedMatrixCoverage(
+  covered: Iterable<DeniedCoveragePair>,
+): DeniedCoveragePair[] {
+  const seen = new Set<string>();
+  for (const pair of covered) {
+    seen.add(deniedCoverageKey(pair));
+  }
+
+  const required: DeniedCoveragePair[] = [
+    ...deniedMatrixCells().map(
+      (cell) =>
+        ({
+          kind: 'matrix',
+          section: cell.section,
+          audience: cell.audience,
+        }) satisfies DeniedCoveragePair,
+    ),
+    ...projectLineDeniedCells().map(
+      (cell) =>
+        ({
+          kind: 'projectLine',
+          section: cell.section,
+          rule: cell.rule,
+        }) satisfies DeniedCoveragePair,
+    ),
+  ];
+
+  return required.filter((pair) => !seen.has(deniedCoverageKey(pair)));
+}
+
+/**
+ * Story 1.14 coverage gate — denied and ProjectLine denial pairs only.
+ * Full 80-pair `assertMatrixCoverage` remains Story 1.15.
+ */
+export function assertDeniedMatrixCoverage(
+  covered: Iterable<DeniedCoveragePair>,
+): void {
+  const missing = missingDeniedMatrixCoverage(covered);
+  if (missing.length === 0) {
+    return;
+  }
+
+  const listed = missing
+    .map((pair) =>
+      pair.kind === 'matrix'
+        ? `${pair.section}/${pair.audience}`
+        : `${pair.section}/projectLine:${pair.rule}`,
+    )
+    .join(', ');
+  throw new Error(
+    `Denied matrix coverage is incomplete. ${missing.length} pair(s) have no test: ${listed}.`,
+  );
+}

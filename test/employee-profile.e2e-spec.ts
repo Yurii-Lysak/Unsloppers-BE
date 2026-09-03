@@ -216,6 +216,17 @@ describe('Employee profile assembly (e2e)', () => {
     expect(s1?.data).not.toHaveProperty('mentor');
   });
 
+  it('omits S6 and S15 from Self own-profile (denied matrix cells)', async () => {
+    const res = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const sections = (res.body as { sections?: Record<string, unknown> })
+      .sections;
+    expect(sections ?? {}).not.toHaveProperty('S6');
+    expect(sections ?? {}).not.toHaveProperty('S15');
+  });
+
   it('includes mentor in S1 for ProjectLine viewers', async () => {
     const res = await dmAgent
       .get(`/api/v1/employees/${reportEmployeeId}/profile`)

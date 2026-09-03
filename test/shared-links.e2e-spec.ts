@@ -69,6 +69,9 @@ describe('Shared links (e2e)', () => {
     for (const section of Object.values(body.sections)) {
       expect(section.accessLevel).toBe('R');
     }
+    for (const neverSection of ['S3', 'S7', 'S13', 'S14'] as const) {
+      expect(body.sections).not.toHaveProperty(neverSection);
+    }
     expect(body.audience.sections.S2).toBe('none');
   });
 
