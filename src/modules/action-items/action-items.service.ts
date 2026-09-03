@@ -5,6 +5,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { isUUID } from 'class-validator';
+import { Prisma } from '../../generated/prisma/client';
 import type { ActionItem, User } from '../../generated/prisma/client';
 import { Clock } from '../../clock/clock.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -15,7 +17,10 @@ import {
 import {
   ActionItemCreation,
   ActionItemDto,
+  ActionItemWriteContext,
+  CampaignPersistedActionItem,
   CreateActionItemInput,
+  CreateCampaignActionItemsInput,
 } from '../contracts/action-item-creation.contract';
 import {
   formatActionItemDueDate,
@@ -51,6 +56,11 @@ export class ActionItemsService extends ActionItemCreation {
   }
 
   async createActionItem(input: CreateActionItemInput): Promise<ActionItemDto> {
+    if (input.source === 'campaign') {
+      throw new BadRequestException(
+        'use createCampaignActionItems for campaign activation',
+      );
+    }
     const normalized = normalizeActionItemFields({
       title: input.title,
       description: input.description,
@@ -65,6 +75,27 @@ export class ActionItemsService extends ActionItemCreation {
       campaignId: input.campaignId ?? null,
     });
     return this.toContractDto(item);
+  }
+
+  async createCampaignActionItems(
+    input: CreateCampaignActionItemsInput,
+    tx?: ActionItemWriteContext,
+  ): Promise<ActionItemDto[]> {
+    this.assertCampaignInputUuids(input);
+    const normalized = normalizeActionItemFields({
+      title: input.title,
+      description: input.description,
+      dueDate: input.dueDate,
+      link: input.link,
+    });
+
+    if (tx) {
+      return this.runCampaignActivation(input, normalized, tx);
+    }
+
+    return this.prisma.$transaction((prismaTx) =>
+      this.runCampaignActivation(input, normalized, prismaTx),
+    );
   }
 
   async createManualItem(
@@ -356,6 +387,12 @@ export class ActionItemsService extends ActionItemCreation {
   }
 
   private toContractDto(item: ActionItemWithPeople): ActionItemDto {
+    return this.toContractDtoFromRow(item);
+  }
+
+  private toContractDtoFromRow(
+    item: ActionItemWithPeople | CampaignPersistedActionItem,
+  ): ActionItemDto {
     return {
       id: item.id,
       assigneeId: item.assigneeId,
@@ -391,5 +428,132 @@ export class ActionItemsService extends ActionItemCreation {
       return user.email;
     }
     return 'Unknown';
+  }
+
+  private assertCampaignInputUuids(
+    input: CreateCampaignActionItemsInput,
+  ): void {
+    if (!isUUID(input.campaignId)) {
+      throw new BadRequestException('campaignId must be a valid UUID');
+    }
+    if (!isUUID(input.authorId)) {
+      throw new BadRequestException('authorId must be a valid UUID');
+    }
+    for (const assigneeId of input.assigneeIds) {
+      if (!isUUID(assigneeId)) {
+        throw new BadRequestException('assigneeIds must contain valid UUIDs');
+      }
+    }
+    if (new Set(input.assigneeIds).size !== input.assigneeIds.length) {
+      throw new BadRequestException('assigneeIds must not contain duplicates');
+    }
+  }
+
+  private async runCampaignActivation(
+    input: CreateCampaignActionItemsInput,
+    normalized: {
+      title: string;
+      description: string | null;
+      dueDate: Date;
+      link: string | null;
+    },
+    writeClient: ActionItemWriteContext,
+  ): Promise<ActionItemDto[]> {
+    const existingCount = await writeClient.actionItem.count({
+      where: { campaignId: input.campaignId },
+    });
+    if (existingCount > 0) {
+      throw new ConflictException('campaign already has action items');
+    }
+
+    if (input.assigneeIds.length === 0) {
+      return [];
+    }
+
+    await this.assertActiveAuthor(input.authorId, writeClient);
+    await this.assertActiveAssignees(input.assigneeIds, writeClient);
+
+    const rows = input.assigneeIds.map((assigneeId) => ({
+      assigneeId,
+      authorId: input.authorId,
+      title: normalized.title,
+      description: normalized.description,
+      dueDate: normalized.dueDate,
+      link: normalized.link,
+      source: 'campaign' as const,
+      campaignId: input.campaignId,
+      status: 'open' as const,
+    }));
+
+    try {
+      await writeClient.actionItem.createMany({ data: rows });
+    } catch (error) {
+      if (this.isCampaignUniqueViolation(error)) {
+        throw new ConflictException('campaign already has action items');
+      }
+      throw error;
+    }
+
+    const created = await writeClient.actionItem.findMany({
+      where: { campaignId: input.campaignId },
+      orderBy: [
+        { dueDate: 'asc' },
+        { assigneeId: 'asc' },
+        { createdAt: 'asc' },
+      ],
+    });
+
+    return created.map((item) => this.toContractDtoFromRow(item));
+  }
+
+  private async assertActiveAuthor(
+    authorId: string,
+    writeClient: ActionItemWriteContext,
+  ): Promise<void> {
+    const author = await writeClient.employee.findFirst({
+      where: { id: authorId, employmentStatus: 'active' },
+      select: { id: true },
+    });
+    if (!author) {
+      throw new BadRequestException('authorId must be an active employee');
+    }
+  }
+
+  private async assertActiveAssignees(
+    assigneeIds: string[],
+    writeClient: ActionItemWriteContext,
+  ): Promise<void> {
+    const employees = await writeClient.employee.findMany({
+      where: {
+        id: { in: assigneeIds },
+        employmentStatus: 'active',
+      },
+      select: { id: true },
+    });
+    const activeIds = new Set(employees.map((employee) => employee.id));
+    const invalidAssigneeIds = assigneeIds.filter((id) => !activeIds.has(id));
+    if (invalidAssigneeIds.length > 0) {
+      throw new BadRequestException({
+        message: 'assigneeIds must reference active employees',
+        invalidAssigneeIds,
+      });
+    }
+  }
+
+  private isCampaignUniqueViolation(error: unknown): boolean {
+    if (
+      !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+      error.code !== 'P2002'
+    ) {
+      return false;
+    }
+    const target = error.meta?.target;
+    if (Array.isArray(target)) {
+      return target.includes('campaignId') && target.includes('assigneeId');
+    }
+    if (typeof target === 'string') {
+      return target.includes('campaignId') && target.includes('assigneeId');
+    }
+    return false;
   }
 }

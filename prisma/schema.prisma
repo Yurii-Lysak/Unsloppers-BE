@@ -423,6 +423,7 @@ model ActionItem {
   assignee Employee @relation("ActionItemAssignee", fields: [assigneeId], references: [id], onDelete: Restrict)
   author   Employee @relation("ActionItemAuthor", fields: [authorId], references: [id], onDelete: Restrict)
 
+  @@unique([campaignId, assigneeId])
   @@index([assigneeId])
   @@index([authorId])
   @@map("action_items")

@@ -1,37 +1,1 @@
-/**
- * C6 — ActionItemCreation
- *
- * Owner (real implementation): `action-items` module. `campaigns` calls
- * this directly when a Form Campaign activation generates action items.
- */
-
-export type ActionItemSource = 'manual' | 'campaign';
-export type ActionItemStatus = 'open' | 'completed' | 'cancelled';
-
-export interface CreateActionItemInput {
-  assigneeId: string;
-  authorId: string;
-  title: string;
-  description?: string;
-  dueDate: string;
-  link?: string;
-  source: ActionItemSource;
-  campaignId?: string;
-}
-
-export interface ActionItemDto extends CreateActionItemInput {
-  id: string;
-  status: ActionItemStatus;
-  createdAt: string;
-  updatedAt: string;
-  completedAt?: string;
-  cancelledAt?: string;
-  cancelledReason?: string;
-  isOverdue: boolean;
-}
-
-export abstract class ActionItemCreation {
-  abstract createActionItem(
-    input: CreateActionItemInput,
-  ): Promise<ActionItemDto>;
-}
+/** * C6 — ActionItemCreation * * Owner (real implementation): `action-items` module. `campaigns` calls * this directly when a Form Campaign activation generates action items. */export type ActionItemSource = 'manual' | 'campaign';export type ActionItemStatus = 'open' | 'completed' | 'cancelled';export interface CreateActionItemInput {  assigneeId: string;  authorId: string;  title: string;  description?: string;  dueDate: string;  link?: string;  source: ActionItemSource;  campaignId?: string;}export interface ActionItemDto extends CreateActionItemInput {  id: string;  status: ActionItemStatus;  createdAt: string;  updatedAt: string;  completedAt?: string;  cancelledAt?: string;  cancelledReason?: string;  isOverdue: boolean;}export interface CreateCampaignActionItemsInput {  campaignId: string;  authorId: string;  title: string;  description?: string;  dueDate: string;  link?: string;  assigneeIds: string[];}/** Row shape returned by `findMany` inside a campaign activation transaction. */export interface CampaignPersistedActionItem {  id: string;  assigneeId: string;  authorId: string;  title: string;  description: string | null;  dueDate: Date;  link: string | null;  source: ActionItemSource;  campaignId: string | null;  status: ActionItemStatus;  completedAt: Date | null;  cancelledAt: Date | null;  cancelledReason: string | null;  createdAt: Date;  updatedAt: Date;}/** * Minimal transaction surface C6 needs when participating in a caller's open * DB transaction (Epic 10 campaign activation). Defined here — not via Prisma * imports — so contracts stay ORM-agnostic per AD-2. */export interface ActionItemWriteContext {  actionItem: {    count(args: { where: { campaignId: string } }): Promise<number>;    createMany(args: {      data: Array<{        assigneeId: string;        authorId: string;        title: string;        description?: string | null;        dueDate: Date;        link?: string | null;        source: 'campaign';        campaignId: string;        status: 'open';      }>;    }): Promise<{ count: number }>;    findMany(args: {      where: { campaignId: string };      orderBy: Array<        { dueDate: 'asc' } | { assigneeId: 'asc' } | { createdAt: 'asc' }      >;    }): Promise<CampaignPersistedActionItem[]>;  };  employee: {    findFirst(args: {      where: { id: string; employmentStatus: 'active' };      select?: { id: true };    }): Promise<{ id: string } | null>;    findMany(args: {      where: { id: { in: string[] }; employmentStatus: 'active' };      select?: { id: true };    }): Promise<Array<{ id: string }>>;  };}export abstract class ActionItemCreation {  abstract createActionItem(    input: CreateActionItemInput,  ): Promise<ActionItemDto>;  /**   * Bulk campaign activation path — Epic 10 Story 10.3 calls this directly.   * Manual `createActionItem` must not be used for `source: 'campaign'`.   */  abstract createCampaignActionItems(    input: CreateCampaignActionItemsInput,    tx?: ActionItemWriteContext,  ): Promise<ActionItemDto[]>;}
