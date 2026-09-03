@@ -6,6 +6,7 @@
  */
 
 export type ActionItemSource = 'manual' | 'campaign';
+export type ActionItemStatus = 'open' | 'completed' | 'cancelled';
 
 export interface CreateActionItemInput {
   assigneeId: string;
@@ -20,7 +21,10 @@ export interface CreateActionItemInput {
 
 export interface ActionItemDto extends CreateActionItemInput {
   id: string;
+  status: ActionItemStatus;
   createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
 }
 
 export abstract class ActionItemCreation {

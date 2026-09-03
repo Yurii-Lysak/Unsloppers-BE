@@ -1,8 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { FieldRegistry } from './field-registry.contract';
 import { FieldRegistryStub } from './stubs/field-registry.stub';
-import { ActionItemCreation } from './action-item-creation.contract';
-import { ActionItemCreationStub } from './stubs/action-item-creation.stub';
 
 /**
  * `contracts` — C1-C8 abstract-class DI tokens, each bound to a Wave-0 stub
@@ -17,6 +15,8 @@ import { ActionItemCreationStub } from './stubs/action-item-creation.stub';
  *
  * C4 `TimelineEventWriter` is left unbound for the `timeline` module (Story 7.1).
  *
+ * C6 `ActionItemCreation` is left unbound for the `action-items` module (Story 4.1).
+ *
  * C5 `ExternalIdentityMapping` is left for `integrations` to implement
  * (Story 13.1), mirroring the C1/C4 moves above.
  *
@@ -26,10 +26,7 @@ import { ActionItemCreationStub } from './stubs/action-item-creation.stub';
  */
 @Global()
 @Module({
-  providers: [
-    { provide: FieldRegistry, useClass: FieldRegistryStub },
-    { provide: ActionItemCreation, useClass: ActionItemCreationStub },
-  ],
-  exports: [FieldRegistry, ActionItemCreation],
+  providers: [{ provide: FieldRegistry, useClass: FieldRegistryStub }],
+  exports: [FieldRegistry],
 })
 export class ContractsModule {}

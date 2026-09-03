@@ -6,7 +6,6 @@ import { FieldRegistryStub } from '../stubs/field-registry.stub';
 import { ProjectAssignment } from '../project-assignment.contract';
 import { ExternalIdentityMapping } from '../external-identity-mapping.contract';
 import { ActionItemCreation } from '../action-item-creation.contract';
-import { ActionItemCreationStub } from '../stubs/action-item-creation.stub';
 import { CurrentUserProvider } from '../current-user-provider.contract';
 import { PermissionChecker } from '../permission-checker.contract';
 import { TimelineEventWriter } from '../timeline-event-writer.contract';
@@ -24,12 +23,12 @@ describe('ContractsModule', () => {
     await module.close();
   });
 
-  it.each([
-    [FieldRegistry, FieldRegistryStub],
-    [ActionItemCreation, ActionItemCreationStub],
-  ] as const)('resolves %p to its Wave-0 stub', (token, StubClass) => {
-    expect(module.get(token)).toBeInstanceOf(StubClass);
-  });
+  it.each([[FieldRegistry, FieldRegistryStub]] as const)(
+    'resolves %p to its Wave-0 stub',
+    (token, StubClass) => {
+      expect(module.get(token)).toBeInstanceOf(StubClass);
+    },
+  );
 
   it('leaves C7 unbound for the authentication module to implement', () => {
     expect(() => module.get(CurrentUserProvider)).toThrow();
@@ -45,6 +44,10 @@ describe('ContractsModule', () => {
 
   it('leaves C4 unbound for the timeline module to implement', () => {
     expect(() => module.get(TimelineEventWriter)).toThrow();
+  });
+
+  it('leaves C6 unbound for the action-items module to implement', () => {
+    expect(() => module.get(ActionItemCreation)).toThrow();
   });
 
   it('leaves C5 unbound for the integrations module to implement', () => {
