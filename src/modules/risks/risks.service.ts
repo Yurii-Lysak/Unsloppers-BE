@@ -4,6 +4,7 @@ import { Clock } from '../../clock/clock.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateRiskRecordDto } from './dto/create-risk-record.dto';
 import {
+  computeRiskTrend,
   formatRiskCalendarDate,
   normalizeRiskRecordFields,
 } from './risk-input';
@@ -71,10 +72,14 @@ export class RisksService {
 
   private toSectionDto(records: RiskRecordWithAuthor[]): RisksSectionEntity {
     const mapped = records.map((record) => this.toReadDto(record));
-    return {
-      records: mapped,
-      ...(mapped.length > 0 ? { currentLevel: mapped[0].level } : {}),
-    };
+    const section: RisksSectionEntity = { records: mapped };
+    if (mapped.length > 0) {
+      section.currentLevel = mapped[0].level;
+      if (mapped.length >= 2) {
+        section.trend = computeRiskTrend(mapped[0].level, mapped[1].level);
+      }
+    }
+    return section;
   }
 
   private toReadDto(record: RiskRecordWithAuthor): RiskRecordReadEntity {
