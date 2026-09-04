@@ -57,6 +57,8 @@ export const BUILTIN_FIELD_SPECS: FieldSpec[] = [
   },
 ];
 
-export const DEFAULT_PAGE_SIZE = 50;
-export const MAX_PAGE_SIZE = 100;
-export const MIN_PAGE = 1;
+export {
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGE_SIZE,
+  MIN_PAGE,
+} from '../contracts/employee-list.constants';

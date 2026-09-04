@@ -481,9 +481,12 @@ model FormCampaign {
   purpose     String             @db.Text
   link        String
   dueDate     DateTime           @db.Date
-  status      FormCampaignStatus @default(draft)
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
+  status                    FormCampaignStatus @default(draft)
+  audienceFilters           Json               @default("[]")
+  audienceAddedEmployeeIds  String[]           @default([])
+  audienceExcludedEmployeeIds String[]         @default([])
+  createdAt                 DateTime           @default(now())
+  updatedAt                 DateTime           @updatedAt
 
   creator     Employee     @relation("FormCampaignCreator", fields: [creatorId], references: [id], onDelete: Restrict)
   actionItems ActionItem[]
