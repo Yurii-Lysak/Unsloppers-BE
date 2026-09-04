@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { CampaignAudienceDefinitionEntity } from './campaign-audience.entity';
 
 export class CampaignCreatorEntity {
   @ApiProperty()
@@ -38,4 +39,7 @@ export class CampaignReadEntity {
 
   @ApiProperty({ format: 'date-time' })
   updatedAt!: string;
+
+  @ApiProperty({ type: CampaignAudienceDefinitionEntity })
+  audience!: CampaignAudienceDefinitionEntity;
 }

@@ -8,6 +8,10 @@ import {
   ApiOkResponse,
 } from '@nestjs/swagger';
 import { CampaignReadEntity } from './entities/campaign.entity';
+import {
+  CampaignAudiencePreviewEntity,
+  CampaignAudienceResolveEntity,
+} from './entities/campaign-audience.entity';
 
 export const SwaggerCreateCampaign = () =>
   applyDecorators(
@@ -42,6 +46,37 @@ export const SwaggerUpdateCampaign = () =>
   applyDecorators(
     ApiOkResponse({ type: CampaignReadEntity }),
     ApiBadRequestResponse({ description: 'Invalid campaign payload' }),
+    ApiForbiddenResponse({
+      description: AUTHENTICATED_USER_HAS_NO_EMPLOYEE_RECORD,
+    }),
+    ApiNotFoundResponse({ description: 'Campaign not found' }),
+    ApiConflictResponse({ description: 'Campaign is not in draft state' }),
+  );
+
+export const SwaggerSaveCampaignAudience = () =>
+  applyDecorators(
+    ApiOkResponse({ type: CampaignReadEntity }),
+    ApiBadRequestResponse({ description: 'Invalid audience payload' }),
+    ApiForbiddenResponse({
+      description: AUTHENTICATED_USER_HAS_NO_EMPLOYEE_RECORD,
+    }),
+    ApiNotFoundResponse({ description: 'Campaign not found' }),
+    ApiConflictResponse({ description: 'Campaign is not in draft state' }),
+  );
+
+export const SwaggerPreviewCampaignAudience = () =>
+  applyDecorators(
+    ApiOkResponse({ type: CampaignAudiencePreviewEntity }),
+    ApiForbiddenResponse({
+      description: AUTHENTICATED_USER_HAS_NO_EMPLOYEE_RECORD,
+    }),
+    ApiNotFoundResponse({ description: 'Campaign not found' }),
+    ApiConflictResponse({ description: 'Campaign is not in draft state' }),
+  );
+
+export const SwaggerResolveCampaignAudience = () =>
+  applyDecorators(
+    ApiOkResponse({ type: CampaignAudienceResolveEntity }),
     ApiForbiddenResponse({
       description: AUTHENTICATED_USER_HAS_NO_EMPLOYEE_RECORD,
     }),
