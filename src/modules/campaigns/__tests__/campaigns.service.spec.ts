@@ -6,6 +6,7 @@ import {
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CampaignsService } from '../campaigns.service';
+import { EmployeesService } from '../../directory/employees.service';
 
 type PrismaMock = {
   formCampaign: {
@@ -14,16 +15,27 @@ type PrismaMock = {
     findFirst: jest.Mock;
     updateMany: jest.Mock;
   };
+  employee: {
+    findUnique: jest.Mock;
+    findMany: jest.Mock;
+  };
 };
 
 describe('CampaignsService', () => {
   let service: CampaignsService;
+  const employeesService = {
+    listEmployees: jest.fn(),
+  };
   const prisma: PrismaMock = {
     formCampaign: {
       create: jest.fn(),
       findMany: jest.fn(),
       findFirst: jest.fn(),
       updateMany: jest.fn(),
+    },
+    employee: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
     },
   };
 
@@ -54,6 +66,9 @@ describe('CampaignsService', () => {
     link: 'https://forms.example.com/survey',
     dueDate: new Date('2026-09-15T00:00:00.000Z'),
     status: 'draft',
+    audienceFilters: [],
+    audienceAddedEmployeeIds: [],
+    audienceExcludedEmployeeIds: [],
     createdAt: new Date('2026-09-01T10:00:00.000Z'),
     updatedAt: new Date('2026-09-01T10:00:00.000Z'),
     creator: {
@@ -65,10 +80,19 @@ describe('CampaignsService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    prisma.employee.findUnique.mockResolvedValue({ userId: 'user-1' });
+    employeesService.listEmployees.mockResolvedValue({
+      fields: [],
+      rows: [],
+      total: 0,
+      page: 1,
+      pageSize: 50,
+    });
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CampaignsService,
         { provide: PrismaService, useValue: prisma },
+        { provide: EmployeesService, useValue: employeesService },
       ],
     }).compile();
 
@@ -225,6 +249,154 @@ describe('CampaignsService', () => {
         where: { id: 'campaign-1', status: 'draft' },
         data: { title: 'New' },
       });
+    });
+  });
+
+  describe('saveAudience', () => {
+    const employeeA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const employeeB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+    it('persists a normalized audience on a draft campaign', async () => {
+      prisma.formCampaign.findFirst
+        .mockResolvedValueOnce(draftCampaignRow())
+        .mockResolvedValueOnce(
+          draftCampaignRow({
+            audienceFilters: [
+              { fieldId: 'department', operator: 'eq', value: 'Engineering' },
+            ],
+            audienceAddedEmployeeIds: [employeeB],
+            audienceExcludedEmployeeIds: [employeeA],
+          }),
+        );
+      employeesService.listEmployees.mockImplementation((_userId, query) => {
+        if (query?.filters?.length) {
+          return Promise.resolve({
+            fields: [],
+            rows: [{ employeeId: employeeA, cells: {} }],
+            total: 1,
+            page: 1,
+            pageSize: 100,
+          });
+        }
+        return Promise.resolve({
+          fields: [],
+          rows: [
+            { employeeId: employeeA, cells: {} },
+            { employeeId: employeeB, cells: {} },
+          ],
+          total: 2,
+          page: 1,
+          pageSize: 100,
+        });
+      });
+      prisma.employee.findMany.mockResolvedValue([{ id: employeeB }]);
+      prisma.formCampaign.updateMany.mockResolvedValue({ count: 1 });
+
+      const result = await service.saveAudience('campaign-1', 'creator-1', {
+        filters: [
+          { fieldId: 'department', operator: 'eq', value: 'Engineering' },
+        ],
+        addedEmployeeIds: [employeeB],
+        excludedEmployeeIds: [employeeA],
+      });
+
+      expect(prisma.formCampaign.updateMany).toHaveBeenCalledWith({
+        where: { id: 'campaign-1', status: 'draft' },
+        data: {
+          audienceFilters: [
+            { fieldId: 'department', operator: 'eq', value: 'Engineering' },
+          ],
+          audienceAddedEmployeeIds: [employeeB],
+          audienceExcludedEmployeeIds: [employeeA],
+        },
+      });
+      expect(result.audience.addedEmployeeIds).toEqual([employeeB]);
+    });
+
+    it('rejects excluded ids that are not filter matches', async () => {
+      prisma.formCampaign.findFirst.mockResolvedValue(draftCampaignRow());
+      employeesService.listEmployees.mockResolvedValue({
+        fields: [],
+        rows: [],
+        total: 0,
+        page: 1,
+        pageSize: 100,
+      });
+
+      await expect(
+        service.saveAudience('campaign-1', 'creator-1', {
+          filters: [],
+          addedEmployeeIds: [],
+          excludedEmployeeIds: [employeeA],
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects duplicate added employee ids', async () => {
+      prisma.formCampaign.findFirst.mockResolvedValue(draftCampaignRow());
+
+      await expect(
+        service.saveAudience('campaign-1', 'creator-1', {
+          filters: [],
+          addedEmployeeIds: [employeeA, employeeA],
+          excludedEmployeeIds: [],
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects inactive or invisible added employee ids', async () => {
+      prisma.formCampaign.findFirst.mockResolvedValue(draftCampaignRow());
+      prisma.employee.findUnique.mockResolvedValue({ userId: 'user-1' });
+      employeesService.listEmployees.mockResolvedValue({
+        fields: [],
+        rows: [{ employeeId: employeeA, cells: {} }],
+        total: 1,
+        page: 1,
+        pageSize: 100,
+      });
+      prisma.employee.findMany.mockResolvedValue([]);
+
+      await expect(
+        service.saveAudience('campaign-1', 'creator-1', {
+          filters: [],
+          addedEmployeeIds: [employeeB],
+          excludedEmployeeIds: [],
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('resolveAudienceEmployeeIds', () => {
+    const employeeA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const employeeB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+    it('returns the resolved audience for a draft campaign', async () => {
+      prisma.formCampaign.findFirst.mockResolvedValue(
+        draftCampaignRow({
+          audienceFilters: [
+            { fieldId: 'department', operator: 'eq', value: 'Engineering' },
+          ],
+          audienceAddedEmployeeIds: [employeeB],
+          audienceExcludedEmployeeIds: [employeeA],
+        }),
+      );
+      employeesService.listEmployees.mockResolvedValue({
+        fields: [],
+        rows: [
+          { employeeId: employeeA, cells: {} },
+          { employeeId: employeeB, cells: {} },
+        ],
+        total: 2,
+        page: 1,
+        pageSize: 100,
+      });
+
+      const result = await service.resolveAudienceEmployeeIds(
+        'campaign-1',
+        'creator-1',
+      );
+
+      expect(result).toEqual([employeeB]);
     });
   });
 });

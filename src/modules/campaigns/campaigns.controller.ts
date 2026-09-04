@@ -7,6 +7,8 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
+  Query,
   Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
@@ -18,10 +20,15 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CampaignsService } from './campaigns.service';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
 import { UpdateCampaignDto } from './dto/update-campaign.dto';
+import { SaveCampaignAudienceDto } from './dto/save-campaign-audience.dto';
+import { PreviewCampaignAudienceQueryDto } from './dto/preview-campaign-audience-query.dto';
 import {
   SwaggerCreateCampaign,
   SwaggerGetCampaign,
   SwaggerListCampaigns,
+  SwaggerPreviewCampaignAudience,
+  SwaggerResolveCampaignAudience,
+  SwaggerSaveCampaignAudience,
   SwaggerUpdateCampaign,
 } from './campaigns.swagger';
 
@@ -73,6 +80,50 @@ export class CampaignsController {
     const { userId } = await this.currentUser.getCurrentUser(request);
     const creatorId = await this.resolveViewerEmployeeId(userId);
     return this.campaigns.updateDraft(campaignId, creatorId, dto);
+  }
+
+  @Put(':campaignId/audience')
+  @SwaggerSaveCampaignAudience()
+  async saveAudience(
+    @Req() request: Request,
+    @Param('campaignId', ParseUUIDPipe) campaignId: string,
+    @Body() dto: SaveCampaignAudienceDto,
+  ) {
+    const { userId } = await this.currentUser.getCurrentUser(request);
+    const creatorId = await this.resolveViewerEmployeeId(userId);
+    return this.campaigns.saveAudience(campaignId, creatorId, dto);
+  }
+
+  @Get(':campaignId/audience/preview')
+  @SwaggerPreviewCampaignAudience()
+  async previewAudience(
+    @Req() request: Request,
+    @Param('campaignId', ParseUUIDPipe) campaignId: string,
+    @Query() query: PreviewCampaignAudienceQueryDto,
+  ) {
+    const { userId } = await this.currentUser.getCurrentUser(request);
+    const creatorId = await this.resolveViewerEmployeeId(userId);
+    return this.campaigns.previewAudience(
+      campaignId,
+      creatorId,
+      userId,
+      query,
+    );
+  }
+
+  @Get(':campaignId/audience/resolve')
+  @SwaggerResolveCampaignAudience()
+  async resolveAudience(
+    @Req() request: Request,
+    @Param('campaignId', ParseUUIDPipe) campaignId: string,
+  ) {
+    const { userId } = await this.currentUser.getCurrentUser(request);
+    const creatorId = await this.resolveViewerEmployeeId(userId);
+    const employeeIds = await this.campaigns.resolveAudienceEmployeeIds(
+      campaignId,
+      creatorId,
+    );
+    return { employeeIds };
   }
 
   /**

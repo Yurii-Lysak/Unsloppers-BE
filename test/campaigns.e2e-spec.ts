@@ -1,6 +1,7 @@
 import { hash } from 'bcryptjs';
 import { randomUUID } from 'crypto';
 import { PERMISSION_KEYS } from '../src/modules/contracts/permission-keys';
+import { BUILTIN_FIELD_IDS } from '../src/modules/contracts/field-registry.contract';
 import { createTestApp, TestApp } from './support/app-harness';
 import { createEmployeeUser, loginAsEmployee } from './support/employee-users';
 import { DEFAULT_TEST_INSTANT, FixedClock } from './support/fixed-clock';
@@ -18,6 +19,15 @@ interface CampaignReadDto {
   creator: { id: string; displayName: string };
   createdAt: string;
   updatedAt: string;
+  audience: {
+    filters: Array<{
+      fieldId: string;
+      operator: string;
+      value: unknown;
+    }>;
+    addedEmployeeIds: string[];
+    excludedEmployeeIds: string[];
+  };
 }
 
 const validPayload = {
@@ -27,6 +37,34 @@ const validPayload = {
   link: 'https://forms.example.com/annual-survey',
   dueDate: '2026-09-30',
 };
+
+async function seedEmployeeDepartment(
+  testApp: TestApp,
+  employeeId: string,
+  department: string,
+): Promise<void> {
+  await testApp.prisma.departmentHistory.create({
+    data: {
+      employeeId,
+      value: department,
+      effectiveFrom: new Date('2020-01-01T00:00:00.000Z'),
+    },
+  });
+}
+
+async function seedEmployeeGrade(
+  testApp: TestApp,
+  employeeId: string,
+  grade: string,
+): Promise<void> {
+  await testApp.prisma.gradeHistory.create({
+    data: {
+      employeeId,
+      value: grade,
+      effectiveFrom: new Date('2020-01-01T00:00:00.000Z'),
+    },
+  });
+}
 
 async function grantCreateFormCampaignsPermission(
   testApp: TestApp,
@@ -477,5 +515,297 @@ describe('Campaigns (e2e)', () => {
       .patch(`/api/v1/campaigns/${missingId}`)
       .send({ title: 'x' })
       .expect(404);
+  });
+
+  it('saves, reloads, previews, and resolves a draft audience', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'campaign-audience-mgr@example.com',
+      PASSWORD,
+    );
+    const engineeringReport = await createEmployeeUser(
+      testApp,
+      'campaign-audience-eng@example.com',
+      PASSWORD,
+    );
+    const salesReport = await createEmployeeUser(
+      testApp,
+      'campaign-audience-sales@example.com',
+      PASSWORD,
+    );
+    await testApp.prisma.employee.update({
+      where: { id: engineeringReport.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+    await testApp.prisma.employee.update({
+      where: { id: salesReport.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+
+    await seedEmployeeGrade(testApp, engineeringReport.employeeId, 'Mid');
+    await seedEmployeeGrade(testApp, salesReport.employeeId, 'Senior');
+
+    const managerAgent = await loginAsEmployee(
+      testApp,
+      manager.email,
+      PASSWORD,
+    );
+    const createRes = await managerAgent
+      .post('/api/v1/campaigns')
+      .send(validPayload)
+      .expect(201);
+    const campaign = createRes.body as CampaignReadDto;
+
+    const audiencePayload = {
+      filters: [],
+      addedEmployeeIds: [salesReport.employeeId, engineeringReport.employeeId],
+      excludedEmployeeIds: [],
+    };
+
+    const saveRes = await managerAgent
+      .put(`/api/v1/campaigns/${campaign.id}/audience`)
+      .send(audiencePayload)
+      .expect(200);
+    const saved = saveRes.body as CampaignReadDto;
+    expect(saved.audience.addedEmployeeIds).toEqual([
+      salesReport.employeeId,
+      engineeringReport.employeeId,
+    ]);
+
+    const reloadRes = await managerAgent
+      .get(`/api/v1/campaigns/${campaign.id}`)
+      .expect(200);
+    const reloaded = reloadRes.body as CampaignReadDto;
+    expect(reloaded.audience).toEqual(saved.audience);
+
+    const previewRes = await managerAgent
+      .get(`/api/v1/campaigns/${campaign.id}/audience/preview`)
+      .expect(200);
+    expect(previewRes.body.total).toBe(2);
+    expect(previewRes.body.rows).toHaveLength(2);
+
+    const resolveRes = await managerAgent
+      .get(`/api/v1/campaigns/${campaign.id}/audience/resolve`)
+      .expect(200);
+    expect(resolveRes.body.employeeIds).toHaveLength(2);
+    expect(resolveRes.body.employeeIds).toEqual(
+      expect.arrayContaining([
+        salesReport.employeeId,
+        engineeringReport.employeeId,
+      ]),
+    );
+  });
+
+  it('rejects excluded ids that are not current filter matches', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'campaign-audience-exclude-mgr@example.com',
+      PASSWORD,
+    );
+    const engineeringReport = await createEmployeeUser(
+      testApp,
+      'campaign-audience-exclude-eng@example.com',
+      PASSWORD,
+    );
+    await testApp.prisma.employee.update({
+      where: { id: engineeringReport.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+    await seedEmployeeGrade(testApp, engineeringReport.employeeId, 'Mid');
+
+    const managerAgent = await loginAsEmployee(
+      testApp,
+      manager.email,
+      PASSWORD,
+    );
+    const createRes = await managerAgent
+      .post('/api/v1/campaigns')
+      .send(validPayload)
+      .expect(201);
+    const campaign = createRes.body as CampaignReadDto;
+
+    const strangerId = randomUUID();
+    const saveRes = await managerAgent
+      .put(`/api/v1/campaigns/${campaign.id}/audience`)
+      .send({
+        filters: [
+          {
+            fieldId: BUILTIN_FIELD_IDS.grade,
+            operator: 'eq',
+            value: 'Mid',
+          },
+        ],
+        addedEmployeeIds: [],
+        excludedEmployeeIds: [strangerId],
+      });
+    expect(saveRes.status).toBe(400);
+    expect(saveRes.body.invalidExcludedEmployeeIds).toEqual([strangerId]);
+  });
+
+  it('returns 404 when a non-creator accesses audience routes', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'campaign-audience-owner@example.com',
+      PASSWORD,
+    );
+    const other = await createEmployeeUser(
+      testApp,
+      'campaign-audience-other@example.com',
+      PASSWORD,
+    );
+    const report = await createEmployeeUser(
+      testApp,
+      'campaign-audience-owner-report@example.com',
+      PASSWORD,
+    );
+    await testApp.prisma.employee.update({
+      where: { id: report.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+
+    const managerAgent = await loginAsEmployee(
+      testApp,
+      manager.email,
+      PASSWORD,
+    );
+    const otherAgent = await loginAsEmployee(testApp, other.email, PASSWORD);
+    const createRes = await managerAgent
+      .post('/api/v1/campaigns')
+      .send(validPayload)
+      .expect(201);
+    const campaign = createRes.body as CampaignReadDto;
+
+    await otherAgent
+      .put(`/api/v1/campaigns/${campaign.id}/audience`)
+      .send({ filters: [], addedEmployeeIds: [], excludedEmployeeIds: [] })
+      .expect(404);
+    await otherAgent
+      .get(`/api/v1/campaigns/${campaign.id}/audience/preview`)
+      .expect(404);
+    await otherAgent
+      .get(`/api/v1/campaigns/${campaign.id}/audience/resolve`)
+      .expect(404);
+  });
+
+  it('rejects duplicate added employee ids', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'campaign-audience-dup-mgr@example.com',
+      PASSWORD,
+    );
+    const report = await createEmployeeUser(
+      testApp,
+      'campaign-audience-dup-report@example.com',
+      PASSWORD,
+    );
+    await testApp.prisma.employee.update({
+      where: { id: report.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+
+    const managerAgent = await loginAsEmployee(
+      testApp,
+      manager.email,
+      PASSWORD,
+    );
+    const createRes = await managerAgent
+      .post('/api/v1/campaigns')
+      .send(validPayload)
+      .expect(201);
+    const campaign = createRes.body as CampaignReadDto;
+
+    const saveRes = await managerAgent
+      .put(`/api/v1/campaigns/${campaign.id}/audience`)
+      .send({
+        filters: [],
+        addedEmployeeIds: [report.employeeId, report.employeeId],
+        excludedEmployeeIds: [],
+      });
+    expect(saveRes.status).toBe(400);
+  });
+
+  it('rejects inactive added employee ids', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'campaign-audience-inactive-mgr@example.com',
+      PASSWORD,
+    );
+    const inactiveReport = await createEmployeeUser(
+      testApp,
+      'campaign-audience-inactive-report@example.com',
+      PASSWORD,
+    );
+    await testApp.prisma.employee.update({
+      where: { id: inactiveReport.employeeId },
+      data: {
+        managerId: manager.employeeId,
+        employmentStatus: 'inactive',
+      },
+    });
+
+    const managerAgent = await loginAsEmployee(
+      testApp,
+      manager.email,
+      PASSWORD,
+    );
+    const createRes = await managerAgent
+      .post('/api/v1/campaigns')
+      .send(validPayload)
+      .expect(201);
+    const campaign = createRes.body as CampaignReadDto;
+
+    const saveRes = await managerAgent
+      .put(`/api/v1/campaigns/${campaign.id}/audience`)
+      .send({
+        filters: [],
+        addedEmployeeIds: [inactiveReport.employeeId],
+        excludedEmployeeIds: [],
+      });
+    expect(saveRes.status).toBe(400);
+    expect(saveRes.body.invalidEmployeeIds).toEqual([inactiveReport.employeeId]);
+  });
+
+  it('returns 409 for audience routes on a non-draft campaign', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'campaign-audience-active-mgr@example.com',
+      PASSWORD,
+    );
+    const report = await createEmployeeUser(
+      testApp,
+      'campaign-audience-active-report@example.com',
+      PASSWORD,
+    );
+    await testApp.prisma.employee.update({
+      where: { id: report.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+
+    const managerAgent = await loginAsEmployee(
+      testApp,
+      manager.email,
+      PASSWORD,
+    );
+    const createRes = await managerAgent
+      .post('/api/v1/campaigns')
+      .send(validPayload)
+      .expect(201);
+    const campaign = createRes.body as CampaignReadDto;
+
+    await testApp.prisma.formCampaign.update({
+      where: { id: campaign.id },
+      data: { status: 'active' },
+    });
+
+    await managerAgent
+      .put(`/api/v1/campaigns/${campaign.id}/audience`)
+      .send({ filters: [], addedEmployeeIds: [], excludedEmployeeIds: [] })
+      .expect(409);
+    await managerAgent
+      .get(`/api/v1/campaigns/${campaign.id}/audience/preview`)
+      .expect(409);
+    await managerAgent
+      .get(`/api/v1/campaigns/${campaign.id}/audience/resolve`)
+      .expect(409);
   });
 });
