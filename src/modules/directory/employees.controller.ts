@@ -14,11 +14,13 @@ import { CurrentUserProvider } from '../contracts/current-user-provider.contract
 import { UpdateEmployeeFieldDto } from './dto/update-employee-field.dto';
 import { EmployeeFieldUpdateEntity } from './entities/employee-field-update.entity';
 import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
+import { EmployeeLookupEntity } from './entities/employee-lookup.entity';
 import { EmployeeSummaryEntity } from './entities/employee-summary.entity';
 import { EmployeesService } from './employees.service';
 import {
   SwaggerGetEmployee,
   SwaggerListEmployees,
+  SwaggerLookupEmployees,
   SwaggerUpdateEmployeeField,
 } from './employees.swagger';
 
@@ -35,6 +37,15 @@ export class EmployeesController {
   async list(@Req() request: Request, @Query() query: ListEmployeesQueryDto) {
     const { userId } = await this.currentUser.getCurrentUser(request);
     return this.employees.listEmployees(userId, query);
+  }
+
+  // Must stay before `:employeeId` — Nest matches static segments in
+  // declaration order, and `lookup` would otherwise fail `ParseUUIDPipe`.
+  @Get('lookup')
+  @SwaggerLookupEmployees()
+  async lookup(@Req() request: Request): Promise<EmployeeLookupEntity[]> {
+    await this.currentUser.getCurrentUser(request);
+    return this.employees.listLookupOptions();
   }
 
   @Get(':employeeId')

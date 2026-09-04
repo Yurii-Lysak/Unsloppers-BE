@@ -39,4 +39,12 @@ export class EmployeeListEntity {
 
   @ApiProperty()
   pageSize!: number;
+
+  // Story 3.4 — set when the requested filters referenced a field that
+  // exists in the catalog but is outside this viewer's visibility (e.g. a
+  // shared saved view filtering on a management-only custom field). The
+  // entire filter set is dropped rather than 400ing, so the viewer still
+  // sees their own entitled slice of the list.
+  @ApiPropertyOptional()
+  filtersHidden?: boolean;
 }
