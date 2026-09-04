@@ -18,6 +18,7 @@ import { ManagementNotesModule } from './modules/management-notes/management-not
 import { RisksModule } from './modules/risks/risks.module';
 import { ActionItemsModule } from './modules/action-items/action-items.module';
 import { MentorshipModule } from './modules/mentorship/mentorship.module';
+import { CampaignsModule } from './modules/campaigns/campaigns.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { MentorshipModule } from './modules/mentorship/mentorship.module';
     RisksModule,
     ActionItemsModule,
     MentorshipModule,
+    CampaignsModule,
     HealthModule,
     UsersModule,
   ],
