@@ -15,6 +15,23 @@ export const RISK_LEVELS: RiskLevel[] = [
   'leaver',
 ];
 
+export type RiskTrend = 'up' | 'down' | 'flat';
+
+export function computeRiskTrend(
+  current: RiskLevel,
+  previous: RiskLevel,
+): RiskTrend {
+  const currentIndex = RISK_LEVELS.indexOf(current);
+  const previousIndex = RISK_LEVELS.indexOf(previous);
+  if (currentIndex > previousIndex) {
+    return 'up';
+  }
+  if (currentIndex < previousIndex) {
+    return 'down';
+  }
+  return 'flat';
+}
+
 export function formatRiskCalendarDate(value: Date): string {
   return value.toISOString().slice(0, 10);
 }

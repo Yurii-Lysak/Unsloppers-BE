@@ -89,6 +89,7 @@ describe('RisksService', () => {
         }),
       ],
       currentLevel: 'high',
+      trend: 'up',
     });
 
     expect(prisma.riskRecord.findMany).toHaveBeenCalledWith({
@@ -104,6 +105,101 @@ describe('RisksService', () => {
     await expect(service.buildSection('subject-1')).resolves.toEqual({
       records: [],
     });
+  });
+
+  it('buildSection omits trend when there is only one record', async () => {
+    prisma.riskRecord.findMany.mockResolvedValue([
+      {
+        id: 'risk-1',
+        subjectEmployeeId: 'subject-1',
+        authorEmployeeId: 'author-1',
+        level: 'medium',
+        description: 'Only record',
+        details: 'Only details',
+        recordedAt: new Date('2026-09-01T00:00:00.000Z'),
+        createdAt: new Date('2026-09-01T10:00:00.000Z'),
+        authorEmployee: {
+          id: 'author-1',
+          user: { name: 'Manager', email: 'manager@example.com' },
+        },
+      },
+    ]);
+
+    const section = await service.buildSection('subject-1');
+    expect(section.currentLevel).toBe('medium');
+    expect(section.trend).toBeUndefined();
+  });
+
+  it('buildSection returns trend down when risk improves', async () => {
+    prisma.riskRecord.findMany.mockResolvedValue([
+      {
+        id: 'risk-2',
+        subjectEmployeeId: 'subject-1',
+        authorEmployeeId: 'author-1',
+        level: 'low',
+        description: 'Improved',
+        details: 'Improved details',
+        recordedAt: new Date('2026-09-02T00:00:00.000Z'),
+        createdAt: new Date('2026-09-02T10:00:00.000Z'),
+        authorEmployee: {
+          id: 'author-1',
+          user: { name: 'Manager', email: 'manager@example.com' },
+        },
+      },
+      {
+        id: 'risk-1',
+        subjectEmployeeId: 'subject-1',
+        authorEmployeeId: 'author-1',
+        level: 'high',
+        description: 'Older',
+        details: 'Older details',
+        recordedAt: new Date('2026-08-01T00:00:00.000Z'),
+        createdAt: new Date('2026-08-01T10:00:00.000Z'),
+        authorEmployee: {
+          id: 'author-1',
+          user: { name: 'Manager', email: 'manager@example.com' },
+        },
+      },
+    ]);
+
+    const section = await service.buildSection('subject-1');
+    expect(section.trend).toBe('down');
+  });
+
+  it('buildSection returns trend flat when level is unchanged', async () => {
+    prisma.riskRecord.findMany.mockResolvedValue([
+      {
+        id: 'risk-2',
+        subjectEmployeeId: 'subject-1',
+        authorEmployeeId: 'author-1',
+        level: 'medium',
+        description: 'Same level',
+        details: 'New details',
+        recordedAt: new Date('2026-09-02T00:00:00.000Z'),
+        createdAt: new Date('2026-09-02T10:00:00.000Z'),
+        authorEmployee: {
+          id: 'author-1',
+          user: { name: 'Manager', email: 'manager@example.com' },
+        },
+      },
+      {
+        id: 'risk-1',
+        subjectEmployeeId: 'subject-1',
+        authorEmployeeId: 'author-1',
+        level: 'medium',
+        description: 'Older',
+        details: 'Older details',
+        recordedAt: new Date('2026-08-01T00:00:00.000Z'),
+        createdAt: new Date('2026-08-01T10:00:00.000Z'),
+        authorEmployee: {
+          id: 'author-1',
+          user: { name: 'Manager', email: 'manager@example.com' },
+        },
+      },
+    ]);
+
+    const section = await service.buildSection('subject-1');
+    expect(section.trend).toBe('flat');
   });
 
   it('createRecord persists a normalized risk record', async () => {

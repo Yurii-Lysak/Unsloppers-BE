@@ -27,6 +27,7 @@ interface RiskRecordReadDto {
 interface RisksSectionResponse {
   records: RiskRecordReadDto[];
   currentLevel?: string;
+  trend?: 'up' | 'down' | 'flat';
 }
 
 async function createEmployeeUser(
@@ -148,6 +149,75 @@ describe('Risks (e2e)', () => {
     expect(s6?.accessLevel).toBe('RW');
     expect(s6?.data?.currentLevel).toBe('high');
     expect(s6?.data?.records).toHaveLength(1);
+    expect(s6?.data?.trend).toBeUndefined();
+  });
+
+  it('computes trend when a second risk record is appended', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'risk-trend-mgr@example.com',
+      'Unit Manager',
+    );
+    const report = await createEmployeeUser(
+      testApp,
+      'risk-trend-report@example.com',
+      'Direct Report',
+    );
+    await testApp.prisma.employee.update({
+      where: { id: report.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    await managerAgent
+      .post(`/api/v1/employees/${report.employeeId}/risks`)
+      .send({
+        level: 'low',
+        description: 'Initial assessment',
+        details: 'Stable for now',
+        recordedAt: '2026-01-01',
+      })
+      .expect(201);
+
+    const firstListRes = await managerAgent
+      .get(`/api/v1/employees/${report.employeeId}/risks`)
+      .expect(200);
+    const firstListBody = firstListRes.body as RisksSectionResponse;
+    expect(firstListBody.currentLevel).toBe('low');
+    expect(firstListBody.trend).toBeUndefined();
+
+    await managerAgent
+      .post(`/api/v1/employees/${report.employeeId}/risks`)
+      .send({
+        level: 'medium',
+        description: 'Escalated concern',
+        details: 'Missed key deliverables',
+        recordedAt: '2026-01-04',
+      })
+      .expect(201);
+
+    const listRes = await managerAgent
+      .get(`/api/v1/employees/${report.employeeId}/risks`)
+      .expect(200);
+    const listBody = listRes.body as RisksSectionResponse;
+    expect(listBody.currentLevel).toBe('medium');
+    expect(listBody.trend).toBe('up');
+    expect(listBody.records).toHaveLength(2);
+
+    const profileRes = await managerAgent
+      .get(`/api/v1/employees/${report.employeeId}/profile`)
+      .expect(200);
+    const s6 = (
+      profileRes.body as {
+        sections: {
+          S6?: {
+            data?: RisksSectionResponse;
+          };
+        };
+      }
+    ).sections.S6;
+    expect(s6?.data?.currentLevel).toBe('medium');
+    expect(s6?.data?.trend).toBe('up');
   });
 
   it('lets a PP create a risk for a partner employee', async () => {

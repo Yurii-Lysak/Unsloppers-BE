@@ -38,4 +38,7 @@ export class RisksSectionEntity {
 
   @ApiPropertyOptional({ enum: RiskLevel })
   currentLevel?: RiskLevel;
+
+  @ApiPropertyOptional({ enum: ['up', 'down', 'flat'] })
+  trend?: 'up' | 'down' | 'flat';
 }
