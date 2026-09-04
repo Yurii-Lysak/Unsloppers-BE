@@ -20,6 +20,8 @@ import { PermissionChecker } from '../contracts/permission-checker.contract';
 import { SectionAccessGate } from '../contracts/section-access-gate.contract';
 import { UpdateEmployeeFieldDto } from './dto/update-employee-field.dto';
 import { EmployeeFieldUpdateEntity } from './entities/employee-field-update.entity';
+import { EmployeeListEntity } from './entities/employee-list.entity';
+import { EmployeeLookupEntity } from './entities/employee-lookup.entity';
 import { EmployeeSummaryEntity } from './entities/employee-summary.entity';
 import { CustomFieldsService } from './custom-fields.service';
 import { CustomFieldVisibilityService } from './custom-field-visibility.service';
@@ -56,12 +58,18 @@ export class EmployeesService extends EmployeeDirectory {
     );
     const visibleFieldIds = visibleFields.map((field) => field.id);
 
+    const { filters, filtersHidden } = this.resolveEffectiveFilters(
+      query.filters,
+      allFields,
+      visibleFieldIds,
+    );
+
     const result = await this.fieldRegistryService.queryEmployees({
       page: query.page,
       pageSize: query.pageSize,
       sort: query.sort,
       order: query.order,
-      filters: query.filters,
+      filters,
       visibleFieldIds,
     });
 
@@ -89,7 +97,38 @@ export class EmployeesService extends EmployeeDirectory {
       total: result.total,
       page: result.page,
       pageSize: result.pageSize,
+      filtersHidden,
     };
+  }
+
+  /**
+   * Story 3.4 — a shared saved view's stored filters may reference a field
+   * this viewer cannot see (e.g. a management-only custom field owned by a
+   * manager who shared the view). Rather than 400 the whole list — which
+   * would break "the recipient sees only what they're entitled to see" —
+   * drop the entire filter set and flag it so the caller can show a notice.
+   * A filter referencing a field absent from the catalog entirely still
+   * flows through unchanged and 400s via FieldRegistryService — that
+   * signals a malformed/unknown field, not a visibility gap.
+   */
+  private resolveEffectiveFilters(
+    filters: ListEmployeesQueryDto['filters'],
+    allFields: FieldSpec[],
+    visibleFieldIds: string[],
+  ): { filters: ListEmployeesQueryDto['filters']; filtersHidden: boolean } {
+    if (!filters || filters.length === 0) {
+      return { filters, filtersHidden: false };
+    }
+    const knownFieldIds = new Set(allFields.map((field) => field.id));
+    const hasHiddenFieldFilter = filters.some(
+      (filter) =>
+        knownFieldIds.has(filter.fieldId) &&
+        !visibleFieldIds.includes(filter.fieldId),
+    );
+    if (hasHiddenFieldFilter) {
+      return { filters: [], filtersHidden: true };
+    }
+    return { filters, filtersHidden: false };
   }
 
   async updateEmployeeField(
@@ -151,6 +190,22 @@ export class EmployeesService extends EmployeeDirectory {
     }
 
     throw new BadRequestException(`Field "${fieldId}" is not writable`);
+  }
+
+  /**
+   * Story 3.4 — id+name for every employee, for pickers (share dialog) that
+   * need the full roster, not a paginated/filtered/masked list-view slice.
+   */
+  async listLookupOptions(): Promise<EmployeeLookupEntity[]> {
+    const employees = await this.prisma.employee.findMany({
+      include: { user: { select: { name: true, email: true } } },
+    });
+    return employees
+      .map((employee) => ({
+        employeeId: employee.id,
+        name: employee.user.name?.trim() || employee.user.email,
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name));
   }
 
   async getById(employeeId: string): Promise<EmployeeSummaryEntity> {

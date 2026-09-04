@@ -107,6 +107,10 @@ model Employee {
 
   fullAccessGrants FullAccessGrant[]
 
+  // Story 3.4 — saved directory views owned by this employee (nullable on departure).
+  ownedSavedViews         SavedView[]      @relation("SavedViewOwner")
+  savedViewSharesReceived SavedViewShare[] @relation("SavedViewShareRecipient")
+
   @@index([managerId])
   @@index([peoplePartnerId])
   @@map("employees")
@@ -580,4 +584,38 @@ model FullAccessGrant {
 
   @@index([employeeId, revokedAt])
   @@map("full_access_grants")
+}
+
+// Story 3.4 — filter/column/sort configuration for the All Employees directory.
+// Stores query definition only — never materialized row sets.
+model SavedView {
+  id              String   @id @default(uuid())
+  name            String
+  ownerEmployeeId String?
+  filters         Json
+  columnIds       Json
+  sort            String?
+  order           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  ownerEmployee Employee?        @relation("SavedViewOwner", fields: [ownerEmployeeId], references: [id], onDelete: SetNull)
+  shares        SavedViewShare[]
+
+  @@index([ownerEmployeeId])
+  @@map("saved_views")
+}
+
+model SavedViewShare {
+  id                  String   @id @default(uuid())
+  savedViewId         String
+  recipientEmployeeId String
+  createdAt           DateTime @default(now())
+
+  savedView         SavedView @relation(fields: [savedViewId], references: [id], onDelete: Cascade)
+  recipientEmployee Employee  @relation("SavedViewShareRecipient", fields: [recipientEmployeeId], references: [id], onDelete: Cascade)
+
+  @@unique([savedViewId, recipientEmployeeId])
+  @@index([recipientEmployeeId])
+  @@map("saved_view_shares")
 }

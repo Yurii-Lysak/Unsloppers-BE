@@ -8,6 +8,8 @@ import { EmployeesController } from './employees.controller';
 import { CustomFieldsService } from './custom-fields.service';
 import { EmployeesService } from './employees.service';
 import { FieldRegistryService } from './field-registry.service';
+import { SavedViewsController } from './saved-views.controller';
+import { SavedViewsService } from './saved-views.service';
 
 /**
  * `directory` — C2 FieldRegistry real implementation (Story 3.2).
@@ -16,11 +18,12 @@ import { FieldRegistryService } from './field-registry.service';
  */
 @Global()
 @Module({
-  controllers: [CustomFieldsController, EmployeesController],
+  controllers: [CustomFieldsController, EmployeesController, SavedViewsController],
   providers: [
     FieldRegistryService,
     CustomFieldsService,
     EmployeesService,
+    SavedViewsService,
     CustomFieldVisibilityService,
     CustomFieldsSectionProvider,
     {
@@ -38,6 +41,7 @@ import { FieldRegistryService } from './field-registry.service';
     EmployeeDirectory,
     CustomFieldsService,
     EmployeesService,
+    SavedViewsService,
   ],
 })
 export class DirectoryModule {}

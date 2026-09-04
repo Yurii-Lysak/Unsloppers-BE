@@ -46,6 +46,7 @@ describe('EmployeesService', () => {
   const prisma = {
     employee: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
     },
   };
 
@@ -512,6 +513,70 @@ describe('EmployeesService', () => {
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(fieldRegistryService.setBuiltinFieldValue).not.toHaveBeenCalled();
+  });
+
+  it('drops the entire filter set and flags filtersHidden when a filter targets a field the viewer cannot see (Story 3.4)', async () => {
+    fieldRegistryService.listFields.mockResolvedValue([
+      ...builtinFields,
+      managementCustomField,
+    ]);
+    permissionChecker.hasPermission.mockResolvedValue(false);
+    visibility.canViewFieldDefinition.mockResolvedValue(false);
+    fieldRegistryService.queryEmployees.mockResolvedValue({
+      rows: [],
+      total: 0,
+      page: 1,
+      pageSize: 50,
+    });
+
+    const result = await service.listEmployees('viewer-1', {
+      filters: [
+        { fieldId: managementCustomField.id, operator: 'eq', value: true },
+        { fieldId: BUILTIN_FIELD_IDS.name, operator: 'eq', value: 'Alex' },
+      ],
+    });
+
+    expect(fieldRegistryService.queryEmployees).toHaveBeenCalledWith(
+      expect.objectContaining({ filters: [] }),
+    );
+    expect(result.filtersHidden).toBe(true);
+  });
+
+  it('passes filters through unchanged and leaves filtersHidden unset when every filter is visible', async () => {
+    fieldRegistryService.listFields.mockResolvedValue(builtinFields);
+    permissionChecker.hasPermission.mockResolvedValue(false);
+    fieldRegistryService.queryEmployees.mockResolvedValue({
+      rows: [],
+      total: 0,
+      page: 1,
+      pageSize: 50,
+    });
+
+    const filters = [
+      { fieldId: BUILTIN_FIELD_IDS.name, operator: 'eq' as const, value: 'Alex' },
+    ];
+    const result = await service.listEmployees('viewer-1', { filters });
+
+    expect(fieldRegistryService.queryEmployees).toHaveBeenCalledWith(
+      expect.objectContaining({ filters }),
+    );
+    expect(result.filtersHidden).toBe(false);
+  });
+
+  it('lists lookup options with id and display name, sorted by name', async () => {
+    prisma.employee.findMany.mockResolvedValue([
+      { id: 'emp-2', user: { name: 'Zoe', email: 'zoe@example.com' } },
+      { id: 'emp-1', user: { name: 'Alex', email: 'alex@example.com' } },
+      { id: 'emp-3', user: { name: null, email: 'noname@example.com' } },
+    ]);
+
+    const result = await service.listLookupOptions();
+
+    expect(result).toEqual([
+      { employeeId: 'emp-1', name: 'Alex' },
+      { employeeId: 'emp-3', name: 'noname@example.com' },
+      { employeeId: 'emp-2', name: 'Zoe' },
+    ]);
   });
 
   it('updateEmployeeField rejects empty built-in grade values', async () => {
