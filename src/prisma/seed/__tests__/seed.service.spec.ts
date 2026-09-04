@@ -168,17 +168,9 @@ function makePrismaMock() {
       if (!user) {
         return Promise.resolve(null);
       }
-      const employee = employeesByUserId.get(user.id);
-      if (!employee) {
-        return Promise.resolve(null);
-      }
-      return Promise.resolve({
-        ...employee,
-        managerId: (employee as { managerId?: string | null }).managerId ?? null,
-      });
+      return Promise.resolve(employeesByUserId.get(user.id) ?? null);
     },
   );
-  const employeeUpdate = jest.fn(() => Promise.resolve({ id: 'employee-updated' }));
 
   const functionalRoleFindFirst = jest.fn(
     ({
@@ -368,7 +360,6 @@ function makePrismaMock() {
       upsert: employeeUpsert,
       findFirst: employeeFindFirst,
       findUnique: employeeFindUnique,
-      update: employeeUpdate,
     },
     externalIdentity: { upsert: externalIdentityUpsert },
     functionalRole: {
@@ -443,7 +434,6 @@ describe('SeedService', () => {
     expect(summary.functionalRolesUpserted).toBe(5);
     expect(summary.hrAdminAssignments).toBe(1);
     expect(summary.mentorshipPairsSeeded).toBe(1);
-    expect(summary.reportingLinesSeeded).toBe(0);
     expect(userUpsert).toHaveBeenCalledTimes(3);
     expect(externalIdentityUpsert).toHaveBeenCalledTimes(3);
     expect(mentorshipPairCreate).toHaveBeenCalledTimes(1);
