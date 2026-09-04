@@ -19,6 +19,7 @@ export const BUILTIN_FIELD_SPECS: FieldSpec[] = [
     source: 'builtin',
     sortable: true,
     filterable: true,
+    editable: true,
   },
   {
     id: BUILTIN_FIELD_IDS.position,
@@ -27,6 +28,7 @@ export const BUILTIN_FIELD_SPECS: FieldSpec[] = [
     source: 'builtin',
     sortable: true,
     filterable: true,
+    editable: true,
   },
   {
     id: BUILTIN_FIELD_IDS.department,
@@ -43,6 +45,7 @@ export const BUILTIN_FIELD_SPECS: FieldSpec[] = [
     source: 'builtin',
     sortable: true,
     filterable: true,
+    editable: true,
   },
   {
     id: BUILTIN_FIELD_IDS.years_with_company,

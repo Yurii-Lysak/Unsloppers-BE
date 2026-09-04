@@ -261,18 +261,7 @@ describe('temporal-history.extension (I/O matrix, real Postgres)', () => {
           data: {
             employeeId,
             value: 'L2',
-            effectiveFrom: new Date('2026-05-01T00:00:00.000Z'), // <= first's effectiveFrom
-          },
-        }),
-      ).rejects.toThrow(OutOfOrderEffectiveDateError);
-
-      // Same effectiveFrom as the open row is equally rejected (<=, not <).
-      await expect(
-        delegate(property).create({
-          data: {
-            employeeId,
-            value: 'L2',
-            effectiveFrom: new Date('2026-06-01T00:00:00.000Z'),
+            effectiveFrom: new Date('2026-05-01T00:00:00.000Z'), // < first's effectiveFrom
           },
         }),
       ).rejects.toThrow(OutOfOrderEffectiveDateError);
@@ -281,6 +270,80 @@ describe('temporal-history.extension (I/O matrix, real Postgres)', () => {
       expect(rows).toHaveLength(1);
       expect(rows[0].id).toBe(first.id);
       expect(rows[0].effectiveTo).toBeNull();
+      expect(
+        timelineEventWriterMock.recordTimelineEvent,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('same effectiveFrom as the open row: amends value in place without a new history row', async () => {
+      const employeeId = await createEmployee();
+      const effectiveFrom = new Date('2026-06-01T00:00:00.000Z');
+      const first = await delegate(property).create({
+        data: {
+          employeeId,
+          value: 'L1',
+          effectiveFrom,
+        },
+      });
+      await prisma.timelineEvent.create({
+        data: {
+          employeeId,
+          type,
+          effectiveDate: effectiveFrom,
+          source: 'system',
+          oldValue: null,
+          newValue: 'L1',
+        },
+      });
+      jest.clearAllMocks();
+
+      const amended = await delegate(property).create({
+        data: {
+          employeeId,
+          value: 'L2',
+          effectiveFrom,
+        },
+      });
+
+      const rows = await delegate(property).findMany({ where: { employeeId } });
+      expect(rows).toHaveLength(1);
+      expect(rows[0].id).toBe(first.id);
+      expect(amended.id).toBe(first.id);
+      expect(rows[0].value).toBe('L2');
+      expect(rows[0].effectiveTo).toBeNull();
+      expect(
+        timelineEventWriterMock.recordTimelineEvent,
+      ).not.toHaveBeenCalled();
+
+      const timelineRows = await prisma.timelineEvent.findMany({
+        where: { employeeId, type, effectiveDate: effectiveFrom },
+      });
+      expect(timelineRows).toHaveLength(1);
+      expect(timelineRows[0]?.newValue).toBe('L2');
+    });
+
+    it('same effectiveFrom with unchanged value: no-op, no timeline write', async () => {
+      const employeeId = await createEmployee();
+      const first = await delegate(property).create({
+        data: {
+          employeeId,
+          value: 'L1',
+          effectiveFrom: new Date('2026-06-01T00:00:00.000Z'),
+        },
+      });
+      jest.clearAllMocks();
+
+      const result = await delegate(property).create({
+        data: {
+          employeeId,
+          value: 'L1',
+          effectiveFrom: new Date('2026-06-01T00:00:00.000Z'),
+        },
+      });
+
+      expect(result.id).toBe(first.id);
+      const rows = await delegate(property).findMany({ where: { employeeId } });
+      expect(rows).toHaveLength(1);
       expect(
         timelineEventWriterMock.recordTimelineEvent,
       ).not.toHaveBeenCalled();

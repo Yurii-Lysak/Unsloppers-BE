@@ -34,6 +34,8 @@ export interface FieldSpec {
   source: FieldSource;
   sortable: boolean;
   filterable: boolean;
+  /** Whether the field type supports inline edit at all (per-row writability is separate). */
+  editable?: boolean;
   visibility?: FieldVisibility;
   options?: string[];
 }
@@ -89,6 +91,13 @@ export const BUILTIN_FIELD_IDS = {
 
 export type BuiltinFieldId =
   (typeof BUILTIN_FIELD_IDS)[keyof typeof BUILTIN_FIELD_IDS];
+
+/** Built-in list columns that may be inline-edited (S4 RW); excludes department per AD-14. */
+export const BUILTIN_EDITABLE_FIELD_IDS: ReadonlySet<string> = new Set([
+  BUILTIN_FIELD_IDS.grade,
+  BUILTIN_FIELD_IDS.position,
+  BUILTIN_FIELD_IDS.employment_type,
+]);
 
 export abstract class FieldRegistry {
   abstract defineField(

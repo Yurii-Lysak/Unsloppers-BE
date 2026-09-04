@@ -12,6 +12,8 @@ import {
 import { Clock } from '../../clock/clock.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
+  BUILTIN_EDITABLE_FIELD_IDS,
+  BUILTIN_FIELD_IDS,
   EmployeeListQueryOptions,
   EmployeeListQueryResultDto,
   EmployeeRowDto,
@@ -132,6 +134,47 @@ export class FieldRegistryService extends FieldRegistry {
       });
     } catch (error) {
       this.rethrowKnownErrors(error);
+    }
+  }
+
+  /**
+   * Append a new effective-dated history row for an inline-editable built-in field.
+   * Only `grade`, `position`, and `employment_type` are permitted (Story 3.3 / AD-14).
+   */
+  async setBuiltinFieldValue(
+    employeeId: string,
+    fieldId: string,
+    value: FieldValue,
+  ): Promise<void> {
+    if (!BUILTIN_EDITABLE_FIELD_IDS.has(fieldId)) {
+      throw new BadRequestException(`Field "${fieldId}" is not writable`);
+    }
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      throw new BadRequestException('Expected a non-empty text value');
+    }
+
+    await this.assertEmployeeExists(employeeId);
+    const trimmed = value.trim();
+    const effectiveFrom = this.clock.now();
+
+    switch (fieldId) {
+      case BUILTIN_FIELD_IDS.grade:
+        await this.prisma.gradeHistory.create({
+          data: { employeeId, value: trimmed, effectiveFrom },
+        });
+        return;
+      case BUILTIN_FIELD_IDS.position:
+        await this.prisma.positionHistory.create({
+          data: { employeeId, value: trimmed, effectiveFrom },
+        });
+        return;
+      case BUILTIN_FIELD_IDS.employment_type:
+        await this.prisma.employmentTypeHistory.create({
+          data: { employeeId, value: trimmed, effectiveFrom },
+        });
+        return;
+      default:
+        throw new BadRequestException(`Field "${fieldId}" is not writable`);
     }
   }
 
@@ -413,6 +456,7 @@ export class FieldRegistryService extends FieldRegistry {
       source: 'custom',
       sortable: true,
       filterable: true,
+      editable: true,
       visibility: definition.visibility,
       options: this.parseOptions(definition.options),
     }));

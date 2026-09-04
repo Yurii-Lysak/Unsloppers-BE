@@ -13,6 +13,7 @@ interface EmployeeListField {
 interface EmployeeListRow {
   employeeId: string;
   cells: Record<string, string | number | boolean | string[] | null>;
+  writableFieldIds?: string[];
 }
 
 interface EmployeeListResponse {
@@ -429,5 +430,316 @@ describe('Employees list (e2e)', () => {
     );
     expect(subjectRow).toBeDefined();
     expect(subjectRow?.cells[managementField.id]).toBeUndefined();
+  });
+
+  it('allows a manager to inline-edit a direct report grade and rejects a colleague', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'employees-manager-edit@example.com',
+      'Manager',
+      '2020-01-01',
+      'Senior',
+    );
+    const reportUser = await testApp.prisma.user.create({
+      data: {
+        email: 'employees-report-edit@example.com',
+        name: 'Report',
+        passwordHash: await hash(PASSWORD, 12),
+      },
+    });
+    const report = await testApp.prisma.employee.create({
+      data: {
+        id: reportUser.id,
+        userId: reportUser.id,
+        managerId: manager.employeeId,
+      },
+    });
+    const reportStart = new Date('2020-01-01T00:00:00.000Z');
+    await testApp.prisma.gradeHistory.create({
+      data: {
+        employeeId: report.id,
+        value: 'Mid',
+        effectiveFrom: reportStart,
+      },
+    });
+    await testApp.prisma.positionHistory.create({
+      data: {
+        employeeId: report.id,
+        value: 'Engineer',
+        effectiveFrom: reportStart,
+      },
+    });
+    await testApp.prisma.departmentHistory.create({
+      data: {
+        employeeId: report.id,
+        value: 'Engineering',
+        effectiveFrom: reportStart,
+      },
+    });
+    await testApp.prisma.employmentTypeHistory.create({
+      data: {
+        employeeId: report.id,
+        value: 'Full-time',
+        effectiveFrom: reportStart,
+      },
+    });
+
+    const colleague = await createEmployeeUser(
+      testApp,
+      'employees-colleague-edit@example.com',
+      'Colleague',
+      '2020-01-01',
+      'Mid',
+    );
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    const listRes = await managerAgent.get('/api/v1/employees').expect(200);
+    const listBody = listRes.body as EmployeeListResponse;
+    const reportRow = listBody.rows.find(
+      (row) => row.employeeId === report.id,
+    );
+    expect(reportRow?.writableFieldIds).toContain(BUILTIN_FIELD_IDS.grade);
+
+    await managerAgent
+      .patch(
+        `/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.grade}`,
+      )
+      .send({ value: 'Senior' })
+      .expect(200);
+
+    const refreshed = await managerAgent.get('/api/v1/employees').expect(200);
+    const refreshedBody = refreshed.body as EmployeeListResponse;
+    const updatedRow = refreshedBody.rows.find(
+      (row) => row.employeeId === report.id,
+    );
+    expect(updatedRow?.cells[BUILTIN_FIELD_IDS.grade]).toBe('Senior');
+
+    await managerAgent
+      .patch(
+        `/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.grade}`,
+      )
+      .send({ value: 'Lead' })
+      .expect(200);
+
+    const afterSecondEdit = await managerAgent
+      .get('/api/v1/employees')
+      .expect(200);
+    const afterSecondBody = afterSecondEdit.body as EmployeeListResponse;
+    const twiceUpdatedRow = afterSecondBody.rows.find(
+      (row) => row.employeeId === report.id,
+    );
+    expect(twiceUpdatedRow?.cells[BUILTIN_FIELD_IDS.grade]).toBe('Lead');
+
+    const gradeRows = await testApp.prisma.gradeHistory.findMany({
+      where: { employeeId: report.id },
+      orderBy: { effectiveFrom: 'asc' },
+    });
+    expect(gradeRows).toHaveLength(2);
+    expect(gradeRows[1]?.value).toBe('Lead');
+    expect(gradeRows[1]?.effectiveTo).toBeNull();
+
+    const colleagueAgent = await loginAs(testApp, colleague.email);
+    await colleagueAgent
+      .patch(
+        `/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.grade}`,
+      )
+      .send({ value: 'Junior' })
+      .expect(403);
+  });
+
+  it('allows a manager to inline-edit a custom field on a direct report', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'employees-manager-custom@example.com',
+      'Manager',
+      '2020-01-01',
+      'Senior',
+    );
+    const reportUser = await testApp.prisma.user.create({
+      data: {
+        email: 'employees-report-custom@example.com',
+        name: 'Report',
+        passwordHash: await hash(PASSWORD, 12),
+      },
+    });
+    const report = await testApp.prisma.employee.create({
+      data: {
+        id: reportUser.id,
+        userId: reportUser.id,
+        managerId: manager.employeeId,
+      },
+    });
+    const reportStart = new Date('2020-01-01T00:00:00.000Z');
+    await testApp.prisma.gradeHistory.create({
+      data: {
+        employeeId: report.id,
+        value: 'Mid',
+        effectiveFrom: reportStart,
+      },
+    });
+    await testApp.prisma.positionHistory.create({
+      data: {
+        employeeId: report.id,
+        value: 'Engineer',
+        effectiveFrom: reportStart,
+      },
+    });
+    await testApp.prisma.departmentHistory.create({
+      data: {
+        employeeId: report.id,
+        value: 'Engineering',
+        effectiveFrom: reportStart,
+      },
+    });
+    await testApp.prisma.employmentTypeHistory.create({
+      data: {
+        employeeId: report.id,
+        value: 'Full-time',
+        effectiveFrom: reportStart,
+      },
+    });
+
+    const customField = await testApp.prisma.customFieldDefinition.create({
+      data: {
+        name: 'Inline custom field',
+        type: 'text',
+        visibility: 'management',
+      },
+    });
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    await managerAgent
+      .patch(`/api/v1/employees/${report.id}/fields/${customField.id}`)
+      .send({ value: 'Updated note' })
+      .expect(200);
+
+    const listRes = await managerAgent.get('/api/v1/employees').expect(200);
+    const listBody = listRes.body as EmployeeListResponse;
+    const reportRow = listBody.rows.find(
+      (row) => row.employeeId === report.id,
+    );
+    expect(reportRow?.cells[customField.id]).toBe('Updated note');
+  });
+
+  it('rejects inline edits to non-editable built-in department', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'employees-manager-dept@example.com',
+      'Manager',
+      '2020-01-01',
+      'Senior',
+    );
+    const reportUser = await testApp.prisma.user.create({
+      data: {
+        email: 'employees-report-dept@example.com',
+        name: 'Report',
+        passwordHash: await hash(PASSWORD, 12),
+      },
+    });
+    const report = await testApp.prisma.employee.create({
+      data: {
+        id: reportUser.id,
+        userId: reportUser.id,
+        managerId: manager.employeeId,
+      },
+    });
+    const reportStart = new Date('2020-01-01T00:00:00.000Z');
+    await testApp.prisma.gradeHistory.create({
+      data: {
+        employeeId: report.id,
+        value: 'Mid',
+        effectiveFrom: reportStart,
+      },
+    });
+    await testApp.prisma.positionHistory.create({
+      data: {
+        employeeId: report.id,
+        value: 'Engineer',
+        effectiveFrom: reportStart,
+      },
+    });
+    await testApp.prisma.departmentHistory.create({
+      data: {
+        employeeId: report.id,
+        value: 'Engineering',
+        effectiveFrom: reportStart,
+      },
+    });
+    await testApp.prisma.employmentTypeHistory.create({
+      data: {
+        employeeId: report.id,
+        value: 'Full-time',
+        effectiveFrom: reportStart,
+      },
+    });
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    await managerAgent
+      .patch(
+        `/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.department}`,
+      )
+      .send({ value: 'Sales' })
+      .expect(403);
+  });
+
+  it('rejects empty grade inline edits with validation error', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'employees-manager-empty-grade@example.com',
+      'Manager',
+      '2020-01-01',
+      'Senior',
+    );
+    const reportUser = await testApp.prisma.user.create({
+      data: {
+        email: 'employees-report-empty-grade@example.com',
+        name: 'Report',
+        passwordHash: await hash(PASSWORD, 12),
+      },
+    });
+    const report = await testApp.prisma.employee.create({
+      data: {
+        id: reportUser.id,
+        userId: reportUser.id,
+        managerId: manager.employeeId,
+      },
+    });
+    const reportStart = new Date('2020-01-01T00:00:00.000Z');
+    await testApp.prisma.gradeHistory.create({
+      data: {
+        employeeId: report.id,
+        value: 'Mid',
+        effectiveFrom: reportStart,
+      },
+    });
+    await testApp.prisma.positionHistory.create({
+      data: {
+        employeeId: report.id,
+        value: 'Engineer',
+        effectiveFrom: reportStart,
+      },
+    });
+    await testApp.prisma.departmentHistory.create({
+      data: {
+        employeeId: report.id,
+        value: 'Engineering',
+        effectiveFrom: reportStart,
+      },
+    });
+    await testApp.prisma.employmentTypeHistory.create({
+      data: {
+        employeeId: report.id,
+        value: 'Full-time',
+        effectiveFrom: reportStart,
+      },
+    });
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    await managerAgent
+      .patch(
+        `/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.grade}`,
+      )
+      .send({ value: '' })
+      .expect(400);
   });
 });

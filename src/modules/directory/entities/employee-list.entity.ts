@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { FieldValue } from '../../contracts/field-registry.contract';
 import { FieldSpecEntity } from './field-spec.entity';
 
@@ -19,6 +19,9 @@ export class EmployeeRowEntity {
     },
   })
   cells!: Record<string, FieldValue>;
+
+  @ApiPropertyOptional({ type: String, isArray: true })
+  writableFieldIds?: string[];
 }
 
 export class EmployeeListEntity {
