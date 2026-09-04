@@ -6,27 +6,21 @@ import {
 describe('campaign-audience', () => {
   describe('resolveAudienceIds', () => {
     it('returns filter matches minus exclusions plus adds', () => {
-      const result = resolveAudienceIds(
-        ['a', 'b', 'c'],
-        {
-          filters: [],
-          addedEmployeeIds: ['d'],
-          excludedEmployeeIds: ['b'],
-        },
-      );
+      const result = resolveAudienceIds(['a', 'b', 'c'], {
+        filters: [],
+        addedEmployeeIds: ['d'],
+        excludedEmployeeIds: ['b'],
+      });
 
       expect(result).toEqual(['a', 'c', 'd']);
     });
 
     it('deduplicates when an added id also matches filters', () => {
-      const result = resolveAudienceIds(
-        ['a', 'b'],
-        {
-          filters: [],
-          addedEmployeeIds: ['a'],
-          excludedEmployeeIds: [],
-        },
-      );
+      const result = resolveAudienceIds(['a', 'b'], {
+        filters: [],
+        addedEmployeeIds: ['a'],
+        excludedEmployeeIds: [],
+      });
 
       expect(result).toEqual(['a', 'b']);
     });

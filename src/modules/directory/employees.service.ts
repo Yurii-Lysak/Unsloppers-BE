@@ -7,15 +7,19 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { AccessResolver } from '../contracts/access-resolver.contract';
 import {
+  EmployeeDirectory,
+  EmployeeDirectoryListResultDto,
+  EmployeeDirectoryRowDto,
+} from '../contracts/employee-directory.contract';
+import {
   BUILTIN_EDITABLE_FIELD_IDS,
+  EmployeeListQueryOptions,
   FieldSpec,
 } from '../contracts/field-registry.contract';
 import { PermissionChecker } from '../contracts/permission-checker.contract';
 import { SectionAccessGate } from '../contracts/section-access-gate.contract';
-import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
 import { UpdateEmployeeFieldDto } from './dto/update-employee-field.dto';
 import { EmployeeFieldUpdateEntity } from './entities/employee-field-update.entity';
-import { EmployeeListEntity } from './entities/employee-list.entity';
 import { EmployeeSummaryEntity } from './entities/employee-summary.entity';
 import { CustomFieldsService } from './custom-fields.service';
 import { CustomFieldVisibilityService } from './custom-field-visibility.service';
@@ -26,7 +30,7 @@ import { FieldRegistryService } from './field-registry.service';
  * Employee directory reads (Story 3.1) and inline field writes (Story 3.3).
  */
 @Injectable()
-export class EmployeesService {
+export class EmployeesService extends EmployeeDirectory {
   constructor(
     private readonly fieldRegistryService: FieldRegistryService,
     private readonly customFieldsService: CustomFieldsService,
@@ -35,12 +39,14 @@ export class EmployeesService {
     private readonly accessResolver: AccessResolver,
     private readonly sectionGate: SectionAccessGate,
     private readonly prisma: PrismaService,
-  ) {}
+  ) {
+    super();
+  }
 
   async listEmployees(
     viewerId: string,
-    query: ListEmployeesQueryDto,
-  ): Promise<EmployeeListEntity> {
+    query: EmployeeListQueryOptions,
+  ): Promise<EmployeeDirectoryListResultDto> {
     const viewerEmployeeId = await this.resolveViewerEmployeeId(viewerId);
     const allFields = await this.fieldRegistryService.listFields();
     const visibleFields = await this.filterVisibleFields(
@@ -198,9 +204,9 @@ export class EmployeesService {
   private async maskRowCells(
     viewerEmployeeId: string,
     viewerId: string,
-    rows: EmployeeListEntity['rows'],
+    rows: EmployeeDirectoryRowDto[],
     visibleFields: FieldSpec[],
-  ): Promise<EmployeeListEntity['rows']> {
+  ): Promise<EmployeeDirectoryRowDto[]> {
     const customFields = visibleFields.filter(
       (field) => field.source === 'custom' && field.visibility,
     );
@@ -216,7 +222,7 @@ export class EmployeesService {
       return rows;
     }
 
-    const maskedRows: EmployeeListEntity['rows'] = [];
+    const maskedRows: EmployeeDirectoryRowDto[] = [];
     for (const row of rows) {
       const cells = { ...row.cells };
       for (const field of customFields) {

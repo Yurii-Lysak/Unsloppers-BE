@@ -1,29 +1,1 @@
-import { Type } from 'class-transformer';
-import {
-  ArrayUnique,
-  IsArray,
-  IsUUID,
-  ValidateNested,
-} from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
-import { EmployeeFieldFilterDto } from '../../directory/dto/list-employees-query.dto';
-
-export class SaveCampaignAudienceDto {
-  @ApiProperty({ type: EmployeeFieldFilterDto, isArray: true })
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => EmployeeFieldFilterDto)
-  filters!: EmployeeFieldFilterDto[];
-
-  @ApiProperty({ type: String, isArray: true })
-  @IsArray()
-  @ArrayUnique()
-  @IsUUID('4', { each: true })
-  addedEmployeeIds!: string[];
-
-  @ApiProperty({ type: String, isArray: true })
-  @IsArray()
-  @ArrayUnique()
-  @IsUUID('4', { each: true })
-  excludedEmployeeIds!: string[];
-}
+import { Type } from 'class-transformer';import { ArrayUnique, IsArray, IsUUID, ValidateNested } from 'class-validator';import { ApiProperty } from '@nestjs/swagger';import { CampaignAudienceFilterDto } from './campaign-audience-filter.dto';export class SaveCampaignAudienceDto {  @ApiProperty({ type: CampaignAudienceFilterDto, isArray: true })  @IsArray()  @ValidateNested({ each: true })  @Type(() => CampaignAudienceFilterDto)  filters!: CampaignAudienceFilterDto[];  @ApiProperty({ type: String, isArray: true })  @IsArray()  @ArrayUnique()  @IsUUID('4', { each: true })  addedEmployeeIds!: string[];  @ApiProperty({ type: String, isArray: true })  @IsArray()  @ArrayUnique()  @IsUUID('4', { each: true })  excludedEmployeeIds!: string[];}

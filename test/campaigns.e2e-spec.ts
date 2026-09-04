@@ -30,6 +30,20 @@ interface CampaignReadDto {
   };
 }
 
+interface CampaignAudiencePreviewDto {
+  total: number;
+  rows: Array<{ employeeId: string }>;
+}
+
+interface CampaignAudienceResolveDto {
+  employeeIds: string[];
+}
+
+interface CampaignAudienceErrorDto {
+  invalidExcludedEmployeeIds?: string[];
+  invalidEmployeeIds?: string[];
+}
+
 const validPayload = {
   title: 'Annual Engagement Survey',
   description: 'A short pulse survey',
@@ -37,20 +51,6 @@ const validPayload = {
   link: 'https://forms.example.com/annual-survey',
   dueDate: '2026-09-30',
 };
-
-async function seedEmployeeDepartment(
-  testApp: TestApp,
-  employeeId: string,
-  department: string,
-): Promise<void> {
-  await testApp.prisma.departmentHistory.create({
-    data: {
-      employeeId,
-      value: department,
-      effectiveFrom: new Date('2020-01-01T00:00:00.000Z'),
-    },
-  });
-}
 
 async function seedEmployeeGrade(
   testApp: TestApp,
@@ -476,7 +476,7 @@ describe('Campaigns (e2e)', () => {
     const listRes = await managerAgent.get('/api/v1/campaigns').expect(200);
     const list = listRes.body as CampaignReadDto[];
     expect(list).toHaveLength(2);
-    expect(list.map(campaign => campaign.title)).toEqual([
+    expect(list.map((campaign) => campaign.title)).toEqual([
       'Newer campaign',
       'Older campaign',
     ]);
@@ -581,14 +581,16 @@ describe('Campaigns (e2e)', () => {
     const previewRes = await managerAgent
       .get(`/api/v1/campaigns/${campaign.id}/audience/preview`)
       .expect(200);
-    expect(previewRes.body.total).toBe(2);
-    expect(previewRes.body.rows).toHaveLength(2);
+    const preview = previewRes.body as CampaignAudiencePreviewDto;
+    expect(preview.total).toBe(2);
+    expect(preview.rows).toHaveLength(2);
 
     const resolveRes = await managerAgent
       .get(`/api/v1/campaigns/${campaign.id}/audience/resolve`)
       .expect(200);
-    expect(resolveRes.body.employeeIds).toHaveLength(2);
-    expect(resolveRes.body.employeeIds).toEqual(
+    const resolved = resolveRes.body as CampaignAudienceResolveDto;
+    expect(resolved.employeeIds).toHaveLength(2);
+    expect(resolved.employeeIds).toEqual(
       expect.arrayContaining([
         salesReport.employeeId,
         engineeringReport.employeeId,
@@ -638,8 +640,9 @@ describe('Campaigns (e2e)', () => {
         addedEmployeeIds: [],
         excludedEmployeeIds: [strangerId],
       });
+    const saveBody = saveRes.body as CampaignAudienceErrorDto;
     expect(saveRes.status).toBe(400);
-    expect(saveRes.body.invalidExcludedEmployeeIds).toEqual([strangerId]);
+    expect(saveBody.invalidExcludedEmployeeIds).toEqual([strangerId]);
   });
 
   it('returns 404 when a non-creator accesses audience routes', async () => {
@@ -761,8 +764,11 @@ describe('Campaigns (e2e)', () => {
         addedEmployeeIds: [inactiveReport.employeeId],
         excludedEmployeeIds: [],
       });
+    const inactiveBody = saveRes.body as CampaignAudienceErrorDto;
     expect(saveRes.status).toBe(400);
-    expect(saveRes.body.invalidEmployeeIds).toEqual([inactiveReport.employeeId]);
+    expect(inactiveBody.invalidEmployeeIds).toEqual([
+      inactiveReport.employeeId,
+    ]);
   });
 
   it('returns 409 for audience routes on a non-draft campaign', async () => {

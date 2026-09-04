@@ -5,14 +5,16 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { FormCampaign, User } from '../../generated/prisma/client';
-import type { FieldFilter } from '../contracts/field-registry.contract';
-import { EmployeesService } from '../directory/employees.service';
+import {
+  EmployeeDirectory,
+  EmployeeDirectoryRowDto,
+} from '../contracts/employee-directory.contract';
 import {
   DEFAULT_PAGE_SIZE,
   MAX_PAGE_SIZE,
   MIN_PAGE,
-} from '../directory/field-catalog';
-import type { EmployeeRowEntity } from '../directory/entities/employee-list.entity';
+} from '../contracts/employee-list.constants';
+import type { FieldFilter } from '../contracts/field-registry.contract';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   assertNoDuplicateIds,
@@ -46,7 +48,7 @@ type CampaignWithCreator = FormCampaign & {
 export class CampaignsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly employeesService: EmployeesService,
+    private readonly employeeDirectory: EmployeeDirectory,
   ) {}
 
   async createCampaign(
@@ -172,9 +174,9 @@ export class CampaignsService {
     const rowMap = await this.loadRowMap(viewerUserId, definition);
     const rows = pageIds
       .map((employeeId) => rowMap.get(employeeId))
-      .filter((row): row is EmployeeRowEntity => row !== undefined);
+      .filter((row): row is EmployeeDirectoryRowDto => row !== undefined);
 
-    const sample = await this.employeesService.listEmployees(viewerUserId, {
+    const sample = await this.employeeDirectory.listEmployees(viewerUserId, {
       page: MIN_PAGE,
       pageSize: 1,
     });
@@ -221,7 +223,7 @@ export class CampaignsService {
     const ids: string[] = [];
     let page = MIN_PAGE;
     while (true) {
-      const result = await this.employeesService.listEmployees(viewerUserId, {
+      const result = await this.employeeDirectory.listEmployees(viewerUserId, {
         filters,
         page,
         pageSize: MAX_PAGE_SIZE,
@@ -238,17 +240,20 @@ export class CampaignsService {
   private async loadRowMap(
     viewerUserId: string,
     definition: CampaignAudienceDefinition,
-  ): Promise<Map<string, EmployeeRowEntity>> {
-    const rowMap = new Map<string, EmployeeRowEntity>();
+  ): Promise<Map<string, EmployeeDirectoryRowDto>> {
+    const rowMap = new Map<string, EmployeeDirectoryRowDto>();
 
     if (definition.filters.length > 0) {
       let page = MIN_PAGE;
       while (true) {
-        const result = await this.employeesService.listEmployees(viewerUserId, {
-          filters: definition.filters,
-          page,
-          pageSize: MAX_PAGE_SIZE,
-        });
+        const result = await this.employeeDirectory.listEmployees(
+          viewerUserId,
+          {
+            filters: definition.filters,
+            page,
+            pageSize: MAX_PAGE_SIZE,
+          },
+        );
         for (const row of result.rows) {
           rowMap.set(row.employeeId, {
             employeeId: row.employeeId,
@@ -268,10 +273,13 @@ export class CampaignsService {
     if (missingAddedIds.length > 0) {
       let page = MIN_PAGE;
       while (true) {
-        const result = await this.employeesService.listEmployees(viewerUserId, {
-          page,
-          pageSize: MAX_PAGE_SIZE,
-        });
+        const result = await this.employeeDirectory.listEmployees(
+          viewerUserId,
+          {
+            page,
+            pageSize: MAX_PAGE_SIZE,
+          },
+        );
         for (const row of result.rows) {
           if (missingAddedIds.includes(row.employeeId)) {
             rowMap.set(row.employeeId, {
@@ -344,7 +352,7 @@ export class CampaignsService {
     const ids = new Set<string>();
     let page = MIN_PAGE;
     while (true) {
-      const result = await this.employeesService.listEmployees(viewerUserId, {
+      const result = await this.employeeDirectory.listEmployees(viewerUserId, {
         page,
         pageSize: MAX_PAGE_SIZE,
       });

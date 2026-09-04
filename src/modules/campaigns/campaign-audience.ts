@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import type { FieldFilter } from '../contracts/field-registry.contract';
-import type { EmployeeFieldFilterDto } from '../directory/dto/list-employees-query.dto';
+import type { CampaignAudienceFilterDto } from './dto/campaign-audience-filter.dto';
 
 export interface CampaignAudienceDefinition {
   filters: FieldFilter[];
@@ -87,7 +87,7 @@ export const resolveAudienceIds = (
 };
 
 export const toFieldFilters = (
-  filters: EmployeeFieldFilterDto[],
+  filters: CampaignAudienceFilterDto[],
 ): FieldFilter[] =>
   filters.map((filter) => ({
     fieldId: filter.fieldId,

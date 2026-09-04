@@ -103,12 +103,7 @@ export class CampaignsController {
   ) {
     const { userId } = await this.currentUser.getCurrentUser(request);
     const creatorId = await this.resolveViewerEmployeeId(userId);
-    return this.campaigns.previewAudience(
-      campaignId,
-      creatorId,
-      userId,
-      query,
-    );
+    return this.campaigns.previewAudience(campaignId, creatorId, userId, query);
   }
 
   @Get(':campaignId/audience/resolve')

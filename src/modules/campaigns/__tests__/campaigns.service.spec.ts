@@ -5,8 +5,9 @@ import {
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { EmployeeDirectory } from '../../contracts/employee-directory.contract';
+import type { EmployeeListQueryOptions } from '../../contracts/field-registry.contract';
 import { CampaignsService } from '../campaigns.service';
-import { EmployeesService } from '../../directory/employees.service';
 
 type PrismaMock = {
   formCampaign: {
@@ -23,7 +24,7 @@ type PrismaMock = {
 
 describe('CampaignsService', () => {
   let service: CampaignsService;
-  const employeesService = {
+  const employeeDirectory = {
     listEmployees: jest.fn(),
   };
   const prisma: PrismaMock = {
@@ -81,7 +82,7 @@ describe('CampaignsService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     prisma.employee.findUnique.mockResolvedValue({ userId: 'user-1' });
-    employeesService.listEmployees.mockResolvedValue({
+    employeeDirectory.listEmployees.mockResolvedValue({
       fields: [],
       rows: [],
       total: 0,
@@ -92,7 +93,7 @@ describe('CampaignsService', () => {
       providers: [
         CampaignsService,
         { provide: PrismaService, useValue: prisma },
-        { provide: EmployeesService, useValue: employeesService },
+        { provide: EmployeeDirectory, useValue: employeeDirectory },
       ],
     }).compile();
 
@@ -268,27 +269,29 @@ describe('CampaignsService', () => {
             audienceExcludedEmployeeIds: [employeeA],
           }),
         );
-      employeesService.listEmployees.mockImplementation((_userId, query) => {
-        if (query?.filters?.length) {
+      employeeDirectory.listEmployees.mockImplementation(
+        (_userId: string, query?: EmployeeListQueryOptions) => {
+          if (query?.filters?.length) {
+            return Promise.resolve({
+              fields: [],
+              rows: [{ employeeId: employeeA, cells: {} }],
+              total: 1,
+              page: 1,
+              pageSize: 100,
+            });
+          }
           return Promise.resolve({
             fields: [],
-            rows: [{ employeeId: employeeA, cells: {} }],
-            total: 1,
+            rows: [
+              { employeeId: employeeA, cells: {} },
+              { employeeId: employeeB, cells: {} },
+            ],
+            total: 2,
             page: 1,
             pageSize: 100,
           });
-        }
-        return Promise.resolve({
-          fields: [],
-          rows: [
-            { employeeId: employeeA, cells: {} },
-            { employeeId: employeeB, cells: {} },
-          ],
-          total: 2,
-          page: 1,
-          pageSize: 100,
-        });
-      });
+        },
+      );
       prisma.employee.findMany.mockResolvedValue([{ id: employeeB }]);
       prisma.formCampaign.updateMany.mockResolvedValue({ count: 1 });
 
@@ -315,7 +318,7 @@ describe('CampaignsService', () => {
 
     it('rejects excluded ids that are not filter matches', async () => {
       prisma.formCampaign.findFirst.mockResolvedValue(draftCampaignRow());
-      employeesService.listEmployees.mockResolvedValue({
+      employeeDirectory.listEmployees.mockResolvedValue({
         fields: [],
         rows: [],
         total: 0,
@@ -347,7 +350,7 @@ describe('CampaignsService', () => {
     it('rejects inactive or invisible added employee ids', async () => {
       prisma.formCampaign.findFirst.mockResolvedValue(draftCampaignRow());
       prisma.employee.findUnique.mockResolvedValue({ userId: 'user-1' });
-      employeesService.listEmployees.mockResolvedValue({
+      employeeDirectory.listEmployees.mockResolvedValue({
         fields: [],
         rows: [{ employeeId: employeeA, cells: {} }],
         total: 1,
@@ -380,7 +383,7 @@ describe('CampaignsService', () => {
           audienceExcludedEmployeeIds: [employeeA],
         }),
       );
-      employeesService.listEmployees.mockResolvedValue({
+      employeeDirectory.listEmployees.mockResolvedValue({
         fields: [],
         rows: [
           { employeeId: employeeA, cells: {} },

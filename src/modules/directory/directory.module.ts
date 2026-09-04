@@ -1,4 +1,5 @@
 import { Global, Module } from '@nestjs/common';
+import { EmployeeDirectory } from '../contracts/employee-directory.contract';
 import { FieldRegistry } from '../contracts/field-registry.contract';
 import { CustomFieldVisibilityService } from './custom-field-visibility.service';
 import { CustomFieldsController } from './custom-fields.controller';
@@ -26,10 +27,15 @@ import { FieldRegistryService } from './field-registry.service';
       provide: FieldRegistry,
       useExisting: FieldRegistryService,
     },
+    {
+      provide: EmployeeDirectory,
+      useExisting: EmployeesService,
+    },
   ],
   exports: [
     FieldRegistry,
     FieldRegistryService,
+    EmployeeDirectory,
     CustomFieldsService,
     EmployeesService,
   ],
