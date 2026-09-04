@@ -15,6 +15,7 @@ import { DirectoryModule } from './modules/directory/directory.module';
 import { TimelineModule } from './modules/timeline/timeline.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { ManagementNotesModule } from './modules/management-notes/management-notes.module';
+import { RisksModule } from './modules/risks/risks.module';
 import { ActionItemsModule } from './modules/action-items/action-items.module';
 import { MentorshipModule } from './modules/mentorship/mentorship.module';
 
@@ -39,6 +40,7 @@ import { MentorshipModule } from './modules/mentorship/mentorship.module';
     TimetrackerModule,
     IntegrationsModule,
     ManagementNotesModule,
+    RisksModule,
     ActionItemsModule,
     MentorshipModule,
     HealthModule,

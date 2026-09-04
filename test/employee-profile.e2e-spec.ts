@@ -156,7 +156,12 @@ describe('Employee profile assembly (e2e)', () => {
 
     expect(body.audience.role).toBe('ReportingLine');
     expect(body.sections.S1).toBeDefined();
-    expect(body.sections.S6?.status).toBe('unavailable');
+    const s6 = body.sections.S6 as
+      | { accessLevel?: string; status?: string; data?: { records: unknown[] } }
+      | undefined;
+    expect(s6?.accessLevel).toBe('RW');
+    expect(s6).toHaveProperty('data');
+    expect(s6?.data?.records).toEqual([]);
   });
 
   it('includes mentor in S1 for ReportingLine viewers when an active pair exists', async () => {

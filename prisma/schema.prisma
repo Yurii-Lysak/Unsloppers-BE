@@ -85,6 +85,9 @@ model Employee {
   managementNotesAbout   ManagementNote[] @relation("ManagementNoteSubject")
   managementNotesAuthored ManagementNote[] @relation("ManagementNoteAuthor")
 
+  riskRecordsAbout    RiskRecord[] @relation("RiskRecordSubject")
+  riskRecordsAuthored RiskRecord[] @relation("RiskRecordAuthor")
+
   actionItemsAssigned ActionItem[] @relation("ActionItemAssignee")
   actionItemsAuthored ActionItem[] @relation("ActionItemAuthor")
 
@@ -388,6 +391,31 @@ model ManagementNote {
 
   @@index([subjectEmployeeId])
   @@map("management_notes")
+}
+
+enum RiskLevel {
+  low
+  need_attention
+  medium
+  high
+  leaver
+}
+
+model RiskRecord {
+  id                String    @id @default(uuid())
+  subjectEmployeeId String
+  authorEmployeeId  String
+  level             RiskLevel
+  description       String    @db.VarChar(500)
+  details           String    @db.Text
+  recordedAt        DateTime  @db.Date
+  createdAt         DateTime  @default(now())
+
+  subjectEmployee Employee @relation("RiskRecordSubject", fields: [subjectEmployeeId], references: [id], onDelete: Restrict)
+  authorEmployee  Employee @relation("RiskRecordAuthor", fields: [authorEmployeeId], references: [id], onDelete: Restrict)
+
+  @@index([subjectEmployeeId])
+  @@map("risk_records")
 }
 
 enum ActionItemStatus {
