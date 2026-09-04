@@ -70,7 +70,6 @@ export class EmployeesService {
       maskedRows.map(async (row) => ({
         ...row,
         writableFieldIds: await this.resolveWritableFieldIds(
-          viewerId,
           viewerEmployeeId,
           row.employeeId,
           visibleFields,
@@ -103,7 +102,6 @@ export class EmployeesService {
     }
 
     const writableFieldIds = await this.resolveWritableFieldIds(
-      userId,
       viewerEmployeeId,
       employeeId,
       allFields,
@@ -236,7 +234,6 @@ export class EmployeesService {
   }
 
   private async resolveWritableFieldIds(
-    userId: string,
     viewerEmployeeId: string,
     employeeId: string,
     visibleFields: FieldSpec[],
@@ -249,18 +246,13 @@ export class EmployeesService {
       }
 
       if (field.source === 'custom' && field.visibility) {
-        const canManage = await this.permissionChecker.hasPermission(
-          userId,
-          MANAGE_CUSTOM_FIELDS_PERMISSION,
-        );
-        const canWrite =
-          canManage ||
-          (await this.visibility.canWriteFieldForSubject(
+        if (
+          await this.visibility.canWriteFieldForSubject(
             viewerEmployeeId,
             employeeId,
             field.visibility,
-          ));
-        if (canWrite) {
+          )
+        ) {
           writable.push(field.id);
         }
         continue;
