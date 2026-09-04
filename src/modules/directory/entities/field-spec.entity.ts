@@ -21,6 +21,9 @@ export class FieldSpecEntity {
   filterable!: boolean;
 
   @ApiPropertyOptional()
+  editable?: boolean;
+
+  @ApiPropertyOptional()
   visibility?: FieldSpec['visibility'];
 
   @ApiPropertyOptional({ type: String, isArray: true })

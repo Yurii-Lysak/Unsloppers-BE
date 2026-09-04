@@ -6,6 +6,7 @@ import {
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '../../../generated/prisma/client';
 import { Clock } from '../../../clock/clock.service';
+import { BUILTIN_FIELD_IDS } from '../../contracts/field-registry.contract';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { FieldRegistryService } from '../field-registry.service';
 
@@ -31,6 +32,15 @@ describe('FieldRegistryService', () => {
     employee: {
       findUnique: jest.fn(),
       findMany: jest.fn(),
+    },
+    gradeHistory: {
+      create: jest.fn(),
+    },
+    positionHistory: {
+      create: jest.fn(),
+    },
+    employmentTypeHistory: {
+      create: jest.fn(),
     },
   };
 
@@ -554,6 +564,49 @@ describe('FieldRegistryService', () => {
       expect(result.rows[0]?.cells.years_with_company).toBeGreaterThanOrEqual(
         7,
       );
+    });
+  });
+
+  describe('setBuiltinFieldValue', () => {
+    beforeEach(() => {
+      prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1' });
+    });
+
+    it('rejects non-editable built-in fields', async () => {
+      await expect(
+        service.setBuiltinFieldValue(
+          'emp-1',
+          BUILTIN_FIELD_IDS.department,
+          'Sales',
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.gradeHistory.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects empty text values', async () => {
+      await expect(
+        service.setBuiltinFieldValue('emp-1', BUILTIN_FIELD_IDS.grade, ''),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      await expect(
+        service.setBuiltinFieldValue('emp-1', BUILTIN_FIELD_IDS.grade, '   '),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.gradeHistory.create).not.toHaveBeenCalled();
+    });
+
+    it('appends a grade history row for valid input', async () => {
+      await service.setBuiltinFieldValue(
+        'emp-1',
+        BUILTIN_FIELD_IDS.grade,
+        ' Senior ',
+      );
+
+      expect(prisma.gradeHistory.create).toHaveBeenCalledWith({
+        data: {
+          employeeId: 'emp-1',
+          value: 'Senior',
+          effectiveFrom: new Date('2026-08-31T12:00:00.000Z'),
+        },
+      });
     });
   });
 });

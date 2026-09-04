@@ -1,25 +1,27 @@
 import {
+  Body,
   Controller,
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Query,
   Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { CurrentUserProvider } from '../contracts/current-user-provider.contract';
+import { UpdateEmployeeFieldDto } from './dto/update-employee-field.dto';
+import { EmployeeFieldUpdateEntity } from './entities/employee-field-update.entity';
 import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
 import { EmployeeSummaryEntity } from './entities/employee-summary.entity';
 import { EmployeesService } from './employees.service';
-import { SwaggerGetEmployee, SwaggerListEmployees } from './employees.swagger';
+import {
+  SwaggerGetEmployee,
+  SwaggerListEmployees,
+  SwaggerUpdateEmployeeField,
+} from './employees.swagger';
 
-/**
- * Minimal employee directory reads for Story 1.5 navigation shell.
- * Story 1.8: summary DTO is S1-safe (`id`, `displayName` only). Full C1
- * per-row column projection lands in Epic 3; browsing all seeded employees
- * remains intentional for Colleague-tier viewers.
- */
 @ApiTags('employees')
 @Controller('employees')
 export class EmployeesController {
@@ -43,5 +45,17 @@ export class EmployeesController {
   ): Promise<EmployeeSummaryEntity> {
     await this.currentUser.getCurrentUser(request);
     return this.employees.getById(employeeId);
+  }
+
+  @Patch(':employeeId/fields/:fieldId')
+  @SwaggerUpdateEmployeeField()
+  async updateField(
+    @Req() request: Request,
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Param('fieldId') fieldId: string,
+    @Body() dto: UpdateEmployeeFieldDto,
+  ): Promise<EmployeeFieldUpdateEntity> {
+    const { userId } = await this.currentUser.getCurrentUser(request);
+    return this.employees.updateEmployeeField(userId, employeeId, fieldId, dto);
   }
 }
