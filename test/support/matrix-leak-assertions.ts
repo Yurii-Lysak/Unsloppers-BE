@@ -9,6 +9,7 @@ export interface ProfileBody {
 export const PARALLEL_ROUTE_BY_SECTION: Partial<
   Record<ProfileSection, string>
 > = {
+  S6: '/risks',
   S7: '/management-notes',
   S9: '/timeline',
   S10: '/leaves',
