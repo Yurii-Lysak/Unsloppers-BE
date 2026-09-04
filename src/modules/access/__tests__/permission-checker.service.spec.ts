@@ -1,7 +1,17 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PERMISSION_KEYS } from '../../contracts/permission-keys';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { Clock } from '../../../clock/clock.service';
 import { PermissionCheckerService } from '../permission-checker.service';
+import {
+  DEFAULT_TEST_INSTANT,
+  FixedClock,
+} from '../../../../test/support/fixed-clock';
+
+interface EmployeeCountWhere {
+  managerId?: string;
+  peoplePartnerId?: string;
+}
 
 describe('PermissionCheckerService', () => {
   let service: PermissionCheckerService;
@@ -9,19 +19,33 @@ describe('PermissionCheckerService', () => {
   const prisma = {
     employee: {
       findUnique: jest.fn(),
+      count: jest.fn(),
     },
     functionalRoleAssignment: {
       findMany: jest.fn(),
     },
+    projectAssignment: {
+      count: jest.fn(),
+    },
+  };
+
+  const setNoManagerOrPpDefaultAccess = () => {
+    prisma.employee.count.mockResolvedValue(0);
+    prisma.projectAssignment.count.mockResolvedValue(0);
   };
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    setNoManagerOrPpDefaultAccess();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PermissionCheckerService,
         { provide: PrismaService, useValue: prisma },
+        {
+          provide: Clock,
+          useValue: new FixedClock(DEFAULT_TEST_INSTANT),
+        },
       ],
     }).compile();
 
@@ -38,6 +62,7 @@ describe('PermissionCheckerService', () => {
 
   it('denies unknown permission keys', async () => {
     prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1' });
+    prisma.functionalRoleAssignment.findMany.mockResolvedValue([]);
 
     await expect(
       service.hasPermission('user-1', 'not-a-real-key'),
@@ -133,5 +158,92 @@ describe('PermissionCheckerService', () => {
     await expect(
       service.hasPermission('user-1', PERMISSION_KEYS.CREATE_FORM_CAMPAIGNS),
     ).resolves.toBe(false);
+  });
+
+  describe('manager/PP widening for CREATE_FORM_CAMPAIGNS (spec-10-1)', () => {
+    it('grants CREATE_FORM_CAMPAIGNS to a manager with >=1 direct report and no role assignments', async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1' });
+      prisma.functionalRoleAssignment.findMany.mockResolvedValue([]);
+      prisma.employee.count.mockImplementation(
+        ({ where }: { where: EmployeeCountWhere }) =>
+          Promise.resolve(where.managerId === 'emp-1' ? 1 : 0),
+      );
+
+      await expect(
+        service.hasPermission('user-1', PERMISSION_KEYS.CREATE_FORM_CAMPAIGNS),
+      ).resolves.toBe(true);
+      await expect(
+        service.hasPermission('user-1', PERMISSION_KEYS.CREATE_ACTION_ITEMS),
+      ).resolves.toBe(false);
+    });
+
+    it('grants CREATE_FORM_CAMPAIGNS to a PP with >=1 assignee and no role assignments', async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1' });
+      prisma.functionalRoleAssignment.findMany.mockResolvedValue([]);
+      prisma.employee.count.mockImplementation(
+        ({ where }: { where: EmployeeCountWhere }) =>
+          Promise.resolve(where.peoplePartnerId === 'emp-1' ? 1 : 0),
+      );
+
+      await expect(
+        service.hasPermission('user-1', PERMISSION_KEYS.CREATE_FORM_CAMPAIGNS),
+      ).resolves.toBe(true);
+    });
+
+    it('grants CREATE_FORM_CAMPAIGNS via an active PM/DM ProjectAssignment', async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1' });
+      prisma.functionalRoleAssignment.findMany.mockResolvedValue([]);
+      prisma.projectAssignment.count.mockResolvedValue(1);
+
+      await expect(
+        service.hasPermission('user-1', PERMISSION_KEYS.CREATE_FORM_CAMPAIGNS),
+      ).resolves.toBe(true);
+    });
+
+    it('scopes the ProjectAssignment query to still-active rows (endDate null or >= today)', async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1' });
+      prisma.functionalRoleAssignment.findMany.mockResolvedValue([]);
+
+      await service.hasPermission(
+        'user-1',
+        PERMISSION_KEYS.CREATE_FORM_CAMPAIGNS,
+      );
+
+      expect(prisma.projectAssignment.count).toHaveBeenCalledWith({
+        where: {
+          AND: [
+            { OR: [{ pmId: 'emp-1' }, { dmId: 'emp-1' }] },
+            {
+              OR: [
+                { endDate: null },
+                { endDate: { gte: new Date('2026-01-05T00:00:00.000Z') } },
+              ],
+            },
+          ],
+        },
+      });
+    });
+
+    it('does not grant CREATE_FORM_CAMPAIGNS when no manager/PP/role source applies', async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1' });
+      prisma.functionalRoleAssignment.findMany.mockResolvedValue([]);
+
+      await expect(
+        service.hasPermission('user-1', PERMISSION_KEYS.CREATE_FORM_CAMPAIGNS),
+      ).resolves.toBe(false);
+    });
+
+    it('never widens any permission key other than CREATE_FORM_CAMPAIGNS', async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1' });
+      prisma.functionalRoleAssignment.findMany.mockResolvedValue([]);
+      prisma.employee.count.mockImplementation(
+        ({ where }: { where: EmployeeCountWhere }) =>
+          Promise.resolve(where.managerId === 'emp-1' ? 1 : 0),
+      );
+
+      await expect(service.getGrantedPermissions('user-1')).resolves.toEqual([
+        PERMISSION_KEYS.CREATE_FORM_CAMPAIGNS,
+      ]);
+    });
   });
 });
