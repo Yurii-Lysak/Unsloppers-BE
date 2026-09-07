@@ -8,6 +8,7 @@ import {
 } from '@nestjs/swagger';
 import { EmployeeFieldUpdateEntity } from './entities/employee-field-update.entity';
 import { EmployeeListEntity } from './entities/employee-list.entity';
+import { EmployeeLookupEntity } from './entities/employee-lookup.entity';
 import { EmployeeSummaryEntity } from './entities/employee-summary.entity';
 
 export const SwaggerListEmployees = () =>
@@ -16,6 +17,12 @@ export const SwaggerListEmployees = () =>
     ApiBadRequestResponse({
       description: 'Invalid pagination, sort, or filter parameters',
     }),
+  );
+
+export const SwaggerLookupEmployees = () =>
+  applyDecorators(
+    ApiOkResponse({ type: EmployeeLookupEntity, isArray: true }),
+    ApiUnauthorizedResponse({ description: 'Unauthenticated' }),
   );
 
 export const SwaggerGetEmployee = () =>

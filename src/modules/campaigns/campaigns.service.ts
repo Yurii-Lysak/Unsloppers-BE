@@ -4,7 +4,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { FormCampaign, User } from '../../generated/prisma/client';
+import type { FormCampaign, Prisma, User } from '../../generated/prisma/client';
+import { ActionItemCreation } from '../contracts/action-item-creation.contract';
 import {
   EmployeeDirectory,
   EmployeeDirectoryRowDto,
@@ -49,6 +50,7 @@ export class CampaignsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly employeeDirectory: EmployeeDirectory,
+    private readonly actionItemCreation: ActionItemCreation,
   ) {}
 
   async createCampaign(
@@ -143,7 +145,7 @@ export class CampaignsService {
     const result = await this.prisma.formCampaign.updateMany({
       where: { id: campaignId, status: 'draft' },
       data: {
-        audienceFilters: normalized.filters,
+        audienceFilters: normalized.filters as unknown as Prisma.InputJsonValue,
         audienceAddedEmployeeIds: normalized.addedEmployeeIds,
         audienceExcludedEmployeeIds: normalized.excludedEmployeeIds,
       },
@@ -200,6 +202,60 @@ export class CampaignsService {
       viewerUserId,
       this.toAudienceDefinition(campaign),
     );
+  }
+
+  async activateCampaign(
+    campaignId: string,
+    creatorId: string,
+  ): Promise<CampaignReadEntity> {
+    const campaign = await this.findOwnedCampaign(campaignId, creatorId);
+    if (campaign.status !== 'draft') {
+      throw new ConflictException('Only draft campaigns can be activated');
+    }
+    const viewerUserId = await this.resolveCreatorUserId(creatorId);
+    // Resolve while still draft, outside the transaction (mirrors
+    // `previewAudience`) — staleness is fine because C6 re-validates every
+    // assignee is active inside the transaction and 400s if not.
+    const assigneeIds = await this.resolveAudienceEmployeeIdsForDefinition(
+      viewerUserId,
+      this.toAudienceDefinition(campaign),
+    );
+
+    await this.prisma.$transaction(async (tx) => {
+      const result = await tx.formCampaign.updateMany({
+        where: { id: campaignId, status: 'draft' },
+        data: { status: 'active' },
+      });
+      if (result.count === 0) {
+        throw new ConflictException('Only draft campaigns can be activated');
+      }
+
+      // Re-fetch inside the transaction: a concurrent `PATCH :campaignId`
+      // landing between the pre-transaction read above and this commit must
+      // not leak stale title/description/link/dueDate into the generated
+      // action items — those have to match the row as it's actually locked.
+      const freshCampaign = await tx.formCampaign.findFirst({
+        where: { id: campaignId },
+      });
+      if (!freshCampaign) {
+        throw new NotFoundException(`Campaign ${campaignId} not found`);
+      }
+
+      await this.actionItemCreation.createCampaignActionItems(
+        {
+          campaignId,
+          authorId: creatorId,
+          title: freshCampaign.title,
+          description: freshCampaign.description,
+          dueDate: formatCampaignDueDate(freshCampaign.dueDate),
+          link: freshCampaign.link,
+          assigneeIds,
+        },
+        tx,
+      );
+    });
+
+    return this.getForCreator(campaignId, creatorId);
   }
 
   private async resolveAudienceEmployeeIdsForDefinition(
