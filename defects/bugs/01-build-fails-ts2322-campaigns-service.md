@@ -3,7 +3,7 @@
 - **Priority:** Urgent
 - **Component:** Backend / Campaigns
 - **Severity:** Blocker (deploy)
-- **Status:** Open
+- **Status:** Fixed
 - **ClickUp:** Filed
 
 ## Description

@@ -3,7 +3,7 @@
 - **Priority:** High
 - **Component:** Backend / Auth
 - **Severity:** Security
-- **Status:** Open
+- **Status:** Fixed
 
 ## Description
 

@@ -32,4 +32,11 @@ export const envValidationSchema = Joi.object({
   // Story 1.13 — generation-gated access-resolution cache (AD-4: off by default).
   ACCESS_RESOLUTION_CACHE_ENABLED: Joi.boolean().default(false),
   ACCESS_RESOLUTION_CACHE_TTL_MS: Joi.number().integer().positive().optional(),
+  THROTTLE_LOGIN_TTL_MS: Joi.number().integer().positive().default(60_000),
+  THROTTLE_LOGIN_LIMIT: Joi.number().integer().positive().default(100),
+  THROTTLE_SHARED_LINK_TTL_MS: Joi.number()
+    .integer()
+    .positive()
+    .default(60_000),
+  THROTTLE_SHARED_LINK_LIMIT: Joi.number().integer().positive().default(30),
 });

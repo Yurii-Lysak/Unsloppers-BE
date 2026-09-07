@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlingModule } from './common/throttling/throttling.module';
 import { ClockModule } from './clock/clock.module';
 import { envValidationSchema } from './config/env.validation';
 import { HealthModule } from './modules/health/health.module';
@@ -26,6 +27,7 @@ import { CampaignsModule } from './modules/campaigns/campaigns.module';
       isGlobal: true,
       validationSchema: envValidationSchema,
     }),
+    ThrottlingModule,
     ScheduleModule.forRoot(),
     ClockModule,
     ContractsModule,

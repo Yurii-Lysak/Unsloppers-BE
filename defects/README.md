@@ -14,7 +14,7 @@ Source artifacts (workspace root): `_bmad-output/test-artifacts/{known-red-diagn
 | # | Title | Priority | Status |
 | --- | --- | --- | --- |
 | 01 | [Build fails — TS2322 in campaigns.service.ts](bugs/01-build-fails-ts2322-campaigns-service.md) | Urgent | Open |
-| 02 | [GET /employees leaks builtin fields to every role](bugs/02-employees-list-authorization-gap.md) | Urgent | Open |
+| 02 | [GET /employees leaks builtin fields to every role](bugs/02-employees-list-authorization-gap.md) | Urgent | Resolved — not a bug |
 | 03 | [Employee list filters 400 — fieldId stripped in DTO transform](bugs/03-employees-filters-400-dto-defect.md) | High | Open |
 | 04 | [No rate limiting on /auth/login or shared-link (R-016)](bugs/04-no-rate-limiting-auth-shared-link.md) | High | Open |
 | 05 | [queryEmployees loads full table into memory, no DB pagination](bugs/05-employees-query-full-table-load.md) | High | Open |
@@ -32,6 +32,7 @@ Source artifacts (workspace root): `_bmad-output/test-artifacts/{known-red-diagn
 | 07 | [action-items.e2e-spec.ts — oversized file (~1,633 lines)](test-debt/07-action-items-e2e-oversized-file.md) | High | Test Debt |
 | 08 | [employees.e2e-spec.ts — duplicated inline fixture (4+ times)](test-debt/08-employees-e2e-duplicated-fixture.md) | Normal | Test Debt |
 | 09 | [employees.e2e-spec.ts — multi-concern test bundling](test-debt/09-employees-e2e-multi-concern-test.md) | Normal | Test Debt |
+| 10 | [Decision: filtering a hidden field should 400 or degrade with `filtersHidden`?](test-debt/10-employees-e2e-stale-400-vs-filtershidden.md) | High | Needs Owner Decision |
 
 ## ci-hardening/ — Missing CI gates (process, not per-request bugs)
 
