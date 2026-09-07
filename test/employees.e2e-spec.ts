@@ -196,6 +196,36 @@ describe('Employees list (e2e)', () => {
     ).toBeGreaterThan(7);
   });
 
+  it('GET /api/v1/employees/lookup returns 401 when unauthenticated', async () => {
+    await request(testApp.server).get('/api/v1/employees/lookup').expect(401);
+  });
+
+  it('GET /api/v1/employees/lookup returns id+name for every employee (Story 3.4)', async () => {
+    const viewer = await createEmployeeUser(
+      testApp,
+      'employees-lookup-viewer@example.com',
+      'Viewer User',
+      '2020-01-01',
+    );
+    const other = await createEmployeeUser(
+      testApp,
+      'employees-lookup-other@example.com',
+      'Other User',
+      '2021-01-01',
+    );
+
+    const agent = await loginAs(testApp, viewer.email);
+    const res = await agent.get('/api/v1/employees/lookup').expect(200);
+
+    const body = res.body as Array<{ employeeId: string; name: string }>;
+    expect(body).toEqual(
+      expect.arrayContaining([
+        { employeeId: viewer.employeeId, name: 'Viewer User' },
+        { employeeId: other.employeeId, name: 'Other User' },
+      ]),
+    );
+  });
+
   it('returns 400 for unknown sort fields', async () => {
     const viewer = await createEmployeeUser(
       testApp,
@@ -495,15 +525,11 @@ describe('Employees list (e2e)', () => {
     const managerAgent = await loginAs(testApp, manager.email);
     const listRes = await managerAgent.get('/api/v1/employees').expect(200);
     const listBody = listRes.body as EmployeeListResponse;
-    const reportRow = listBody.rows.find(
-      (row) => row.employeeId === report.id,
-    );
+    const reportRow = listBody.rows.find((row) => row.employeeId === report.id);
     expect(reportRow?.writableFieldIds).toContain(BUILTIN_FIELD_IDS.grade);
 
     await managerAgent
-      .patch(
-        `/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.grade}`,
-      )
+      .patch(`/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.grade}`)
       .send({ value: 'Senior' })
       .expect(200);
 
@@ -515,9 +541,7 @@ describe('Employees list (e2e)', () => {
     expect(updatedRow?.cells[BUILTIN_FIELD_IDS.grade]).toBe('Senior');
 
     await managerAgent
-      .patch(
-        `/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.grade}`,
-      )
+      .patch(`/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.grade}`)
       .send({ value: 'Lead' })
       .expect(200);
 
@@ -540,9 +564,7 @@ describe('Employees list (e2e)', () => {
 
     const colleagueAgent = await loginAs(testApp, colleague.email);
     await colleagueAgent
-      .patch(
-        `/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.grade}`,
-      )
+      .patch(`/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.grade}`)
       .send({ value: 'Junior' })
       .expect(403);
   });
@@ -615,9 +637,7 @@ describe('Employees list (e2e)', () => {
 
     const listRes = await managerAgent.get('/api/v1/employees').expect(200);
     const listBody = listRes.body as EmployeeListResponse;
-    const reportRow = listBody.rows.find(
-      (row) => row.employeeId === report.id,
-    );
+    const reportRow = listBody.rows.find((row) => row.employeeId === report.id);
     expect(reportRow?.cells[customField.id]).toBe('Updated note');
   });
 
@@ -736,9 +756,7 @@ describe('Employees list (e2e)', () => {
 
     const managerAgent = await loginAs(testApp, manager.email);
     await managerAgent
-      .patch(
-        `/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.grade}`,
-      )
+      .patch(`/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.grade}`)
       .send({ value: '' })
       .expect(400);
   });

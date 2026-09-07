@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { ActionItemCreation } from '../../contracts/action-item-creation.contract';
 import { EmployeeDirectory } from '../../contracts/employee-directory.contract';
 import type { EmployeeListQueryOptions } from '../../contracts/field-registry.contract';
 import { CampaignsService } from '../campaigns.service';
@@ -20,6 +21,7 @@ type PrismaMock = {
     findUnique: jest.Mock;
     findMany: jest.Mock;
   };
+  $transaction: jest.Mock;
 };
 
 describe('CampaignsService', () => {
@@ -38,6 +40,14 @@ describe('CampaignsService', () => {
       findUnique: jest.fn(),
       findMany: jest.fn(),
     },
+    $transaction: jest.fn(
+      (callback: (client: typeof prisma) => Promise<unknown>) =>
+        callback(prisma),
+    ),
+  };
+  const actionItemCreation = {
+    createActionItem: jest.fn(),
+    createCampaignActionItems: jest.fn(),
   };
 
   const creatorInclude = {
@@ -94,6 +104,7 @@ describe('CampaignsService', () => {
         CampaignsService,
         { provide: PrismaService, useValue: prisma },
         { provide: EmployeeDirectory, useValue: employeeDirectory },
+        { provide: ActionItemCreation, useValue: actionItemCreation },
       ],
     }).compile();
 
@@ -400,6 +411,139 @@ describe('CampaignsService', () => {
       );
 
       expect(result).toEqual([employeeB]);
+    });
+  });
+
+  describe('activateCampaign', () => {
+    const employeeA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const employeeB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+    it('flips the campaign to active and calls C6 with a fresh in-transaction read, not the pre-transaction snapshot', async () => {
+      prisma.formCampaign.findFirst
+        // Ownership/audience-definition read, before the transaction opens.
+        .mockResolvedValueOnce(
+          draftCampaignRow({
+            audienceAddedEmployeeIds: [employeeA, employeeB],
+          }),
+        )
+        // Re-fetch inside the transaction — simulates a concurrent PATCH
+        // that landed between the outer read and this commit; the C6
+        // payload must reflect these (changed) field values, not the ones
+        // from the first mock above.
+        .mockResolvedValueOnce(
+          draftCampaignRow({
+            title: 'Updated Mid-Flight',
+            description: 'Updated description',
+            link: 'https://forms.example.com/updated',
+            dueDate: new Date('2026-10-01T00:00:00.000Z'),
+            audienceAddedEmployeeIds: [employeeA, employeeB],
+          }),
+        )
+        // Final read for the response DTO, after the transaction commits.
+        .mockResolvedValueOnce(
+          draftCampaignRow({
+            status: 'active',
+            title: 'Updated Mid-Flight',
+            audienceAddedEmployeeIds: [employeeA, employeeB],
+          }),
+        );
+      prisma.formCampaign.updateMany.mockResolvedValue({ count: 1 });
+      actionItemCreation.createCampaignActionItems.mockResolvedValue([]);
+
+      const result = await service.activateCampaign('campaign-1', 'creator-1');
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.formCampaign.updateMany).toHaveBeenCalledWith({
+        where: { id: 'campaign-1', status: 'draft' },
+        data: { status: 'active' },
+      });
+      expect(actionItemCreation.createCampaignActionItems).toHaveBeenCalledWith(
+        {
+          campaignId: 'campaign-1',
+          authorId: 'creator-1',
+          title: 'Updated Mid-Flight',
+          description: 'Updated description',
+          dueDate: '2026-10-01',
+          link: 'https://forms.example.com/updated',
+          assigneeIds: [employeeA, employeeB],
+        },
+        prisma,
+      );
+      expect(result.status).toBe('active');
+    });
+
+    it('allows activation with an empty resolved audience', async () => {
+      prisma.formCampaign.findFirst
+        .mockResolvedValueOnce(draftCampaignRow())
+        .mockResolvedValueOnce(draftCampaignRow())
+        .mockResolvedValueOnce(draftCampaignRow({ status: 'active' }));
+      prisma.formCampaign.updateMany.mockResolvedValue({ count: 1 });
+      actionItemCreation.createCampaignActionItems.mockResolvedValue([]);
+
+      const result = await service.activateCampaign('campaign-1', 'creator-1');
+
+      expect(actionItemCreation.createCampaignActionItems).toHaveBeenCalledWith(
+        expect.objectContaining({ assigneeIds: [] }),
+        prisma,
+      );
+      expect(result.status).toBe('active');
+    });
+
+    it('throws 404 for a non-owned campaign without touching the transaction', async () => {
+      prisma.formCampaign.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.activateCampaign('campaign-1', 'someone-else'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('throws 409 with an activation-specific message when the campaign is already active', async () => {
+      prisma.formCampaign.findFirst.mockResolvedValue(
+        draftCampaignRow({ status: 'active' }),
+      );
+
+      await expect(
+        service.activateCampaign('campaign-1', 'creator-1'),
+      ).rejects.toMatchObject({
+        response: { message: 'Only draft campaigns can be activated' },
+      });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('throws 409 and skips C6 when the atomic flip loses a concurrent race', async () => {
+      prisma.formCampaign.findFirst.mockResolvedValue(draftCampaignRow());
+      prisma.formCampaign.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.activateCampaign('campaign-1', 'creator-1'),
+      ).rejects.toMatchObject({
+        response: { message: 'Only draft campaigns can be activated' },
+      });
+      expect(
+        actionItemCreation.createCampaignActionItems,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('propagates C6 rejection so the whole transaction rolls back', async () => {
+      prisma.formCampaign.findFirst
+        .mockResolvedValueOnce(
+          draftCampaignRow({ audienceAddedEmployeeIds: [employeeA] }),
+        )
+        .mockResolvedValueOnce(
+          draftCampaignRow({ audienceAddedEmployeeIds: [employeeA] }),
+        );
+      prisma.formCampaign.updateMany.mockResolvedValue({ count: 1 });
+      actionItemCreation.createCampaignActionItems.mockRejectedValue(
+        new BadRequestException({
+          message: 'assigneeIds must reference active employees',
+          invalidAssigneeIds: [employeeA],
+        }),
+      );
+
+      await expect(
+        service.activateCampaign('campaign-1', 'creator-1'),
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 });

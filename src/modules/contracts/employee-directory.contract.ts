@@ -23,6 +23,8 @@ export interface EmployeeDirectoryListResultDto {
   total: number;
   page: number;
   pageSize: number;
+  /** Story 3.4 — true when shared-view filters referenced fields outside viewer visibility. */
+  filtersHidden?: boolean;
 }
 
 export abstract class EmployeeDirectory {
