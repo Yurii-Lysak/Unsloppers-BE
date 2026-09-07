@@ -39,6 +39,17 @@ interface CampaignAudienceResolveDto {
   employeeIds: string[];
 }
 
+interface CampaignCompletionDto {
+  recipients: Array<{
+    actionItemId: string;
+    assignee: { id: string; displayName: string };
+    status: 'open' | 'completed' | 'cancelled';
+    dueDate: string;
+    isOverdue: boolean;
+    completedAt?: string;
+  }>;
+}
+
 interface CampaignAudienceErrorDto {
   invalidExcludedEmployeeIds?: string[];
   invalidEmployeeIds?: string[];
@@ -261,6 +272,7 @@ describe('Campaigns (e2e)', () => {
     const agent = await loginAsEmployee(testApp, user.email, PASSWORD);
     await agent.post('/api/v1/campaigns').send(validPayload).expect(403);
     await agent.get('/api/v1/campaigns').expect(403);
+    await agent.get(`/api/v1/campaigns/${randomUUID()}/completion`).expect(403);
   });
 
   it('rejects a create payload missing the link field with 400', async () => {
@@ -1116,6 +1128,273 @@ describe('Campaigns (e2e)', () => {
         where: { campaignId: campaign.id },
       });
       expect(actionItemCount).toBe(1);
+    });
+  });
+
+  describe('completion', () => {
+    it('returns per-recipient completion rows for an active campaign', async () => {
+      const manager = await createEmployeeUser(
+        testApp,
+        'campaign-completion-mgr@example.com',
+        PASSWORD,
+      );
+      const reportA = await createEmployeeUser(
+        testApp,
+        'campaign-completion-a@example.com',
+        PASSWORD,
+      );
+      const reportB = await createEmployeeUser(
+        testApp,
+        'campaign-completion-b@example.com',
+        PASSWORD,
+      );
+      await testApp.prisma.employee.update({
+        where: { id: reportA.employeeId },
+        data: { managerId: manager.employeeId },
+      });
+      await testApp.prisma.employee.update({
+        where: { id: reportB.employeeId },
+        data: { managerId: manager.employeeId },
+      });
+
+      const managerAgent = await loginAsEmployee(
+        testApp,
+        manager.email,
+        PASSWORD,
+      );
+      const createRes = await managerAgent
+        .post('/api/v1/campaigns')
+        .send({
+          ...validPayload,
+          dueDate: '2025-12-31',
+        })
+        .expect(201);
+      const campaign = createRes.body as CampaignReadDto;
+
+      await managerAgent
+        .put(`/api/v1/campaigns/${campaign.id}/audience`)
+        .send({
+          filters: [],
+          addedEmployeeIds: [reportA.employeeId, reportB.employeeId],
+          excludedEmployeeIds: [],
+        })
+        .expect(200);
+
+      await managerAgent
+        .post(`/api/v1/campaigns/${campaign.id}/activate`)
+        .expect(200);
+
+      const actionItems = await testApp.prisma.actionItem.findMany({
+        where: { campaignId: campaign.id },
+        orderBy: { assigneeId: 'asc' },
+      });
+      const itemToComplete = actionItems[0];
+      const reportAgent = await loginAsEmployee(
+        testApp,
+        itemToComplete.assigneeId === reportA.employeeId
+          ? reportA.email
+          : reportB.email,
+        PASSWORD,
+      );
+      await reportAgent
+        .post(
+          `/api/v1/employees/${itemToComplete.assigneeId}/action-items/${itemToComplete.id}/complete`,
+        )
+        .expect(200);
+
+      const completionRes = await managerAgent
+        .get(`/api/v1/campaigns/${campaign.id}/completion`)
+        .expect(200);
+      const completion = completionRes.body as CampaignCompletionDto;
+
+      expect(completion.recipients).toHaveLength(2);
+      const completed = completion.recipients.filter(
+        (row) => row.status === 'completed',
+      );
+      const overdue = completion.recipients.filter(
+        (row) => row.status === 'open' && row.isOverdue,
+      );
+      expect(completed).toHaveLength(1);
+      expect(overdue).toHaveLength(1);
+      expect(completed[0]?.completedAt).toBeTruthy();
+    });
+
+    it('treats open items due today as not overdue', async () => {
+      const manager = await createEmployeeUser(
+        testApp,
+        'campaign-completion-today-mgr@example.com',
+        PASSWORD,
+      );
+      const report = await createEmployeeUser(
+        testApp,
+        'campaign-completion-today-report@example.com',
+        PASSWORD,
+      );
+      await testApp.prisma.employee.update({
+        where: { id: report.employeeId },
+        data: { managerId: manager.employeeId },
+      });
+
+      const managerAgent = await loginAsEmployee(
+        testApp,
+        manager.email,
+        PASSWORD,
+      );
+      const createRes = await managerAgent
+        .post('/api/v1/campaigns')
+        .send({
+          ...validPayload,
+          dueDate: '2026-01-05',
+        })
+        .expect(201);
+      const campaign = createRes.body as CampaignReadDto;
+
+      await managerAgent
+        .put(`/api/v1/campaigns/${campaign.id}/audience`)
+        .send({
+          filters: [],
+          addedEmployeeIds: [report.employeeId],
+          excludedEmployeeIds: [],
+        })
+        .expect(200);
+      await managerAgent
+        .post(`/api/v1/campaigns/${campaign.id}/activate`)
+        .expect(200);
+
+      const completionRes = await managerAgent
+        .get(`/api/v1/campaigns/${campaign.id}/completion`)
+        .expect(200);
+      const completion = completionRes.body as CampaignCompletionDto;
+
+      expect(completion.recipients).toHaveLength(1);
+      expect(completion.recipients[0]).toMatchObject({
+        status: 'open',
+        dueDate: '2026-01-05',
+        isOverdue: false,
+      });
+    });
+
+    it('returns an empty recipient list for an active campaign with zero action items', async () => {
+      const manager = await createEmployeeUser(
+        testApp,
+        'campaign-completion-empty-mgr@example.com',
+        PASSWORD,
+      );
+      await grantCreateFormCampaignsPermission(testApp, manager.employeeId);
+
+      const managerAgent = await loginAsEmployee(
+        testApp,
+        manager.email,
+        PASSWORD,
+      );
+      const createRes = await managerAgent
+        .post('/api/v1/campaigns')
+        .send(validPayload)
+        .expect(201);
+      const campaign = createRes.body as CampaignReadDto;
+
+      await managerAgent
+        .post(`/api/v1/campaigns/${campaign.id}/activate`)
+        .expect(200);
+
+      const completionRes = await managerAgent
+        .get(`/api/v1/campaigns/${campaign.id}/completion`)
+        .expect(200);
+
+      expect(completionRes.body).toEqual({ recipients: [] });
+    });
+
+    it('returns 409 when the campaign is still draft', async () => {
+      const manager = await createEmployeeUser(
+        testApp,
+        'campaign-completion-draft-mgr@example.com',
+        PASSWORD,
+      );
+      await grantCreateFormCampaignsPermission(testApp, manager.employeeId);
+
+      const managerAgent = await loginAsEmployee(
+        testApp,
+        manager.email,
+        PASSWORD,
+      );
+      const createRes = await managerAgent
+        .post('/api/v1/campaigns')
+        .send(validPayload)
+        .expect(201);
+      const campaign = createRes.body as CampaignReadDto;
+
+      await managerAgent
+        .get(`/api/v1/campaigns/${campaign.id}/completion`)
+        .expect(409);
+    });
+
+    it('returns 404 when a non-creator requests completion', async () => {
+      const manager = await createEmployeeUser(
+        testApp,
+        'campaign-completion-owner-mgr@example.com',
+        PASSWORD,
+      );
+      const other = await createEmployeeUser(
+        testApp,
+        'campaign-completion-other@example.com',
+        PASSWORD,
+      );
+      const report = await createEmployeeUser(
+        testApp,
+        'campaign-completion-owner-report@example.com',
+        PASSWORD,
+      );
+      await testApp.prisma.employee.update({
+        where: { id: report.employeeId },
+        data: { managerId: manager.employeeId },
+      });
+
+      const managerAgent = await loginAsEmployee(
+        testApp,
+        manager.email,
+        PASSWORD,
+      );
+      const otherAgent = await loginAsEmployee(testApp, other.email, PASSWORD);
+      const createRes = await managerAgent
+        .post('/api/v1/campaigns')
+        .send(validPayload)
+        .expect(201);
+      const campaign = createRes.body as CampaignReadDto;
+
+      await managerAgent
+        .put(`/api/v1/campaigns/${campaign.id}/audience`)
+        .send({
+          filters: [],
+          addedEmployeeIds: [report.employeeId],
+          excludedEmployeeIds: [],
+        })
+        .expect(200);
+      await managerAgent
+        .post(`/api/v1/campaigns/${campaign.id}/activate`)
+        .expect(200);
+
+      await otherAgent
+        .get(`/api/v1/campaigns/${campaign.id}/completion`)
+        .expect(404);
+    });
+
+    it('returns 404 for an unknown campaign id', async () => {
+      const manager = await createEmployeeUser(
+        testApp,
+        'campaign-completion-unknown-mgr@example.com',
+        PASSWORD,
+      );
+      await grantCreateFormCampaignsPermission(testApp, manager.employeeId);
+
+      const managerAgent = await loginAsEmployee(
+        testApp,
+        manager.email,
+        PASSWORD,
+      );
+
+      await managerAgent
+        .get(`/api/v1/campaigns/${randomUUID()}/completion`)
+        .expect(404);
     });
   });
 });

@@ -7,7 +7,10 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
 } from '@nestjs/swagger';
-import { CampaignReadEntity } from './entities/campaign.entity';
+import {
+  CampaignCompletionEntity,
+  CampaignReadEntity,
+} from './entities/campaign.entity';
 import {
   CampaignAudiencePreviewEntity,
   CampaignAudienceResolveEntity,
@@ -103,5 +106,17 @@ export const SwaggerActivateCampaign = () =>
     ApiNotFoundResponse({ description: 'Campaign not found' }),
     ApiConflictResponse({
       description: 'Campaign is not in draft state (already active)',
+    }),
+  );
+
+export const SwaggerGetCampaignCompletion = () =>
+  applyDecorators(
+    ApiOkResponse({ type: CampaignCompletionEntity }),
+    ApiForbiddenResponse({
+      description: AUTHENTICATED_USER_HAS_NO_EMPLOYEE_RECORD,
+    }),
+    ApiNotFoundResponse({ description: 'Campaign not found' }),
+    ApiConflictResponse({
+      description: 'Completion is only available for active campaigns',
     }),
   );
