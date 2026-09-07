@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { CampaignAudienceDefinitionEntity } from './campaign-audience.entity';
 
 export class CampaignCreatorEntity {
@@ -42,4 +42,37 @@ export class CampaignReadEntity {
 
   @ApiProperty({ type: CampaignAudienceDefinitionEntity })
   audience!: CampaignAudienceDefinitionEntity;
+}
+
+export class CampaignCompletionAssigneeEntity {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  displayName!: string;
+}
+
+export class CampaignCompletionRowEntity {
+  @ApiProperty()
+  actionItemId!: string;
+
+  @ApiProperty({ type: CampaignCompletionAssigneeEntity })
+  assignee!: CampaignCompletionAssigneeEntity;
+
+  @ApiProperty({ enum: ['open', 'completed', 'cancelled'] })
+  status!: 'open' | 'completed' | 'cancelled';
+
+  @ApiProperty({ format: 'date' })
+  dueDate!: string;
+
+  @ApiProperty()
+  isOverdue!: boolean;
+
+  @ApiPropertyOptional({ format: 'date-time' })
+  completedAt?: string;
+}
+
+export class CampaignCompletionEntity {
+  @ApiProperty({ type: [CampaignCompletionRowEntity] })
+  recipients!: CampaignCompletionRowEntity[];
 }

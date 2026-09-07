@@ -4,7 +4,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { FormCampaign, Prisma, User } from '../../generated/prisma/client';
+import type {
+  ActionItem,
+  FormCampaign,
+  Prisma,
+  User,
+} from '../../generated/prisma/client';
+import { Clock } from '../../clock/clock.service';
 import { ActionItemCreation } from '../contracts/action-item-creation.contract';
 import {
   EmployeeDirectory,
@@ -36,10 +42,24 @@ import {
   normalizePartialCampaignFields,
 } from './campaign-input';
 import { CampaignAudiencePreviewEntity } from './entities/campaign-audience.entity';
-import { CampaignReadEntity } from './entities/campaign.entity';
+import {
+  CampaignCompletionEntity,
+  CampaignReadEntity,
+} from './entities/campaign.entity';
+import {
+  formatActionItemDueDate,
+  isActionItemOverdue,
+} from '../action-items/action-item-input';
 
 type CampaignWithCreator = FormCampaign & {
   creator: {
+    id: string;
+    user: Pick<User, 'name' | 'email'>;
+  };
+};
+
+type CompletionActionItem = ActionItem & {
+  assignee: {
     id: string;
     user: Pick<User, 'name' | 'email'>;
   };
@@ -51,6 +71,7 @@ export class CampaignsService {
     private readonly prisma: PrismaService,
     private readonly employeeDirectory: EmployeeDirectory,
     private readonly actionItemCreation: ActionItemCreation,
+    private readonly clock: Clock,
   ) {}
 
   async createCampaign(
@@ -256,6 +277,59 @@ export class CampaignsService {
     });
 
     return this.getForCreator(campaignId, creatorId);
+  }
+
+  async getCompletion(
+    campaignId: string,
+    creatorId: string,
+  ): Promise<CampaignCompletionEntity> {
+    const campaign = await this.findOwnedCampaign(campaignId, creatorId);
+    if (campaign.status !== 'active') {
+      throw new ConflictException(
+        'Completion is only available for active campaigns',
+      );
+    }
+
+    const items = await this.prisma.actionItem.findMany({
+      where: { campaignId },
+      include: {
+        assignee: {
+          include: {
+            user: { select: { name: true, email: true } },
+          },
+        },
+      },
+    });
+
+    const recipients = items
+      .map((item) => this.toCompletionRow(item))
+      .sort((left, right) => {
+        const byName = left.assignee.displayName.localeCompare(
+          right.assignee.displayName,
+        );
+        if (byName !== 0) {
+          return byName;
+        }
+        return left.actionItemId.localeCompare(right.actionItemId);
+      });
+
+    return { recipients };
+  }
+
+  private toCompletionRow(item: CompletionActionItem) {
+    return {
+      actionItemId: item.id,
+      assignee: {
+        id: item.assignee.id,
+        displayName: this.displayName(item.assignee.user),
+      },
+      status: item.status,
+      dueDate: formatActionItemDueDate(item.dueDate),
+      isOverdue: isActionItemOverdue(item.status, item.dueDate, this.clock),
+      ...(item.completedAt
+        ? { completedAt: item.completedAt.toISOString() }
+        : {}),
+    };
   }
 
   private async resolveAudienceEmployeeIdsForDefinition(
