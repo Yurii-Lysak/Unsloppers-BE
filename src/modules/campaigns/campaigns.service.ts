@@ -49,7 +49,7 @@ import {
 import {
   formatActionItemDueDate,
   isActionItemOverdue,
-} from '../action-items/action-item-input';
+} from '../../action-items/action-item-overdue';
 
 type CampaignWithCreator = FormCampaign & {
   creator: {

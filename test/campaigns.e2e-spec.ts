@@ -272,9 +272,7 @@ describe('Campaigns (e2e)', () => {
     const agent = await loginAsEmployee(testApp, user.email, PASSWORD);
     await agent.post('/api/v1/campaigns').send(validPayload).expect(403);
     await agent.get('/api/v1/campaigns').expect(403);
-    await agent
-      .get(`/api/v1/campaigns/${randomUUID()}/completion`)
-      .expect(403);
+    await agent.get(`/api/v1/campaigns/${randomUUID()}/completion`).expect(403);
   });
 
   it('rejects a create payload missing the link field with 400', async () => {
