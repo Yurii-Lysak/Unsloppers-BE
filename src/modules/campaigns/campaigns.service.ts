@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { FormCampaign, User } from '../../generated/prisma/client';
+import type { FormCampaign, Prisma, User } from '../../generated/prisma/client';
 import { ActionItemCreation } from '../contracts/action-item-creation.contract';
 import {
   EmployeeDirectory,
@@ -145,7 +145,7 @@ export class CampaignsService {
     const result = await this.prisma.formCampaign.updateMany({
       where: { id: campaignId, status: 'draft' },
       data: {
-        audienceFilters: normalized.filters,
+        audienceFilters: normalized.filters as unknown as Prisma.InputJsonValue,
         audienceAddedEmployeeIds: normalized.addedEmployeeIds,
         audienceExcludedEmployeeIds: normalized.excludedEmployeeIds,
       },
