@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { Clock } from '../../../clock/clock.service';
 import { ActionItemCreation } from '../../contracts/action-item-creation.contract';
 import { EmployeeDirectory } from '../../contracts/employee-directory.contract';
 import type { EmployeeListQueryOptions } from '../../contracts/field-registry.contract';
@@ -21,6 +22,9 @@ type PrismaMock = {
     findUnique: jest.Mock;
     findMany: jest.Mock;
   };
+  actionItem: {
+    findMany: jest.Mock;
+  };
   $transaction: jest.Mock;
 };
 
@@ -28,6 +32,10 @@ describe('CampaignsService', () => {
   let service: CampaignsService;
   const employeeDirectory = {
     listEmployees: jest.fn(),
+  };
+  const clock: Clock = {
+    now: () => new Date('2026-01-05T09:00:00.000Z'),
+    nowMs: () => new Date('2026-01-05T09:00:00.000Z').getTime(),
   };
   const prisma: PrismaMock = {
     formCampaign: {
@@ -38,6 +46,9 @@ describe('CampaignsService', () => {
     },
     employee: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
+    },
+    actionItem: {
       findMany: jest.fn(),
     },
     $transaction: jest.fn(
@@ -105,6 +116,7 @@ describe('CampaignsService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: EmployeeDirectory, useValue: employeeDirectory },
         { provide: ActionItemCreation, useValue: actionItemCreation },
+        { provide: Clock, useValue: clock },
       ],
     }).compile();
 
@@ -544,6 +556,169 @@ describe('CampaignsService', () => {
       await expect(
         service.activateCampaign('campaign-1', 'creator-1'),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('getCompletion', () => {
+    const employeeA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const employeeB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const employeeC = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+
+    const completionItem = (
+      overrides: Partial<Record<string, unknown>> = {},
+    ) => ({
+      id: 'action-item-1',
+      assigneeId: employeeA,
+      authorId: 'creator-1',
+      title: 'Survey',
+      description: null,
+      dueDate: new Date('2025-12-31T00:00:00.000Z'),
+      link: null,
+      status: 'open',
+      source: 'campaign',
+      campaignId: 'campaign-1',
+      completedAt: null,
+      cancelledAt: null,
+      cancelledReason: null,
+      createdAt: new Date('2026-09-01T10:00:00.000Z'),
+      updatedAt: new Date('2026-09-01T10:00:00.000Z'),
+      assignee: {
+        id: employeeA,
+        user: { name: 'Zara Alpha', email: 'zara@example.com' },
+      },
+      ...overrides,
+    });
+
+    it('returns completion rows for an active campaign sorted by displayName then actionItemId', async () => {
+      prisma.formCampaign.findFirst.mockResolvedValue(
+        draftCampaignRow({ status: 'active' }),
+      );
+      prisma.actionItem.findMany.mockResolvedValue([
+        completionItem({
+          id: 'action-item-b',
+          assigneeId: employeeB,
+          assignee: {
+            id: employeeB,
+            user: { name: 'Mia Beta', email: 'mia@example.com' },
+          },
+          status: 'completed',
+          completedAt: new Date('2026-01-02T12:00:00.000Z'),
+        }),
+        completionItem({
+          id: 'action-item-a',
+          assigneeId: employeeA,
+          dueDate: new Date('2026-01-05T00:00:00.000Z'),
+        }),
+        completionItem({
+          id: 'action-item-c',
+          assigneeId: employeeC,
+          assignee: {
+            id: employeeC,
+            user: { name: 'Mia Beta', email: 'mia.other@example.com' },
+          },
+          status: 'cancelled',
+          dueDate: new Date('2025-12-01T00:00:00.000Z'),
+        }),
+      ]);
+
+      const result = await service.getCompletion('campaign-1', 'creator-1');
+
+      expect(prisma.actionItem.findMany).toHaveBeenCalledWith({
+        where: { campaignId: 'campaign-1' },
+        include: {
+          assignee: {
+            include: {
+              user: { select: { name: true, email: true } },
+            },
+          },
+        },
+      });
+      expect(result.recipients).toHaveLength(3);
+      expect(result.recipients.map((row) => row.actionItemId)).toEqual([
+        'action-item-b',
+        'action-item-c',
+        'action-item-a',
+      ]);
+      expect(result.recipients[0]).toMatchObject({
+        status: 'completed',
+        isOverdue: false,
+        completedAt: '2026-01-02T12:00:00.000Z',
+      });
+      expect(result.recipients[1]).toMatchObject({
+        status: 'cancelled',
+        isOverdue: false,
+      });
+      expect(result.recipients[2]).toMatchObject({
+        status: 'open',
+        dueDate: '2026-01-05',
+        isOverdue: false,
+      });
+    });
+
+    it('falls back to email when assignee name is blank', async () => {
+      prisma.formCampaign.findFirst.mockResolvedValue(
+        draftCampaignRow({ status: 'active' }),
+      );
+      prisma.actionItem.findMany.mockResolvedValue([
+        completionItem({
+          assignee: {
+            id: employeeA,
+            user: { name: '   ', email: 'fallback@example.com' },
+          },
+        }),
+      ]);
+
+      const result = await service.getCompletion('campaign-1', 'creator-1');
+
+      expect(result.recipients[0]?.assignee.displayName).toBe(
+        'fallback@example.com',
+      );
+    });
+
+    it('marks open past-due items as overdue', async () => {
+      prisma.formCampaign.findFirst.mockResolvedValue(
+        draftCampaignRow({ status: 'active' }),
+      );
+      prisma.actionItem.findMany.mockResolvedValue([
+        completionItem({
+          dueDate: new Date('2025-12-31T00:00:00.000Z'),
+        }),
+      ]);
+
+      const result = await service.getCompletion('campaign-1', 'creator-1');
+
+      expect(result.recipients[0]).toMatchObject({
+        status: 'open',
+        isOverdue: true,
+      });
+    });
+
+    it('returns an empty recipient list for an active campaign with no action items', async () => {
+      prisma.formCampaign.findFirst.mockResolvedValue(
+        draftCampaignRow({ status: 'active' }),
+      );
+      prisma.actionItem.findMany.mockResolvedValue([]);
+
+      const result = await service.getCompletion('campaign-1', 'creator-1');
+
+      expect(result).toEqual({ recipients: [] });
+    });
+
+    it('rejects completion for draft campaigns', async () => {
+      prisma.formCampaign.findFirst.mockResolvedValue(draftCampaignRow());
+
+      await expect(
+        service.getCompletion('campaign-1', 'creator-1'),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.actionItem.findMany).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 when the campaign is not owned by the creator', async () => {
+      prisma.formCampaign.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.getCompletion('campaign-1', 'creator-2'),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 });

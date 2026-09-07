@@ -28,6 +28,7 @@ import {
   SwaggerActivateCampaign,
   SwaggerCreateCampaign,
   SwaggerGetCampaign,
+  SwaggerGetCampaignCompletion,
   SwaggerListCampaigns,
   SwaggerPreviewCampaignAudience,
   SwaggerResolveCampaignAudience,
@@ -134,6 +135,17 @@ export class CampaignsController {
     const { userId } = await this.currentUser.getCurrentUser(request);
     const creatorId = await this.resolveViewerEmployeeId(userId);
     return this.campaigns.activateCampaign(campaignId, creatorId);
+  }
+
+  @Get(':campaignId/completion')
+  @SwaggerGetCampaignCompletion()
+  async getCompletion(
+    @Req() request: Request,
+    @Param('campaignId', ParseUUIDPipe) campaignId: string,
+  ) {
+    const { userId } = await this.currentUser.getCurrentUser(request);
+    const creatorId = await this.resolveViewerEmployeeId(userId);
+    return this.campaigns.getCompletion(campaignId, creatorId);
   }
 
   /**

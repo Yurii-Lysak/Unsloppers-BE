@@ -1,38 +1,17 @@
 import { BadRequestException } from '@nestjs/common';
-import { Clock } from '../../clock/clock.service';
-import type { ActionItemStatus } from '../contracts/action-item-creation.contract';
+import {
+  formatActionItemDueDate,
+  isActionItemOverdue,
+  utcCalendarDateMs,
+} from '../../action-items/action-item-overdue';
+
+export { formatActionItemDueDate, isActionItemOverdue, utcCalendarDateMs };
 
 export const ACTION_ITEM_ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 const MAX_TITLE_LENGTH = 200;
 const MAX_DESCRIPTION_LENGTH = 2000;
 const MAX_LINK_LENGTH = 2048;
-
-export function formatActionItemDueDate(value: Date): string {
-  return value.toISOString().slice(0, 10);
-}
-
-/** UTC calendar date as epoch ms — ignores time-of-day on the instant. */
-export function utcCalendarDateMs(date: Date): number {
-  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-}
-
-/**
- * Derived overdue flag: open items only, due date strictly before today (UTC).
- * Never stored — recomputed on every read via {@link Clock}.
- */
-export function isActionItemOverdue(
-  status: ActionItemStatus,
-  dueDate: Date,
-  clock: Clock,
-): boolean {
-  if (status !== 'open') {
-    return false;
-  }
-  const todayMs = utcCalendarDateMs(clock.now());
-  const dueMs = utcCalendarDateMs(dueDate);
-  return dueMs < todayMs;
-}
 
 export function isValidActionItemDueDate(value: string): boolean {
   if (!ACTION_ITEM_ISO_DATE_PATTERN.test(value)) {
