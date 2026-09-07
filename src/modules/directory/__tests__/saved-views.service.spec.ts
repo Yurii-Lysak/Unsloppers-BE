@@ -83,10 +83,10 @@ describe('SavedViewsService', () => {
 
     expect(prisma.savedView.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
+        data: {
           ownerEmployeeId: 'owner-1',
           name: 'Needs a conversation',
-        }),
+        },
       }),
     );
     expect(result.name).toBe('Needs a conversation');
