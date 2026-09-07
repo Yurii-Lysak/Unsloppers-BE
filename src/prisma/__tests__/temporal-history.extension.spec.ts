@@ -837,7 +837,9 @@ describe('temporal-history.extension (I/O matrix, real Postgres)', () => {
       it('the hand-edited partial-unique WHERE clause is present in the live DB', async () => {
         const indexName = PARTIAL_INDEX_NAMES[property];
         const result = await prisma.$queryRaw<{ indexdef: string }[]>`
-          SELECT indexdef FROM pg_indexes WHERE indexname = ${indexName}
+          SELECT indexdef FROM pg_indexes
+          WHERE indexname = ${indexName}
+            AND schemaname = current_schema()
         `;
 
         expect(result).toHaveLength(1);

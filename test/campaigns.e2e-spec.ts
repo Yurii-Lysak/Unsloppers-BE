@@ -742,7 +742,7 @@ describe('Campaigns (e2e)', () => {
       where: { id: inactiveReport.employeeId },
       data: {
         managerId: manager.employeeId,
-        employmentStatus: 'inactive',
+        employmentStatus: 'dismissed',
       },
     });
 
