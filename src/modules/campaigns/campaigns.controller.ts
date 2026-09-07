@@ -3,6 +3,8 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -23,6 +25,7 @@ import { UpdateCampaignDto } from './dto/update-campaign.dto';
 import { SaveCampaignAudienceDto } from './dto/save-campaign-audience.dto';
 import { PreviewCampaignAudienceQueryDto } from './dto/preview-campaign-audience-query.dto';
 import {
+  SwaggerActivateCampaign,
   SwaggerCreateCampaign,
   SwaggerGetCampaign,
   SwaggerListCampaigns,
@@ -119,6 +122,18 @@ export class CampaignsController {
       creatorId,
     );
     return { employeeIds };
+  }
+
+  @Post(':campaignId/activate')
+  @HttpCode(HttpStatus.OK)
+  @SwaggerActivateCampaign()
+  async activate(
+    @Req() request: Request,
+    @Param('campaignId', ParseUUIDPipe) campaignId: string,
+  ) {
+    const { userId } = await this.currentUser.getCurrentUser(request);
+    const creatorId = await this.resolveViewerEmployeeId(userId);
+    return this.campaigns.activateCampaign(campaignId, creatorId);
   }
 
   /**

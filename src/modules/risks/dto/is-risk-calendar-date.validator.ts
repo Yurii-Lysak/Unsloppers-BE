@@ -7,9 +7,7 @@ import {
 import { isValidRiskCalendarDate } from '../risk-input';
 
 @ValidatorConstraint({ name: 'isRiskCalendarDate', async: false })
-export class IsRiskCalendarDateConstraint
-  implements ValidatorConstraintInterface
-{
+export class IsRiskCalendarDateConstraint implements ValidatorConstraintInterface {
   validate(value: unknown): boolean {
     return typeof value === 'string' && isValidRiskCalendarDate(value);
   }

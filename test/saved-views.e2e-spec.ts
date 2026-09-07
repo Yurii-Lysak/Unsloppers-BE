@@ -168,7 +168,11 @@ describe('Saved views (e2e)', () => {
 
     const createRes = await agent
       .post('/api/v1/saved-views')
-      .send({ name: 'Temporary', filters: [], columnIds: [BUILTIN_FIELD_IDS.name] })
+      .send({
+        name: 'Temporary',
+        filters: [],
+        columnIds: [BUILTIN_FIELD_IDS.name],
+      })
       .expect(201);
     const view = createRes.body as SavedViewResponse;
 
@@ -198,7 +202,11 @@ describe('Saved views (e2e)', () => {
     const ownerAgent = await loginAs(testApp, owner.email);
     const createRes = await ownerAgent
       .post('/api/v1/saved-views')
-      .send({ name: 'Two recipients', filters: [], columnIds: [BUILTIN_FIELD_IDS.name] })
+      .send({
+        name: 'Two recipients',
+        filters: [],
+        columnIds: [BUILTIN_FIELD_IDS.name],
+      })
       .expect(201);
     const view = createRes.body as SavedViewResponse;
 
@@ -244,7 +252,11 @@ describe('Saved views (e2e)', () => {
     const ownerAgent = await loginAs(testApp, owner.email);
     const createRes = await ownerAgent
       .post('/api/v1/saved-views')
-      .send({ name: 'Solo share', filters: [], columnIds: [BUILTIN_FIELD_IDS.name] })
+      .send({
+        name: 'Solo share',
+        filters: [],
+        columnIds: [BUILTIN_FIELD_IDS.name],
+      })
       .expect(201);
     const view = createRes.body as SavedViewResponse;
 
@@ -274,7 +286,11 @@ describe('Saved views (e2e)', () => {
 
     const createRes = await agent
       .post('/api/v1/saved-views')
-      .send({ name: 'Self share', filters: [], columnIds: [BUILTIN_FIELD_IDS.name] })
+      .send({
+        name: 'Self share',
+        filters: [],
+        columnIds: [BUILTIN_FIELD_IDS.name],
+      })
       .expect(201);
     const view = createRes.body as SavedViewResponse;
 

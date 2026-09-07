@@ -221,7 +221,10 @@ describe('Risks (e2e)', () => {
   });
 
   it('lets a PP create a risk for a partner employee', async () => {
-    const subject = await createEmployeeUser(testApp, 'risk-pp-subject@example.com');
+    const subject = await createEmployeeUser(
+      testApp,
+      'risk-pp-subject@example.com',
+    );
     const pp = await createEmployeeUser(testApp, 'risk-pp@example.com', 'PP');
     await testApp.prisma.employee.update({
       where: { id: subject.employeeId },
@@ -260,8 +263,14 @@ describe('Risks (e2e)', () => {
   });
 
   it('denies colleague access even with create_edit_risks permission', async () => {
-    const subject = await createEmployeeUser(testApp, 'risk-colleague-subject@example.com');
-    const colleague = await createEmployeeUser(testApp, 'risk-colleague@example.com');
+    const subject = await createEmployeeUser(
+      testApp,
+      'risk-colleague-subject@example.com',
+    );
+    const colleague = await createEmployeeUser(
+      testApp,
+      'risk-colleague@example.com',
+    );
     await grantCreateEditRisksPermission(testApp, colleague.employeeId);
 
     const colleagueAgent = await loginAs(testApp, colleague.email);
@@ -309,8 +318,14 @@ describe('Risks (e2e)', () => {
   });
 
   it('rejects whitespace description and future recordedAt with 400', async () => {
-    const manager = await createEmployeeUser(testApp, 'risk-validate-mgr@example.com');
-    const report = await createEmployeeUser(testApp, 'risk-validate-report@example.com');
+    const manager = await createEmployeeUser(
+      testApp,
+      'risk-validate-mgr@example.com',
+    );
+    const report = await createEmployeeUser(
+      testApp,
+      'risk-validate-report@example.com',
+    );
     await testApp.prisma.employee.update({
       where: { id: report.employeeId },
       data: { managerId: manager.employeeId },
@@ -338,7 +353,10 @@ describe('Risks (e2e)', () => {
   });
 
   it('returns 400 for malformed employeeId and 404 for unknown subject', async () => {
-    const manager = await createEmployeeUser(testApp, 'risk-gate-mgr@example.com');
+    const manager = await createEmployeeUser(
+      testApp,
+      'risk-gate-mgr@example.com',
+    );
     const managerAgent = await loginAs(testApp, manager.email);
 
     await managerAgent.get('/api/v1/employees/not-a-uuid/risks').expect(400);
@@ -353,9 +371,7 @@ describe('Risks (e2e)', () => {
       .expect(400);
 
     const missingId = randomUUID();
-    await managerAgent
-      .get(`/api/v1/employees/${missingId}/risks`)
-      .expect(404);
+    await managerAgent.get(`/api/v1/employees/${missingId}/risks`).expect(404);
     await managerAgent
       .post(`/api/v1/employees/${missingId}/risks`)
       .send({
@@ -368,8 +384,14 @@ describe('Risks (e2e)', () => {
   });
 
   it('maps provider failure to 503 on parallel GET', async () => {
-    const manager = await createEmployeeUser(testApp, 'risk-503-mgr@example.com');
-    const report = await createEmployeeUser(testApp, 'risk-503-report@example.com');
+    const manager = await createEmployeeUser(
+      testApp,
+      'risk-503-mgr@example.com',
+    );
+    const report = await createEmployeeUser(
+      testApp,
+      'risk-503-report@example.com',
+    );
     await testApp.prisma.employee.update({
       where: { id: report.employeeId },
       data: { managerId: manager.employeeId },

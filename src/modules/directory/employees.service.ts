@@ -14,13 +14,13 @@ import {
 import {
   BUILTIN_EDITABLE_FIELD_IDS,
   EmployeeListQueryOptions,
+  FieldFilter,
   FieldSpec,
 } from '../contracts/field-registry.contract';
 import { PermissionChecker } from '../contracts/permission-checker.contract';
 import { SectionAccessGate } from '../contracts/section-access-gate.contract';
 import { UpdateEmployeeFieldDto } from './dto/update-employee-field.dto';
 import { EmployeeFieldUpdateEntity } from './entities/employee-field-update.entity';
-import { EmployeeListEntity } from './entities/employee-list.entity';
 import { EmployeeLookupEntity } from './entities/employee-lookup.entity';
 import { EmployeeSummaryEntity } from './entities/employee-summary.entity';
 import { CustomFieldsService } from './custom-fields.service';
@@ -112,10 +112,10 @@ export class EmployeesService extends EmployeeDirectory {
    * signals a malformed/unknown field, not a visibility gap.
    */
   private resolveEffectiveFilters(
-    filters: ListEmployeesQueryDto['filters'],
+    filters: FieldFilter[] | undefined,
     allFields: FieldSpec[],
     visibleFieldIds: string[],
-  ): { filters: ListEmployeesQueryDto['filters']; filtersHidden: boolean } {
+  ): { filters: FieldFilter[] | undefined; filtersHidden: boolean } {
     if (!filters || filters.length === 0) {
       return { filters, filtersHidden: false };
     }

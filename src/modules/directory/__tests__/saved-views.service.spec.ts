@@ -81,14 +81,16 @@ describe('SavedViewsService', () => {
       order: 'asc',
     });
 
-    expect(prisma.savedView.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          ownerEmployeeId: 'owner-1',
-          name: 'Needs a conversation',
-        }),
-      }),
-    );
+    expect(prisma.savedView.create).toHaveBeenCalledTimes(1);
+    const createCalls = prisma.savedView.create.mock.calls as Array<
+      [{ data: { ownerEmployeeId: string; name: string } }]
+    >;
+    expect(createCalls[0]?.[0]).toMatchObject({
+      data: {
+        ownerEmployeeId: 'owner-1',
+        name: 'Needs a conversation',
+      },
+    });
     expect(result.name).toBe('Needs a conversation');
   });
 
@@ -189,9 +191,9 @@ describe('SavedViewsService', () => {
     expect(result.sharedWith).toEqual([
       { employeeId: 'recipient-2', name: 'Recipient Two' },
     ]);
-    expect(
-      result.sharedWith.some((r) => r.employeeId === 'recipient-1'),
-    ).toBe(false);
+    expect(result.sharedWith.some((r) => r.employeeId === 'recipient-1')).toBe(
+      false,
+    );
   });
 
   it('unshares a view from everyone when given an empty recipient list', async () => {
