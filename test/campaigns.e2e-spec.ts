@@ -814,4 +814,308 @@ describe('Campaigns (e2e)', () => {
       .get(`/api/v1/campaigns/${campaign.id}/audience/resolve`)
       .expect(409);
   });
+
+  describe('activate', () => {
+    it('flips a draft campaign to active and creates exactly one action item per resolved recipient', async () => {
+      const manager = await createEmployeeUser(
+        testApp,
+        'campaign-activate-mgr@example.com',
+        PASSWORD,
+      );
+      const reportA = await createEmployeeUser(
+        testApp,
+        'campaign-activate-a@example.com',
+        PASSWORD,
+      );
+      const reportB = await createEmployeeUser(
+        testApp,
+        'campaign-activate-b@example.com',
+        PASSWORD,
+      );
+      await testApp.prisma.employee.update({
+        where: { id: reportA.employeeId },
+        data: { managerId: manager.employeeId },
+      });
+      await testApp.prisma.employee.update({
+        where: { id: reportB.employeeId },
+        data: { managerId: manager.employeeId },
+      });
+
+      const managerAgent = await loginAsEmployee(
+        testApp,
+        manager.email,
+        PASSWORD,
+      );
+      const createRes = await managerAgent
+        .post('/api/v1/campaigns')
+        .send(validPayload)
+        .expect(201);
+      const campaign = createRes.body as CampaignReadDto;
+
+      await managerAgent
+        .put(`/api/v1/campaigns/${campaign.id}/audience`)
+        .send({
+          filters: [],
+          addedEmployeeIds: [reportA.employeeId, reportB.employeeId],
+          excludedEmployeeIds: [],
+        })
+        .expect(200);
+
+      const activateRes = await managerAgent
+        .post(`/api/v1/campaigns/${campaign.id}/activate`)
+        .expect(200);
+      const activated = activateRes.body as CampaignReadDto;
+      expect(activated.status).toBe('active');
+
+      const actionItems = await testApp.prisma.actionItem.findMany({
+        where: { campaignId: campaign.id },
+      });
+      expect(actionItems).toHaveLength(2);
+      expect(
+        actionItems.every(
+          (item) => item.source === 'campaign' && item.status === 'open',
+        ),
+      ).toBe(true);
+      expect(actionItems.map((item) => item.assigneeId).sort()).toEqual(
+        [reportA.employeeId, reportB.employeeId].sort(),
+      );
+
+      const persistedCampaign = await testApp.prisma.formCampaign.findUnique({
+        where: { id: campaign.id },
+      });
+      expect(persistedCampaign?.status).toBe('active');
+    });
+
+    it('activates with zero action items when the resolved audience is empty', async () => {
+      const manager = await createEmployeeUser(
+        testApp,
+        'campaign-activate-empty-mgr@example.com',
+        PASSWORD,
+      );
+      // No direct reports and no PP relationship — grant the functional
+      // permission directly so creation succeeds while the audience stays
+      // empty (no filters, no adds).
+      await grantCreateFormCampaignsPermission(testApp, manager.employeeId);
+
+      const managerAgent = await loginAsEmployee(
+        testApp,
+        manager.email,
+        PASSWORD,
+      );
+      const createRes = await managerAgent
+        .post('/api/v1/campaigns')
+        .send(validPayload)
+        .expect(201);
+      const campaign = createRes.body as CampaignReadDto;
+
+      const activateRes = await managerAgent
+        .post(`/api/v1/campaigns/${campaign.id}/activate`)
+        .expect(200);
+      expect((activateRes.body as CampaignReadDto).status).toBe('active');
+
+      const actionItemCount = await testApp.prisma.actionItem.count({
+        where: { campaignId: campaign.id },
+      });
+      expect(actionItemCount).toBe(0);
+    });
+
+    it('returns 409 and creates no action items when activating an already-active campaign', async () => {
+      const manager = await createEmployeeUser(
+        testApp,
+        'campaign-activate-conflict-mgr@example.com',
+        PASSWORD,
+      );
+      const report = await createEmployeeUser(
+        testApp,
+        'campaign-activate-conflict-report@example.com',
+        PASSWORD,
+      );
+      await testApp.prisma.employee.update({
+        where: { id: report.employeeId },
+        data: { managerId: manager.employeeId },
+      });
+
+      const managerAgent = await loginAsEmployee(
+        testApp,
+        manager.email,
+        PASSWORD,
+      );
+      const createRes = await managerAgent
+        .post('/api/v1/campaigns')
+        .send(validPayload)
+        .expect(201);
+      const campaign = createRes.body as CampaignReadDto;
+
+      await managerAgent
+        .put(`/api/v1/campaigns/${campaign.id}/audience`)
+        .send({
+          filters: [],
+          addedEmployeeIds: [report.employeeId],
+          excludedEmployeeIds: [],
+        })
+        .expect(200);
+      await managerAgent
+        .post(`/api/v1/campaigns/${campaign.id}/activate`)
+        .expect(200);
+
+      await managerAgent
+        .post(`/api/v1/campaigns/${campaign.id}/activate`)
+        .expect(409);
+
+      const actionItemCount = await testApp.prisma.actionItem.count({
+        where: { campaignId: campaign.id },
+      });
+      expect(actionItemCount).toBe(1);
+    });
+
+    it('returns 404 when a non-creator activates the campaign', async () => {
+      const manager = await createEmployeeUser(
+        testApp,
+        'campaign-activate-owner-mgr@example.com',
+        PASSWORD,
+      );
+      const other = await createEmployeeUser(
+        testApp,
+        'campaign-activate-other@example.com',
+        PASSWORD,
+      );
+      const report = await createEmployeeUser(
+        testApp,
+        'campaign-activate-owner-report@example.com',
+        PASSWORD,
+      );
+      await testApp.prisma.employee.update({
+        where: { id: report.employeeId },
+        data: { managerId: manager.employeeId },
+      });
+
+      const managerAgent = await loginAsEmployee(
+        testApp,
+        manager.email,
+        PASSWORD,
+      );
+      const otherAgent = await loginAsEmployee(testApp, other.email, PASSWORD);
+      const createRes = await managerAgent
+        .post('/api/v1/campaigns')
+        .send(validPayload)
+        .expect(201);
+      const campaign = createRes.body as CampaignReadDto;
+
+      await otherAgent
+        .post(`/api/v1/campaigns/${campaign.id}/activate`)
+        .expect(404);
+
+      const persistedCampaign = await testApp.prisma.formCampaign.findUnique({
+        where: { id: campaign.id },
+      });
+      expect(persistedCampaign?.status).toBe('draft');
+    });
+
+    it('rolls back to draft with no action items when an assignee went inactive after the audience was saved', async () => {
+      const manager = await createEmployeeUser(
+        testApp,
+        'campaign-activate-rollback-mgr@example.com',
+        PASSWORD,
+      );
+      const report = await createEmployeeUser(
+        testApp,
+        'campaign-activate-rollback-report@example.com',
+        PASSWORD,
+      );
+      await testApp.prisma.employee.update({
+        where: { id: report.employeeId },
+        data: { managerId: manager.employeeId },
+      });
+
+      const managerAgent = await loginAsEmployee(
+        testApp,
+        manager.email,
+        PASSWORD,
+      );
+      const createRes = await managerAgent
+        .post('/api/v1/campaigns')
+        .send(validPayload)
+        .expect(201);
+      const campaign = createRes.body as CampaignReadDto;
+
+      await managerAgent
+        .put(`/api/v1/campaigns/${campaign.id}/audience`)
+        .send({
+          filters: [],
+          addedEmployeeIds: [report.employeeId],
+          excludedEmployeeIds: [],
+        })
+        .expect(200);
+
+      // Assignee goes inactive after the audience was saved, but before activation.
+      await testApp.prisma.employee.update({
+        where: { id: report.employeeId },
+        data: { employmentStatus: 'dismissed' },
+      });
+
+      await managerAgent
+        .post(`/api/v1/campaigns/${campaign.id}/activate`)
+        .expect(400);
+
+      const persistedCampaign = await testApp.prisma.formCampaign.findUnique({
+        where: { id: campaign.id },
+      });
+      expect(persistedCampaign?.status).toBe('draft');
+
+      const actionItemCount = await testApp.prisma.actionItem.count({
+        where: { campaignId: campaign.id },
+      });
+      expect(actionItemCount).toBe(0);
+    });
+
+    it('lets exactly one of two concurrent activation requests succeed', async () => {
+      const manager = await createEmployeeUser(
+        testApp,
+        'campaign-activate-race-mgr@example.com',
+        PASSWORD,
+      );
+      const report = await createEmployeeUser(
+        testApp,
+        'campaign-activate-race-report@example.com',
+        PASSWORD,
+      );
+      await testApp.prisma.employee.update({
+        where: { id: report.employeeId },
+        data: { managerId: manager.employeeId },
+      });
+
+      const managerAgent = await loginAsEmployee(
+        testApp,
+        manager.email,
+        PASSWORD,
+      );
+      const createRes = await managerAgent
+        .post('/api/v1/campaigns')
+        .send(validPayload)
+        .expect(201);
+      const campaign = createRes.body as CampaignReadDto;
+
+      await managerAgent
+        .put(`/api/v1/campaigns/${campaign.id}/audience`)
+        .send({
+          filters: [],
+          addedEmployeeIds: [report.employeeId],
+          excludedEmployeeIds: [],
+        })
+        .expect(200);
+
+      const [firstRes, secondRes] = await Promise.all([
+        managerAgent.post(`/api/v1/campaigns/${campaign.id}/activate`),
+        managerAgent.post(`/api/v1/campaigns/${campaign.id}/activate`),
+      ]);
+
+      const statuses = [firstRes.status, secondRes.status].sort();
+      expect(statuses).toEqual([200, 409]);
+
+      const actionItemCount = await testApp.prisma.actionItem.count({
+        where: { campaignId: campaign.id },
+      });
+      expect(actionItemCount).toBe(1);
+    });
+  });
 });

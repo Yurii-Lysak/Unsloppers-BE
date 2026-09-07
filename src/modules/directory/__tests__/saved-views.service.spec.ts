@@ -189,9 +189,9 @@ describe('SavedViewsService', () => {
     expect(result.sharedWith).toEqual([
       { employeeId: 'recipient-2', name: 'Recipient Two' },
     ]);
-    expect(
-      result.sharedWith.some((r) => r.employeeId === 'recipient-1'),
-    ).toBe(false);
+    expect(result.sharedWith.some((r) => r.employeeId === 'recipient-1')).toBe(
+      false,
+    );
   });
 
   it('unshares a view from everyone when given an empty recipient list', async () => {

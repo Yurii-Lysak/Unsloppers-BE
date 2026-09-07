@@ -18,7 +18,11 @@ import { SavedViewsService } from './saved-views.service';
  */
 @Global()
 @Module({
-  controllers: [CustomFieldsController, EmployeesController, SavedViewsController],
+  controllers: [
+    CustomFieldsController,
+    EmployeesController,
+    SavedViewsController,
+  ],
   providers: [
     FieldRegistryService,
     CustomFieldsService,

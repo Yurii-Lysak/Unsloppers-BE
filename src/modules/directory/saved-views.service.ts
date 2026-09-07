@@ -55,7 +55,7 @@ export class SavedViewsService {
       orderBy: [{ createdAt: 'asc' }],
     });
 
-    return views.map(view => this.toEntity(view, viewerEmployeeId));
+    return views.map((view) => this.toEntity(view, viewerEmployeeId));
   }
 
   async create(
@@ -67,7 +67,7 @@ export class SavedViewsService {
         name: dto.name.trim(),
         ownerEmployeeId: viewerEmployeeId,
         filters: dto.filters as unknown as Prisma.InputJsonValue,
-        columnIds: dto.columnIds as unknown as Prisma.InputJsonValue,
+        columnIds: dto.columnIds,
         sort: dto.sort ?? null,
         order: dto.order ?? null,
       },
@@ -92,9 +92,7 @@ export class SavedViewsService {
         ...(dto.filters !== undefined
           ? { filters: dto.filters as unknown as Prisma.InputJsonValue }
           : {}),
-        ...(dto.columnIds !== undefined
-          ? { columnIds: dto.columnIds as unknown as Prisma.InputJsonValue }
-          : {}),
+        ...(dto.columnIds !== undefined ? { columnIds: dto.columnIds } : {}),
         ...(dto.sort !== undefined ? { sort: dto.sort ?? null } : {}),
         ...(dto.order !== undefined ? { order: dto.order ?? null } : {}),
       },
@@ -126,11 +124,11 @@ export class SavedViewsService {
 
     await this.assertRecipientsExist(uniqueRecipientIds);
 
-    await this.prisma.$transaction(async tx => {
+    await this.prisma.$transaction(async (tx) => {
       await tx.savedViewShare.deleteMany({ where: { savedViewId: viewId } });
       if (uniqueRecipientIds.length > 0) {
         await tx.savedViewShare.createMany({
-          data: uniqueRecipientIds.map(recipientEmployeeId => ({
+          data: uniqueRecipientIds.map((recipientEmployeeId) => ({
             savedViewId: viewId,
             recipientEmployeeId,
           })),
@@ -170,7 +168,7 @@ export class SavedViewsService {
 
     const isOwner = view.ownerEmployeeId === viewerEmployeeId;
     const isRecipient = view.shares.some(
-      share => share.recipientEmployeeId === viewerEmployeeId,
+      (share) => share.recipientEmployeeId === viewerEmployeeId,
     );
 
     if (!isOwner && !isRecipient) {
@@ -216,7 +214,7 @@ export class SavedViewsService {
       canEdit,
       ownerEmployeeId: view.ownerEmployeeId,
       ownerName: view.ownerEmployee?.user.name ?? null,
-      sharedWith: view.shares.map(share => this.toShareRecipient(share)),
+      sharedWith: view.shares.map((share) => this.toShareRecipient(share)),
     };
   }
 

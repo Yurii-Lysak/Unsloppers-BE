@@ -525,15 +525,11 @@ describe('Employees list (e2e)', () => {
     const managerAgent = await loginAs(testApp, manager.email);
     const listRes = await managerAgent.get('/api/v1/employees').expect(200);
     const listBody = listRes.body as EmployeeListResponse;
-    const reportRow = listBody.rows.find(
-      (row) => row.employeeId === report.id,
-    );
+    const reportRow = listBody.rows.find((row) => row.employeeId === report.id);
     expect(reportRow?.writableFieldIds).toContain(BUILTIN_FIELD_IDS.grade);
 
     await managerAgent
-      .patch(
-        `/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.grade}`,
-      )
+      .patch(`/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.grade}`)
       .send({ value: 'Senior' })
       .expect(200);
 
@@ -545,9 +541,7 @@ describe('Employees list (e2e)', () => {
     expect(updatedRow?.cells[BUILTIN_FIELD_IDS.grade]).toBe('Senior');
 
     await managerAgent
-      .patch(
-        `/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.grade}`,
-      )
+      .patch(`/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.grade}`)
       .send({ value: 'Lead' })
       .expect(200);
 
@@ -570,9 +564,7 @@ describe('Employees list (e2e)', () => {
 
     const colleagueAgent = await loginAs(testApp, colleague.email);
     await colleagueAgent
-      .patch(
-        `/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.grade}`,
-      )
+      .patch(`/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.grade}`)
       .send({ value: 'Junior' })
       .expect(403);
   });
@@ -645,9 +637,7 @@ describe('Employees list (e2e)', () => {
 
     const listRes = await managerAgent.get('/api/v1/employees').expect(200);
     const listBody = listRes.body as EmployeeListResponse;
-    const reportRow = listBody.rows.find(
-      (row) => row.employeeId === report.id,
-    );
+    const reportRow = listBody.rows.find((row) => row.employeeId === report.id);
     expect(reportRow?.cells[customField.id]).toBe('Updated note');
   });
 
@@ -766,9 +756,7 @@ describe('Employees list (e2e)', () => {
 
     const managerAgent = await loginAs(testApp, manager.email);
     await managerAgent
-      .patch(
-        `/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.grade}`,
-      )
+      .patch(`/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.grade}`)
       .send({ value: '' })
       .expect(400);
   });

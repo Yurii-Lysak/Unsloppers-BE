@@ -14,7 +14,10 @@ const IsValuePresent = (validationOptions?: ValidationOptions) => {
       options: validationOptions,
       validator: {
         validate(_: unknown, args: ValidationArguments) {
-          return Object.prototype.hasOwnProperty.call(args.object, propertyName);
+          return Object.prototype.hasOwnProperty.call(
+            args.object,
+            propertyName,
+          );
         },
         defaultMessage: () => 'value is required',
       },

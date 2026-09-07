@@ -478,12 +478,9 @@ describe('EmployeesService', () => {
     visibility.canWriteFieldForSubject.mockResolvedValue(false);
 
     await expect(
-      service.updateEmployeeField(
-        'viewer-1',
-        'peer-1',
-        customField.id,
-        { value: 'Updated' },
-      ),
+      service.updateEmployeeField('viewer-1', 'peer-1', customField.id, {
+        value: 'Updated',
+      }),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(customFieldsService.setValue).not.toHaveBeenCalled();
   });
@@ -553,7 +550,11 @@ describe('EmployeesService', () => {
     });
 
     const filters = [
-      { fieldId: BUILTIN_FIELD_IDS.name, operator: 'eq' as const, value: 'Alex' },
+      {
+        fieldId: BUILTIN_FIELD_IDS.name,
+        operator: 'eq' as const,
+        value: 'Alex',
+      },
     ];
     const result = await service.listEmployees('viewer-1', { filters });
 

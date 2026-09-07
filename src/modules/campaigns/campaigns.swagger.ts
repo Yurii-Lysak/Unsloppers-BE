@@ -83,3 +83,25 @@ export const SwaggerResolveCampaignAudience = () =>
     ApiNotFoundResponse({ description: 'Campaign not found' }),
     ApiConflictResponse({ description: 'Campaign is not in draft state' }),
   );
+
+export const SwaggerActivateCampaign = () =>
+  applyDecorators(
+    ApiOkResponse({ type: CampaignReadEntity }),
+    ApiBadRequestResponse({
+      description:
+        'One or more resolved audience members are no longer active employees',
+      schema: {
+        properties: {
+          message: { type: 'string' },
+          invalidAssigneeIds: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    }),
+    ApiForbiddenResponse({
+      description: AUTHENTICATED_USER_HAS_NO_EMPLOYEE_RECORD,
+    }),
+    ApiNotFoundResponse({ description: 'Campaign not found' }),
+    ApiConflictResponse({
+      description: 'Campaign is not in draft state (already active)',
+    }),
+  );
