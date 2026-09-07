@@ -81,14 +81,16 @@ describe('SavedViewsService', () => {
       order: 'asc',
     });
 
-    expect(prisma.savedView.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: {
-          ownerEmployeeId: 'owner-1',
-          name: 'Needs a conversation',
-        },
-      }),
-    );
+    expect(prisma.savedView.create).toHaveBeenCalledTimes(1);
+    const createCalls = prisma.savedView.create.mock.calls as Array<
+      [{ data: { ownerEmployeeId: string; name: string } }]
+    >;
+    expect(createCalls[0]?.[0]).toMatchObject({
+      data: {
+        ownerEmployeeId: 'owner-1',
+        name: 'Needs a conversation',
+      },
+    });
     expect(result.name).toBe('Needs a conversation');
   });
 
