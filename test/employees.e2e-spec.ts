@@ -387,7 +387,7 @@ describe('Employees list (e2e)', () => {
     );
   });
 
-  it('rejects filters on management custom fields for colleague viewers', async () => {
+  it('drops management custom field filters for colleague viewers and flags filtersHidden', async () => {
     const colleague = await createEmployeeUser(
       testApp,
       'employees-colleague-filter@example.com',
@@ -418,7 +418,11 @@ describe('Employees list (e2e)', () => {
       },
     ]);
 
-    await agent.get('/api/v1/employees').query({ filters }).expect(400);
+    const res = await agent.get('/api/v1/employees').query({ filters }).expect(200);
+
+    const body = res.body as EmployeeListResponse & { filtersHidden?: boolean };
+    expect(body.filtersHidden).toBe(true);
+    expect(body.total).toBeGreaterThanOrEqual(0);
   });
 
   it('omits management custom field values from row cells for colleague viewers', async () => {

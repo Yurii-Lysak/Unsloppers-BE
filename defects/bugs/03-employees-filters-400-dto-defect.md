@@ -3,7 +3,7 @@
 - **Priority:** High
 - **Component:** Backend / Directory (Employees)
 - **Severity:** Functional defect
-- **Status:** Open
+- **Status:** Fixed
 - **ClickUp:** Filed
 
 ## Description
@@ -53,6 +53,14 @@ fail against this. No new test needed.
 None of the three implicated pieces (DTO, ValidationPipe, `validateFilters`)
 changed recently — worth confirming whether this is a long-standing bug
 nothing exercised until now, or an environment difference.
+
+## Resolution
+
+Fixed in `85ccfa9` ([Unsloppers-BE#47](https://github.com/Yurii-Lysak/Unsloppers-BE/pull/47)):
+`list-employees-query.dto.ts` now calls `plainToInstance(EmployeeFieldFilterDto, parsed)`
+inside the `@Transform` so `ValidationPipe` whitelist retains `fieldId`, `operator`,
+and `value`. Verified 2026-09-08: both filter e2e cases in `employees.e2e-spec.ts`
+pass on branch `fix/backend-e2e-tests-fix` @ `3fd8934`.
 
 ## Source
 

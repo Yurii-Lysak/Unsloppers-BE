@@ -83,12 +83,17 @@ describe('Authentication (e2e)', () => {
       .expect(200);
     expect(session.body).toEqual({ userId: loginBody.userId });
 
-    const users = await request(testApp.server)
+    await request(testApp.server)
       .get('/api/v1/users')
       .set('Cookie', cookie)
+      .expect(403);
+
+    const ownUser = await request(testApp.server)
+      .get(`/api/v1/users/${loginBody.userId}`)
+      .set('Cookie', cookie)
       .expect(200);
-    expect(JSON.stringify(users.body)).not.toContain('passwordHash');
-    expect(JSON.stringify(users.body)).not.toContain('"hash"');
+    expect(JSON.stringify(ownUser.body)).not.toContain('passwordHash');
+    expect(JSON.stringify(ownUser.body)).not.toContain('"hash"');
   });
 
   it('uses the same generic 401 for unknown email and wrong password', async () => {

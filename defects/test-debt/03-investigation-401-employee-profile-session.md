@@ -3,32 +3,31 @@
 - **Priority:** Normal
 - **Type:** Needs Investigation
 - **Component:** Backend / Auth or Test Suite (unclear which — that's the open question)
-- **Status:** Open
+- **Status:** Fixed
 
 ## Description
 
-`test/employee-profile.e2e-spec.ts` fails at lines 367, 405 and 440 — the
-last three tests in the file — each with a `401` on the **first** request of
-the test, before any mutation happens. This rules out the initial hypothesis
-that reassigning a manager mid-test invalidates the session (the failure
-happens before any such action).
+`test/employee-profile.e2e-spec.ts` failed at the last three tests — each with
+a `401` on the **first** request using the shared `colleagueAgent`, before any
+mutation in those tests.
 
-The shared `colleagueAgent` cookie (established earlier in the file) is
-simply no longer accepted by the time these tests run.
+## Root cause (confirmed 2026-09-08)
 
-## Two open hypotheses, neither confirmed
+Not JWT expiry or `FixedClock` (this suite does not inject a clock). The
+`"still returns S1 data when mentor lookup fails"` test creates a second
+`createTestApp()` mid-suite. `createTestApp` defaults to `truncate: true`, which
+wipes the worker's shared Postgres schema. That deletes all users while the
+`colleagueAgent` cookie still holds a valid JWT — `JwtStrategy` then rejects
+the request because `payload.sub` no longer exists (`401`).
 
-1. Something earlier in the file invalidates that session (e.g. a side
-   effect of an earlier test touching the same user/session).
-2. The `FixedClock` test double used by this suite interacts badly with the
-   JWT `exp`/`iat` window — e.g. the fixed clock jumps past the token's
-   expiry between tests.
+## Fix
 
-## What's needed
+- Pass `truncate: false` on the nested `createTestApp`.
+- Seed the nested app with `emailSuffix: '-mentor-fail'` (and matching
+  `profileEmail`) so fixture emails do not collide in the shared schema.
 
-Someone who knows the intended session/JWT expiry semantics to pin this down
-— this is the one item in the whole diagnosis pass that could not be
-root-caused with the time available.
+Verified: full `employee-profile.e2e-spec.ts` — 18/18 pass on branch
+`fix/backend-e2e-tests-fix`.
 
 ## Source
 

@@ -3,7 +3,7 @@
 - **Priority:** Normal
 - **Type:** Test Debt
 - **Component:** Backend / Test Suite (Custom Fields)
-- **Status:** Open
+- **Status:** Fixed
 
 ## Description
 
@@ -32,6 +32,20 @@ control is correct; only the raw substring guard is wrong.
 Replace the substring scan with either a structured assertion (assert the
 exact key set / `not.toHaveProperty`), or if a raw-text guard is still
 wanted, use a value that isn't a single common character.
+
+## Fix (2026-09-08)
+
+Replaced `expect(colleagueRaw).not.toContain('L')` with a structured assertion:
+
+```typescript
+expect(colleagueBody.sections.S16?.data?.values?.[employeeField.id]).toBeUndefined();
+```
+
+The structured checks above already prove colleague visibility; this guards the
+employee-only field value without false-matching `manageLeaveUrl`.
+
+Verified: `employee-profile-custom-fields.e2e-spec.ts` passes on branch
+`fix/backend-e2e-tests-fix`.
 
 ## Source
 
