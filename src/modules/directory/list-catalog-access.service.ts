@@ -64,7 +64,9 @@ export class ListCatalogAccessService {
     private readonly prisma: PrismaService,
   ) {}
 
-  async resolveCatalogSections(viewerEmployeeId: string): Promise<Set<SectionId>> {
+  async resolveCatalogSections(
+    viewerEmployeeId: string,
+  ): Promise<Set<SectionId>> {
     const result = await this.resolveCatalogAccess(viewerEmployeeId);
     return result.sections;
   }
@@ -154,7 +156,9 @@ export class ListCatalogAccessService {
     };
   }
 
-  private async hasElevatedRelationship(viewerEmployeeId: string): Promise<boolean> {
+  private async hasElevatedRelationship(
+    viewerEmployeeId: string,
+  ): Promise<boolean> {
     const report = await this.prisma.employee.findFirst({
       where: { managerId: viewerEmployeeId },
       select: { id: true },

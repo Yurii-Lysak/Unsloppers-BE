@@ -385,10 +385,7 @@ export class EmployeesService extends EmployeeDirectory {
         continue;
       }
 
-      if (
-        !elevated &&
-        field.id === BUILTIN_FIELD_IDS.years_with_company
-      ) {
+      if (!elevated && field.id === BUILTIN_FIELD_IDS.years_with_company) {
         continue;
       }
 
@@ -483,8 +480,9 @@ export class EmployeesService extends EmployeeDirectory {
         integratedFieldIds.includes(BUILTIN_FIELD_IDS.project_names) &&
         audience.sections.S11 !== 'none'
       ) {
-        cells[BUILTIN_FIELD_IDS.project_names] =
-          await this.formatProjectNames(row.employeeId);
+        cells[BUILTIN_FIELD_IDS.project_names] = await this.formatProjectNames(
+          row.employeeId,
+        );
       }
 
       enrichedRows.push({ employeeId: row.employeeId, cells });

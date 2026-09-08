@@ -40,7 +40,8 @@ export class EmployeeListLeavesService extends EmployeeListLeavesReader {
     hideLeaveType: boolean,
   ): Promise<EmployeeListLeaveCell> {
     void hideLeaveType;
-    const result = await this.leavesSync.getLeavesForEmployee(subjectEmployeeId);
+    const result =
+      await this.leavesSync.getLeavesForEmployee(subjectEmployeeId);
     if (result.availability === 'unavailable') {
       return { value: LIST_CELL_UNAVAILABLE, unavailable: true };
     }

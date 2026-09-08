@@ -797,13 +797,17 @@ describe('Employees list (e2e)', () => {
     expect(fieldIds).toContain(BUILTIN_FIELD_IDS.current_leave_dates);
     expect(fieldIds).toContain(BUILTIN_FIELD_IDS.project_names);
 
-    const ownRow = body.rows.find((row) => row.employeeId === colleague.employeeId);
+    const ownRow = body.rows.find(
+      (row) => row.employeeId === colleague.employeeId,
+    );
     const peerRow = body.rows.find(
       (row) => row.employeeId !== colleague.employeeId,
     );
     expect(ownRow?.cells[BUILTIN_FIELD_IDS.employment_type]).toBe('Full-time');
     expect(peerRow?.cells[BUILTIN_FIELD_IDS.grade]).toBeUndefined();
-    expect(peerRow?.cells[BUILTIN_FIELD_IDS.years_with_company]).toBeUndefined();
+    expect(
+      peerRow?.cells[BUILTIN_FIELD_IDS.years_with_company],
+    ).toBeUndefined();
     expect(peerRow?.cells[BUILTIN_FIELD_IDS.employment_type]).toBeUndefined();
   });
 
@@ -850,10 +854,7 @@ describe('Employees list (e2e)', () => {
         value: 'Full-time',
       },
     ]);
-    await agent
-      .get('/api/v1/employees')
-      .query({ filters })
-      .expect(400);
+    await agent.get('/api/v1/employees').query({ filters }).expect(400);
   });
 
   it('masks peer rows but not direct-report rows for a manager (Story 3.6)', async () => {
