@@ -194,7 +194,9 @@ describe('Feedback visibility (e2e)', () => {
       sections: { S8?: { data: FeedbackSectionResponse } };
     };
     expect(profileBody.sections.S8?.data.records).toHaveLength(1);
-    expect(profileBody.sections.S8?.data.records[0].body).toBe('Will be shared');
+    expect(profileBody.sections.S8?.data.records[0].body).toBe(
+      'Will be shared',
+    );
   });
 
   it('grants PM full S8 RW including CRUD', async () => {
@@ -471,7 +473,12 @@ describe('Feedback visibility (e2e)', () => {
       where: { id: subject.employeeId },
       data: { managerId: manager.employeeId },
     });
-    await assignProjectLine(testApp, subject.employeeId, pm.employeeId, dm.employeeId);
+    await assignProjectLine(
+      testApp,
+      subject.employeeId,
+      pm.employeeId,
+      dm.employeeId,
+    );
 
     const pp = await createEmployeeUser(testApp, 'fb-union-pp@example.com');
     await testApp.prisma.employee.update({
@@ -504,9 +511,11 @@ describe('Feedback visibility (e2e)', () => {
       .expect(200);
     const listBody = listRes.body as FeedbackSectionResponse;
     expect(listBody.records).toHaveLength(2);
-    expect(listBody.records.every((record) => record.sharedWithEmployee !== undefined)).toBe(
-      true,
-    );
+    expect(
+      listBody.records.every(
+        (record) => record.sharedWithEmployee !== undefined,
+      ),
+    ).toBe(true);
   });
 
   it('returns 404 for unknown employee and 400 for malformed ids', async () => {
