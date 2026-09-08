@@ -20,7 +20,7 @@ export class IdentitySectionDto {
 
   @ApiPropertyOptional({
     description:
-      'Active mentor for the subject. Omitted for audiences outside D5 (ReportingLine, ProjectLine, PP).',
+      'Active mentor for the subject. Omitted for audiences outside D5 (Self, ReportingLine, ProjectLine, PP).',
     type: IdentityRelationEntity,
   })
   mentor?: IdentityRelationEntity;

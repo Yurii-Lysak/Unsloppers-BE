@@ -7,6 +7,7 @@ describe('ActiveMentorLookupService', () => {
   const prisma = {
     mentorshipPair: {
       findFirst: jest.fn(),
+      findMany: jest.fn(),
     },
   };
 
@@ -79,5 +80,20 @@ describe('ActiveMentorLookupService', () => {
         displayName: 'mentor@example.com',
       },
     );
+  });
+
+  it('returns active mentees for a mentor', async () => {
+    prisma.mentorshipPair.findMany.mockResolvedValue([
+      {
+        mentee: {
+          id: 'mentee-1',
+          user: { name: 'Mentee Name', email: 'mentee@example.com' },
+        },
+      },
+    ]);
+
+    await expect(
+      service.getActiveMenteesForMentor('mentor-1'),
+    ).resolves.toEqual([{ id: 'mentee-1', displayName: 'Mentee Name' }]);
   });
 });

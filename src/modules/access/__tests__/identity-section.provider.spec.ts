@@ -43,7 +43,7 @@ describe('IdentitySectionProvider', () => {
     sections: { S1: role === 'Colleague' ? 'R' : 'RW' },
   });
 
-  it.each<AccessRole>(['Colleague', 'Self', 'SharedLink', 'FullAccess'])(
+  it.each<AccessRole>(['Colleague', 'SharedLink', 'FullAccess'])(
     'omits mentor for %s viewers (D5 allow-list)',
     async (role) => {
       prisma.employee.findUnique.mockResolvedValue(baseEmployee);
@@ -61,7 +61,7 @@ describe('IdentitySectionProvider', () => {
     },
   );
 
-  it.each<AccessRole>(['ReportingLine', 'ProjectLine', 'PP'])(
+  it.each<AccessRole>(['Self', 'ReportingLine', 'ProjectLine', 'PP'])(
     'includes mentor for %s when lookup returns a mentor',
     async (role) => {
       prisma.employee.findUnique.mockResolvedValue(baseEmployee);

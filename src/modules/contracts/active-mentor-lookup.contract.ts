@@ -13,4 +13,8 @@ export abstract class ActiveMentorLookup {
   abstract getActiveMentorForMentee(
     menteeId: string,
   ): Promise<ActiveMentorDto | null>;
+
+  abstract getActiveMenteesForMentor(
+    mentorId: string,
+  ): Promise<ActiveMentorDto[]>;
 }
