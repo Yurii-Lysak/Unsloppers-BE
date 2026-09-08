@@ -1,0 +1,2 @@
+export const FEEDBACK_MAX_CONTEXT_LENGTH = 500;
+export const FEEDBACK_MAX_BODY_LENGTH = 10_000;

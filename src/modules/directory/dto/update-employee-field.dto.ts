@@ -5,7 +5,7 @@ import {
   type ValidationOptions,
 } from 'class-validator';
 
-const IsValuePresent = (validationOptions?: ValidationOptions) => {
+export const IsValuePresent = (validationOptions?: ValidationOptions) => {
   return (object: object, propertyName: string) => {
     registerDecorator({
       name: 'isValuePresent',

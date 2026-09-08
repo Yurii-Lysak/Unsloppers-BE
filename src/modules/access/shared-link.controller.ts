@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
+import { ThrottleSharedLinkConsumption } from '../../common/throttling/throttle.decorators';
 import { CurrentUserProvider } from '../contracts/current-user-provider.contract';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -96,6 +97,7 @@ export class SharedLinkController {
   }
 
   @Get('shared-links/:token/profile')
+  @ThrottleSharedLinkConsumption()
   @SwaggerGetEmployeeProfile()
   async consumeProfile(
     @Req() request: Request,

@@ -237,12 +237,20 @@ describe('Colleague whitelist enforcement (e2e)', () => {
     await colleagueAgent.get(`/api/v1/users/${randomUUID()}`).expect(403);
   });
 
-  it('returns S1-safe directory list entries', async () => {
-    const res = await colleagueAgent.get('/api/v1/employees').expect(200);
+  // `GET /api/v1/employees` (the paginated directory table) is intentionally
+  // not colleague-whitelist-scoped — see bug 02's "Update (2026-09-07)" and
+  // the owner decision recorded there: it's an org-wide directory table
+  // available to any authenticated employee, not gated by S1. `/lookup`
+  // (Story 3.4, `EmployeeLookupEntity`) is the actual S1-safe, id+name-only
+  // surface every role — including Colleague — is meant to use.
+  it('returns S1-safe directory entries via the lookup endpoint', async () => {
+    const res = await colleagueAgent
+      .get('/api/v1/employees/lookup')
+      .expect(200);
     const rows = res.body as Array<Record<string, unknown>>;
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {
-      expect(Object.keys(row).sort()).toEqual(['displayName', 'id']);
+      expect(Object.keys(row).sort()).toEqual(['employeeId', 'name']);
     }
   });
 
