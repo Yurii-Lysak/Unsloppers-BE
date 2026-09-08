@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
+type MentorshipPairWriteClient = Pick<PrismaService, 'mentorshipPair'>;
+
 /**
  * Internal write path for `MentorshipPair` (Story 1.7). Not Epic 9's hub —
  * no permission checks, closure notes, or consent gates until that story lands.
@@ -12,14 +14,22 @@ export class MentorshipPairService {
   async createActivePair(
     mentorId: string,
     menteeId: string,
-  ): Promise<{ id: string; mentorId: string; menteeId: string }> {
+    tx?: MentorshipPairWriteClient,
+  ): Promise<{
+    id: string;
+    mentorId: string;
+    menteeId: string;
+    startedAt: Date;
+  }> {
+    const db = tx ?? this.prisma;
+
     if (mentorId === menteeId) {
       throw new BadRequestException(
         'A mentorship pair cannot link an employee to themselves.',
       );
     }
 
-    const existingActive = await this.prisma.mentorshipPair.findFirst({
+    const existingActive = await db.mentorshipPair.findFirst({
       where: { menteeId, endedAt: null },
       select: { id: true },
     });
@@ -29,9 +39,14 @@ export class MentorshipPairService {
       );
     }
 
-    const row = await this.prisma.mentorshipPair.create({
+    const row = await db.mentorshipPair.create({
       data: { mentorId, menteeId },
-      select: { id: true, mentorId: true, menteeId: true },
+      select: {
+        id: true,
+        mentorId: true,
+        menteeId: true,
+        startedAt: true,
+      },
     });
 
     return row;

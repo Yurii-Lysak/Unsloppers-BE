@@ -309,4 +309,270 @@ describe('Mentorship (e2e)', () => {
     ).sections.S1;
     expect(s1?.data?.mentor).toBeUndefined();
   });
+
+  it('creates an active pair with timeline events for both employees', async () => {
+    const mentor = await createEmployeeUser(
+      testApp,
+      'assign-mentor@example.com',
+    );
+    const mentee = await createEmployeeUser(
+      testApp,
+      'assign-mentee@example.com',
+    );
+    const assigner = await createEmployeeUser(
+      testApp,
+      'assign-assigner@example.com',
+    );
+
+    await testApp.prisma.employee.update({
+      where: { id: mentor.employeeId },
+      data: { openToMentoring: true },
+    });
+    await testApp.prisma.employee.update({
+      where: { id: mentee.employeeId },
+      data: { managerId: assigner.employeeId },
+    });
+    await grantPermission(
+      testApp,
+      assigner.employeeId,
+      PERMISSION_KEYS.ASSIGN_END_MENTORSHIPS,
+    );
+
+    const assignerAgent = await loginAs(testApp, assigner.email);
+    const createRes = await assignerAgent
+      .post('/api/v1/mentorship/pairs')
+      .send({ mentorId: mentor.employeeId, menteeId: mentee.employeeId })
+      .expect(201);
+
+    const body = createRes.body as {
+      mentorId: string;
+      menteeId: string;
+      mentorStatus: string;
+      startedAt: string;
+    };
+
+    expect(body).toMatchObject({
+      mentorId: mentor.employeeId,
+      menteeId: mentee.employeeId,
+      mentorStatus: 'mentor',
+    });
+    const pair = await testApp.prisma.mentorshipPair.findFirst({
+      where: { mentorId: mentor.employeeId, menteeId: mentee.employeeId },
+    });
+    expect(pair?.endedAt).toBeNull();
+    expect(body.startedAt).toBe(pair?.startedAt?.toISOString());
+
+    const mentorTimeline = await testApp.prisma.timelineEvent.findMany({
+      where: { employeeId: mentor.employeeId, type: 'mentorshipStart' },
+    });
+    const menteeTimeline = await testApp.prisma.timelineEvent.findMany({
+      where: { employeeId: mentee.employeeId, type: 'mentorshipStart' },
+    });
+
+    expect(mentorTimeline).toHaveLength(1);
+    expect(menteeTimeline).toHaveLength(1);
+    expect(mentorTimeline[0]?.newValue).toBe(mentee.employeeId);
+    expect(menteeTimeline[0]?.newValue).toBe(mentor.employeeId);
+    expect(mentorTimeline[0]?.authorId).toBe(assigner.employeeId);
+    expect(menteeTimeline[0]?.authorId).toBe(assigner.employeeId);
+  });
+
+  it('rejects pair creation when mentee is outside assigner scope', async () => {
+    const mentor = await createEmployeeUser(
+      testApp,
+      'scope-mentor@example.com',
+    );
+    const mentee = await createEmployeeUser(
+      testApp,
+      'scope-mentee@example.com',
+    );
+    const assigner = await createEmployeeUser(
+      testApp,
+      'scope-assigner@example.com',
+    );
+
+    await testApp.prisma.employee.update({
+      where: { id: mentor.employeeId },
+      data: { openToMentoring: true },
+    });
+    await grantPermission(
+      testApp,
+      assigner.employeeId,
+      PERMISSION_KEYS.ASSIGN_END_MENTORSHIPS,
+    );
+
+    const assignerAgent = await loginAs(testApp, assigner.email);
+    await assignerAgent
+      .post('/api/v1/mentorship/pairs')
+      .send({ mentorId: mentor.employeeId, menteeId: mentee.employeeId })
+      .expect(403);
+  });
+
+  it('rejects pair creation when mentor is not open to mentoring', async () => {
+    const mentor = await createEmployeeUser(
+      testApp,
+      'consent-mentor@example.com',
+    );
+    const mentee = await createEmployeeUser(
+      testApp,
+      'consent-mentee@example.com',
+    );
+    const assigner = await createEmployeeUser(
+      testApp,
+      'consent-assigner@example.com',
+    );
+
+    await testApp.prisma.employee.update({
+      where: { id: mentee.employeeId },
+      data: { managerId: assigner.employeeId },
+    });
+    await grantPermission(
+      testApp,
+      assigner.employeeId,
+      PERMISSION_KEYS.ASSIGN_END_MENTORSHIPS,
+    );
+
+    const assignerAgent = await loginAs(testApp, assigner.email);
+    await assignerAgent
+      .post('/api/v1/mentorship/pairs')
+      .send({ mentorId: mentor.employeeId, menteeId: mentee.employeeId })
+      .expect(400);
+  });
+
+  it('rejects self-pair creation', async () => {
+    const employee = await createEmployeeUser(
+      testApp,
+      'selfpair-employee@example.com',
+    );
+    const assigner = await createEmployeeUser(
+      testApp,
+      'selfpair-assigner@example.com',
+    );
+
+    await testApp.prisma.employee.update({
+      where: { id: employee.employeeId },
+      data: { managerId: assigner.employeeId, openToMentoring: true },
+    });
+    await grantPermission(
+      testApp,
+      assigner.employeeId,
+      PERMISSION_KEYS.ASSIGN_END_MENTORSHIPS,
+    );
+
+    const assignerAgent = await loginAs(testApp, assigner.email);
+    await assignerAgent
+      .post('/api/v1/mentorship/pairs')
+      .send({
+        mentorId: employee.employeeId,
+        menteeId: employee.employeeId,
+      })
+      .expect(400);
+  });
+
+  it('rejects duplicate active mentee pair creation', async () => {
+    const mentor = await createEmployeeUser(testApp, 'dup-mentor@example.com');
+    const mentorTwo = await createEmployeeUser(
+      testApp,
+      'dup-mentor2@example.com',
+    );
+    const mentee = await createEmployeeUser(testApp, 'dup-mentee@example.com');
+    const assigner = await createEmployeeUser(
+      testApp,
+      'dup-assigner@example.com',
+    );
+
+    await testApp.prisma.employee.update({
+      where: { id: mentor.employeeId },
+      data: { openToMentoring: true },
+    });
+    await testApp.prisma.employee.update({
+      where: { id: mentorTwo.employeeId },
+      data: { openToMentoring: true },
+    });
+    await testApp.prisma.employee.update({
+      where: { id: mentee.employeeId },
+      data: { managerId: assigner.employeeId },
+    });
+    await testApp.prisma.mentorshipPair.create({
+      data: { mentorId: mentor.employeeId, menteeId: mentee.employeeId },
+    });
+    await grantPermission(
+      testApp,
+      assigner.employeeId,
+      PERMISSION_KEYS.ASSIGN_END_MENTORSHIPS,
+    );
+
+    const assignerAgent = await loginAs(testApp, assigner.email);
+    await assignerAgent
+      .post('/api/v1/mentorship/pairs')
+      .send({ mentorId: mentorTwo.employeeId, menteeId: mentee.employeeId })
+      .expect(400);
+  });
+
+  it('lists only in-scope assignable mentees for a manager', async () => {
+    const inScope = await createEmployeeUser(
+      testApp,
+      'picker-inscope@example.com',
+    );
+    const outOfScope = await createEmployeeUser(
+      testApp,
+      'picker-outscope@example.com',
+    );
+    const manager = await createEmployeeUser(
+      testApp,
+      'picker-manager@example.com',
+    );
+
+    await testApp.prisma.employee.update({
+      where: { id: inScope.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+    await grantPermission(
+      testApp,
+      manager.employeeId,
+      PERMISSION_KEYS.ASSIGN_END_MENTORSHIPS,
+    );
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    const listRes = await managerAgent
+      .get('/api/v1/mentorship/assignable-mentees')
+      .expect(200);
+
+    const menteeIds = (
+      listRes.body as { mentees: Array<{ id: string }> }
+    ).mentees.map((row) => row.id);
+
+    expect(menteeIds).toContain(inScope.employeeId);
+    expect(menteeIds).not.toContain(outOfScope.employeeId);
+  });
+
+  it('forbids assignable mentee listing without assign_end_mentorships permission', async () => {
+    const viewer = await createEmployeeUser(
+      testApp,
+      'picker-perm-viewer@example.com',
+    );
+    const viewerAgent = await loginAs(testApp, viewer.email);
+    await viewerAgent.get('/api/v1/mentorship/assignable-mentees').expect(403);
+  });
+
+  it('forbids pair creation without assign_end_mentorships permission', async () => {
+    const mentor = await createEmployeeUser(testApp, 'perm-mentor@example.com');
+    const mentee = await createEmployeeUser(testApp, 'perm-mentee@example.com');
+    const viewer = await createEmployeeUser(testApp, 'perm-viewer@example.com');
+
+    await testApp.prisma.employee.update({
+      where: { id: mentor.employeeId },
+      data: { openToMentoring: true },
+    });
+    await testApp.prisma.employee.update({
+      where: { id: mentee.employeeId },
+      data: { managerId: viewer.employeeId },
+    });
+
+    const viewerAgent = await loginAs(testApp, viewer.email);
+    await viewerAgent
+      .post('/api/v1/mentorship/pairs')
+      .send({ mentorId: mentor.employeeId, menteeId: mentee.employeeId })
+      .expect(403);
+  });
 });

@@ -42,11 +42,33 @@ describe('MentorshipPairService', () => {
     expect(prisma.mentorshipPair.create).not.toHaveBeenCalled();
   });
 
+  it('routes createActivePair reads and writes through the supplied transaction client', async () => {
+    const tx = {
+      mentorshipPair: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({
+          id: 'pair-tx',
+          mentorId: 'mentor-1',
+          menteeId: 'mentee-1',
+          startedAt: new Date('2026-09-08T12:00:00.000Z'),
+        }),
+      },
+    };
+
+    await service.createActivePair('mentor-1', 'mentee-1', tx);
+
+    expect(tx.mentorshipPair.findFirst).toHaveBeenCalled();
+    expect(tx.mentorshipPair.create).toHaveBeenCalled();
+    expect(prisma.mentorshipPair.findFirst).not.toHaveBeenCalled();
+    expect(prisma.mentorshipPair.create).not.toHaveBeenCalled();
+  });
+
   it('creates an active pair for distinct mentor and mentee', async () => {
     prisma.mentorshipPair.create.mockResolvedValue({
       id: 'pair-1',
       mentorId: 'mentor-1',
       menteeId: 'mentee-1',
+      startedAt: new Date('2026-09-08T12:00:00.000Z'),
     });
 
     await expect(
@@ -55,6 +77,7 @@ describe('MentorshipPairService', () => {
       id: 'pair-1',
       mentorId: 'mentor-1',
       menteeId: 'mentee-1',
+      startedAt: new Date('2026-09-08T12:00:00.000Z'),
     });
   });
 

@@ -6,6 +6,10 @@ import {
   ApiOkResponse,
 } from '@nestjs/swagger';
 import {
+  AssignableMenteesListEntity,
+  CreatedMentorshipPairEntity,
+} from './entities/mentorship-pair.entity';
+import {
   MentorshipSectionEntity,
   WillingMentorsListEntity,
 } from './entities/mentorship-section.entity';
@@ -28,4 +32,25 @@ export const SwaggerListWillingMentors = () =>
     ApiForbiddenResponse({
       description: 'Viewer lacks assign and end mentorships permission',
     }),
+  );
+
+export const SwaggerListAssignableMentees = () =>
+  applyDecorators(
+    ApiOkResponse({ type: AssignableMenteesListEntity }),
+    ApiForbiddenResponse({
+      description: 'Viewer lacks assign and end mentorships permission',
+    }),
+  );
+
+export const SwaggerCreateMentorshipPair = () =>
+  applyDecorators(
+    ApiOkResponse({ type: CreatedMentorshipPairEntity }),
+    ApiBadRequestResponse({
+      description:
+        'Invalid payload, self-pair, duplicate active mentee, or mentor not open to mentoring',
+    }),
+    ApiForbiddenResponse({
+      description: 'Viewer lacks permission or mentee is outside access scope',
+    }),
+    ApiNotFoundResponse({ description: 'Mentor not found' }),
   );

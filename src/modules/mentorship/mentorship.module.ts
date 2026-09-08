@@ -6,12 +6,13 @@ import {
   MentorshipPoolController,
 } from './mentorship.controller';
 import { MentorshipPairService } from './mentorship-pair.service';
+import { MentorshipAssignmentService } from './mentorship-assignment.service';
 import { MentorshipSectionProvider } from './mentorship-section.provider';
 import { MentorshipService } from './mentorship.service';
 
 /**
  * Story 1.7 / 9.1 — mentor lookup for profile assembly, S13 section provider,
- * self-flag writes, and permission-gated willing-mentor pool reads.
+ * self-flag writes, willing-mentor pool reads, and pair assignment (Story 9.2).
  */
 @Global()
 @Module({
@@ -19,9 +20,15 @@ import { MentorshipService } from './mentorship.service';
   providers: [
     { provide: ActiveMentorLookup, useClass: ActiveMentorLookupService },
     MentorshipPairService,
+    MentorshipAssignmentService,
     MentorshipService,
     MentorshipSectionProvider,
   ],
-  exports: [ActiveMentorLookup, MentorshipPairService, MentorshipService],
+  exports: [
+    ActiveMentorLookup,
+    MentorshipPairService,
+    MentorshipAssignmentService,
+    MentorshipService,
+  ],
 })
 export class MentorshipModule {}
