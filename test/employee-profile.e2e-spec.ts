@@ -204,7 +204,7 @@ describe('Employee profile assembly (e2e)', () => {
     expect(s1?.data).not.toHaveProperty('mentor');
   });
 
-  it('omits mentor in S1 for Self viewers (D5 allow-list)', async () => {
+  it('includes mentor in S1 for Self viewers when an active pair exists', async () => {
     const res = await reportAgent
       .get(`/api/v1/employees/${reportEmployeeId}/profile`)
       .expect(200);
@@ -212,13 +212,19 @@ describe('Employee profile assembly (e2e)', () => {
     const s1 = (
       res.body as {
         sections: {
-          S1?: { data?: Record<string, unknown> };
+          S1?: {
+            data?: {
+              mentor?: { id: string; displayName: string };
+            };
+          };
         };
       }
     ).sections.S1;
 
-    expect(s1?.data).toBeDefined();
-    expect(s1?.data).not.toHaveProperty('mentor');
+    expect(s1?.data?.mentor).toEqual({
+      id: mentorEmployeeId,
+      displayName: MENTOR_EMAIL,
+    });
   });
 
   it('omits S6 and S15 from Self own-profile (denied matrix cells)', async () => {
