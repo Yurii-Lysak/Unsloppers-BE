@@ -146,8 +146,11 @@ describe('Employees list (e2e)', () => {
     expect(body.rows).toHaveLength(3);
     expect(Array.isArray(body.fields)).toBe(true);
     expect(
-      body.fields.some((field) => field.id === BUILTIN_FIELD_IDS.grade),
+      body.fields.some((field) => field.id === BUILTIN_FIELD_IDS.name),
     ).toBe(true);
+    expect(
+      body.fields.some((field) => field.id === BUILTIN_FIELD_IDS.grade),
+    ).toBe(false);
   });
 
   it('filters employees by derived years_with_company > 3', async () => {
@@ -158,6 +161,9 @@ describe('Employees list (e2e)', () => {
       '2020-01-01',
       'Senior',
     );
+    await testApp.prisma.fullAccessGrant.create({
+      data: { employeeId: viewer.employeeId },
+    });
     const longTenure = await createEmployeeUser(
       testApp,
       'employees-long@example.com',
@@ -249,6 +255,9 @@ describe('Employees list (e2e)', () => {
       '2020-01-01',
       'Mid',
     );
+    await testApp.prisma.fullAccessGrant.create({
+      data: { employeeId: viewer.employeeId },
+    });
     await createEmployeeUser(
       testApp,
       'employees-sort-a@example.com',
@@ -296,9 +305,9 @@ describe('Employees list (e2e)', () => {
     const agent = await loginAs(testApp, viewer.email);
     const filters = JSON.stringify([
       {
-        fieldId: BUILTIN_FIELD_IDS.grade,
+        fieldId: BUILTIN_FIELD_IDS.name,
         operator: 'eq',
-        value: 'NonexistentGrade',
+        value: 'Nonexistent Name',
       },
     ]);
 
@@ -759,5 +768,162 @@ describe('Employees list (e2e)', () => {
       .patch(`/api/v1/employees/${report.id}/fields/${BUILTIN_FIELD_IDS.grade}`)
       .send({ value: '' })
       .expect(400);
+  });
+
+  it('scopes colleague list catalog to whitelist built-ins only (Story 3.6)', async () => {
+    const colleague = await createEmployeeUser(
+      testApp,
+      'employees-colleague-whitelist@example.com',
+      'Colleague Viewer',
+      '2020-01-01',
+    );
+    await createEmployeeUser(
+      testApp,
+      'employees-whitelist-peer@example.com',
+      'Peer',
+      '2020-01-01',
+      'Senior',
+    );
+
+    const agent = await loginAs(testApp, colleague.email);
+    const res = await agent.get('/api/v1/employees').expect(200);
+    const body = res.body as EmployeeListResponse;
+    const fieldIds = body.fields.map((field) => field.id);
+
+    expect(fieldIds).toContain(BUILTIN_FIELD_IDS.name);
+    expect(fieldIds).not.toContain(BUILTIN_FIELD_IDS.grade);
+    expect(fieldIds).not.toContain(BUILTIN_FIELD_IDS.years_with_company);
+    expect(fieldIds).toContain(BUILTIN_FIELD_IDS.employment_type);
+    expect(fieldIds).toContain(BUILTIN_FIELD_IDS.current_leave_dates);
+    expect(fieldIds).toContain(BUILTIN_FIELD_IDS.project_names);
+
+    const ownRow = body.rows.find(
+      (row) => row.employeeId === colleague.employeeId,
+    );
+    const peerRow = body.rows.find(
+      (row) => row.employeeId !== colleague.employeeId,
+    );
+    expect(ownRow?.cells[BUILTIN_FIELD_IDS.employment_type]).toBe('Full-time');
+    expect(peerRow?.cells[BUILTIN_FIELD_IDS.grade]).toBeUndefined();
+    expect(
+      peerRow?.cells[BUILTIN_FIELD_IDS.years_with_company],
+    ).toBeUndefined();
+    expect(peerRow?.cells[BUILTIN_FIELD_IDS.employment_type]).toBeUndefined();
+  });
+
+  it('rejects colleague sort on non-whitelist built-in fields (Story 3.6)', async () => {
+    const colleague = await createEmployeeUser(
+      testApp,
+      'employees-colleague-sort@example.com',
+      'Colleague Viewer',
+      '2020-01-01',
+    );
+    await createEmployeeUser(
+      testApp,
+      'employees-sort-peer@example.com',
+      'Peer',
+      '2020-01-01',
+    );
+
+    const agent = await loginAs(testApp, colleague.email);
+    await agent
+      .get('/api/v1/employees')
+      .query({ sort: BUILTIN_FIELD_IDS.grade, order: 'asc' })
+      .expect(400);
+  });
+
+  it('rejects colleague filter on non-whitelist built-in fields (Story 3.6)', async () => {
+    const colleague = await createEmployeeUser(
+      testApp,
+      'employees-colleague-filter-builtin@example.com',
+      'Colleague Viewer',
+      '2020-01-01',
+    );
+    await createEmployeeUser(
+      testApp,
+      'employees-filter-peer@example.com',
+      'Peer',
+      '2020-01-01',
+    );
+
+    const agent = await loginAs(testApp, colleague.email);
+    const filters = JSON.stringify([
+      {
+        fieldId: BUILTIN_FIELD_IDS.employment_type,
+        operator: 'eq',
+        value: 'Full-time',
+      },
+    ]);
+    await agent.get('/api/v1/employees').query({ filters }).expect(400);
+  });
+
+  it('masks peer rows but not direct-report rows for a manager (Story 3.6)', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'employees-manager-mixed@example.com',
+      'Manager',
+      '2020-01-01',
+      'Senior',
+    );
+    const reportUser = await testApp.prisma.user.create({
+      data: {
+        email: 'employees-report-mixed@example.com',
+        name: 'Direct Report',
+        passwordHash: await hash(PASSWORD, 12),
+      },
+    });
+    const report = await testApp.prisma.employee.create({
+      data: {
+        id: reportUser.id,
+        userId: reportUser.id,
+        managerId: manager.employeeId,
+      },
+    });
+    const reportStart = new Date('2020-01-01T00:00:00.000Z');
+    await testApp.prisma.gradeHistory.create({
+      data: {
+        employeeId: report.id,
+        value: 'Mid',
+        effectiveFrom: reportStart,
+      },
+    });
+    await testApp.prisma.positionHistory.create({
+      data: {
+        employeeId: report.id,
+        value: 'Engineer',
+        effectiveFrom: reportStart,
+      },
+    });
+    await testApp.prisma.departmentHistory.create({
+      data: {
+        employeeId: report.id,
+        value: 'Engineering',
+        effectiveFrom: reportStart,
+      },
+    });
+    await testApp.prisma.employmentTypeHistory.create({
+      data: {
+        employeeId: report.id,
+        value: 'Full-time',
+        effectiveFrom: reportStart,
+      },
+    });
+
+    const peer = await createEmployeeUser(
+      testApp,
+      'employees-peer-mixed@example.com',
+      'Peer',
+      '2020-01-01',
+      'Lead',
+    );
+
+    const agent = await loginAs(testApp, manager.email);
+    const res = await agent.get('/api/v1/employees').expect(200);
+    const body = res.body as EmployeeListResponse;
+
+    const reportRow = body.rows.find((row) => row.employeeId === report.id);
+    const peerRow = body.rows.find((row) => row.employeeId === peer.employeeId);
+    expect(reportRow?.cells[BUILTIN_FIELD_IDS.grade]).toBe('Mid');
+    expect(peerRow?.cells[BUILTIN_FIELD_IDS.grade]).toBeUndefined();
   });
 });

@@ -1,6 +1,8 @@
 import { Global, Module } from '@nestjs/common';
 import { ExternalIdentityMapping } from '../contracts/external-identity-mapping.contract';
+import { EmployeeListLeavesReader } from '../contracts/employee-list-leaves.contract';
 import { ExternalIdentityMappingService } from './external-identity-mapping.service';
+import { EmployeeListLeavesService } from './employee-list-leaves.service';
 import { LeavesController } from './leaves.controller';
 import { LeavesSectionProvider } from './leaves-section.provider';
 import { LeavesSyncService } from './leaves-sync.service';
@@ -23,6 +25,11 @@ import { ProjectsSyncService } from './projects-sync.service';
     },
     LeavesSyncService,
     LeavesSectionProvider,
+    EmployeeListLeavesService,
+    {
+      provide: EmployeeListLeavesReader,
+      useExisting: EmployeeListLeavesService,
+    },
     ProjectAssignmentMapper,
     ProjectsSyncService,
     ProjectsSyncScheduler,
@@ -31,6 +38,7 @@ import { ProjectsSyncService } from './projects-sync.service';
     ExternalIdentityMapping,
     LeavesSectionProvider,
     LeavesSyncService,
+    EmployeeListLeavesReader,
     ProjectsSyncService,
   ],
 })

@@ -2,13 +2,16 @@ import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessResolver } from '../../contracts/access-resolver.contract';
+import { EmployeeListLeavesReader } from '../../contracts/employee-list-leaves.contract';
 import { PermissionChecker } from '../../contracts/permission-checker.contract';
+import { ProjectAssignment } from '../../contracts/project-assignment.contract';
 import { SectionAccessGate } from '../../contracts/section-access-gate.contract';
 import { BUILTIN_FIELD_IDS } from '../../contracts/field-registry.contract';
 import { CustomFieldsService } from '../custom-fields.service';
 import { CustomFieldVisibilityService } from '../custom-field-visibility.service';
 import { FieldRegistryService } from '../field-registry.service';
 import { EmployeesService } from '../employees.service';
+import { ListCatalogAccessService } from '../list-catalog-access.service';
 
 describe('EmployeesService export', () => {
   let service: EmployeesService;
@@ -38,12 +41,26 @@ describe('EmployeesService export', () => {
     resolveAudience: jest.fn(),
   };
 
+  const listCatalogAccess = {
+    resolveCatalogAccess: jest.fn(),
+    resolveCatalogSections: jest.fn(),
+  };
+
+  const managerCatalogSections = new Set([
+    'S1',
+    'S4',
+    'S10',
+    'S11',
+    'S16',
+  ] as const);
+
   const builtinFields = [
     {
       id: BUILTIN_FIELD_IDS.name,
       name: 'Name',
       type: 'text',
       source: 'builtin',
+      sectionId: 'S1',
       sortable: true,
       filterable: true,
     },
@@ -52,6 +69,7 @@ describe('EmployeesService export', () => {
       name: 'Grade',
       type: 'text',
       source: 'builtin',
+      sectionId: 'S4',
       sortable: true,
       filterable: true,
       editable: true,
@@ -71,6 +89,19 @@ describe('EmployeesService export', () => {
         { provide: PermissionChecker, useValue: permissionChecker },
         { provide: AccessResolver, useValue: accessResolver },
         { provide: SectionAccessGate, useValue: { requireSection: jest.fn() } },
+        { provide: ListCatalogAccessService, useValue: listCatalogAccess },
+        {
+          provide: ProjectAssignment,
+          useValue: { listByEmployee: jest.fn().mockResolvedValue([]) },
+        },
+        {
+          provide: EmployeeListLeavesReader,
+          useValue: {
+            formatListCell: jest
+              .fn()
+              .mockResolvedValue({ value: '', unavailable: false }),
+          },
+        },
       ],
     }).compile();
 
@@ -78,9 +109,22 @@ describe('EmployeesService export', () => {
 
     prisma.employee.findUnique.mockResolvedValue({ id: 'viewer-employee-id' });
     permissionChecker.hasPermission.mockResolvedValue(false);
+    listCatalogAccess.resolveCatalogAccess.mockResolvedValue({
+      sections: managerCatalogSections,
+      elevated: true,
+    });
+    listCatalogAccess.resolveCatalogSections.mockResolvedValue(
+      managerCatalogSections,
+    );
     accessResolver.resolveAudience.mockResolvedValue({
-      role: 'Colleague',
-      sections: { S4: 'none', S16: 'none' },
+      role: 'ReportingLine',
+      sections: {
+        S1: 'R',
+        S4: 'RW',
+        S10: 'R',
+        S11: 'R',
+        S16: 'none',
+      },
     });
     fieldRegistryService.listFields.mockResolvedValue(builtinFields);
     fieldRegistryService.queryEmployees.mockResolvedValue({
@@ -113,6 +157,7 @@ describe('EmployeesService export', () => {
       name: 'Management only',
       type: 'text',
       source: 'custom',
+      sectionId: 'S16',
       sortable: true,
       filterable: true,
       visibility: 'management',
@@ -143,6 +188,7 @@ describe('EmployeesService export', () => {
       name: 'Management only',
       type: 'text',
       source: 'custom',
+      sectionId: 'S16',
       sortable: true,
       filterable: true,
       visibility: 'management',
@@ -166,6 +212,7 @@ describe('EmployeesService export', () => {
       name: 'Management only',
       type: 'text',
       source: 'custom',
+      sectionId: 'S16',
       sortable: true,
       filterable: true,
       visibility: 'management',
@@ -219,6 +266,7 @@ describe('EmployeesService export', () => {
       name: 'Management only',
       type: 'text',
       source: 'custom',
+      sectionId: 'S16',
       sortable: true,
       filterable: true,
       visibility: 'management',
@@ -236,6 +284,11 @@ describe('EmployeesService export', () => {
           fieldId: managementField.id,
           operator: 'eq',
           value: 'secret',
+        },
+        {
+          fieldId: BUILTIN_FIELD_IDS.name,
+          operator: 'eq',
+          value: 'Alice',
         },
       ],
     });

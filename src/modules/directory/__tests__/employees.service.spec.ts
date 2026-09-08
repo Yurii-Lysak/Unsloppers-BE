@@ -9,13 +9,16 @@ import {
   FieldSpec,
 } from '../../contracts/field-registry.contract';
 import { AccessResolver } from '../../contracts/access-resolver.contract';
+import { EmployeeListLeavesReader } from '../../contracts/employee-list-leaves.contract';
 import { PermissionChecker } from '../../contracts/permission-checker.contract';
+import { ProjectAssignment } from '../../contracts/project-assignment.contract';
 import { SectionAccessGate } from '../../contracts/section-access-gate.contract';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CustomFieldsService } from '../custom-fields.service';
 import { CustomFieldVisibilityService } from '../custom-field-visibility.service';
 import { EmployeesService } from '../employees.service';
 import { FieldRegistryService } from '../field-registry.service';
+import { ListCatalogAccessService } from '../list-catalog-access.service';
 
 describe('EmployeesService', () => {
   let service: EmployeesService;
@@ -43,6 +46,16 @@ describe('EmployeesService', () => {
   const sectionGate = {
     requireSection: jest.fn(),
   };
+  const listCatalogAccess = {
+    resolveCatalogSections: jest.fn(),
+    resolveCatalogAccess: jest.fn(),
+  };
+  const projectAssignment = {
+    listByEmployee: jest.fn(),
+  };
+  const leavesReader = {
+    formatListCell: jest.fn(),
+  };
   const prisma = {
     employee: {
       findUnique: jest.fn(),
@@ -56,6 +69,7 @@ describe('EmployeesService', () => {
       name: 'Name',
       type: 'text',
       source: 'builtin',
+      sectionId: 'S1',
       sortable: true,
       filterable: true,
     },
@@ -64,10 +78,26 @@ describe('EmployeesService', () => {
       name: 'Years with company',
       type: 'number',
       source: 'derived',
+      sectionId: 'S4',
       sortable: true,
       filterable: true,
     },
   ];
+
+  const colleagueCatalogSections = new Set([
+    'S1',
+    'S10',
+    'S11',
+    'S16',
+  ] as const);
+
+  const managerCatalogSections = new Set([
+    'S1',
+    'S4',
+    'S10',
+    'S11',
+    'S16',
+  ] as const);
 
   const managementCustomField: FieldSpec = {
     id: 'custom-mgmt',
@@ -77,6 +107,7 @@ describe('EmployeesService', () => {
     sortable: true,
     filterable: true,
     visibility: 'management',
+    sectionId: 'S16',
   };
 
   const colleagueCustomField: FieldSpec = {
@@ -87,6 +118,7 @@ describe('EmployeesService', () => {
     sortable: true,
     filterable: true,
     visibility: 'colleague',
+    sectionId: 'S16',
   };
 
   beforeEach(async () => {
@@ -94,8 +126,26 @@ describe('EmployeesService', () => {
     prisma.employee.findUnique.mockResolvedValue({ id: 'viewer-1' });
     accessResolver.resolveAudience.mockResolvedValue({
       role: 'Colleague',
-      sections: { S4: 'none', S16: 'none' },
+      sections: {
+        S1: 'R',
+        S4: 'none',
+        S10: 'R',
+        S11: 'R',
+        S16: 'none',
+      },
     });
+    listCatalogAccess.resolveCatalogAccess.mockResolvedValue({
+      sections: colleagueCatalogSections,
+      elevated: false,
+    });
+    listCatalogAccess.resolveCatalogSections.mockResolvedValue(
+      colleagueCatalogSections,
+    );
+    leavesReader.formatListCell.mockResolvedValue({
+      value: '',
+      unavailable: false,
+    });
+    projectAssignment.listByEmployee.mockResolvedValue([]);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -106,6 +156,9 @@ describe('EmployeesService', () => {
         { provide: PermissionChecker, useValue: permissionChecker },
         { provide: AccessResolver, useValue: accessResolver },
         { provide: SectionAccessGate, useValue: sectionGate },
+        { provide: ListCatalogAccessService, useValue: listCatalogAccess },
+        { provide: ProjectAssignment, useValue: projectAssignment },
+        { provide: EmployeeListLeavesReader, useValue: leavesReader },
         { provide: PrismaService, useValue: prisma },
       ],
     }).compile();
@@ -131,14 +184,10 @@ describe('EmployeesService', () => {
 
     expect(result.fields.map((field) => field.id)).toEqual([
       BUILTIN_FIELD_IDS.name,
-      BUILTIN_FIELD_IDS.years_with_company,
     ]);
     expect(fieldRegistryService.queryEmployees).toHaveBeenCalledWith(
       expect.objectContaining({
-        visibleFieldIds: [
-          BUILTIN_FIELD_IDS.name,
-          BUILTIN_FIELD_IDS.years_with_company,
-        ],
+        visibleFieldIds: [BUILTIN_FIELD_IDS.name],
       }),
     );
   });
@@ -161,16 +210,11 @@ describe('EmployeesService', () => {
 
     expect(result.fields.map((field) => field.id)).toEqual([
       BUILTIN_FIELD_IDS.name,
-      BUILTIN_FIELD_IDS.years_with_company,
       colleagueCustomField.id,
     ]);
     expect(fieldRegistryService.queryEmployees).toHaveBeenCalledWith(
       expect.objectContaining({
-        visibleFieldIds: [
-          BUILTIN_FIELD_IDS.name,
-          BUILTIN_FIELD_IDS.years_with_company,
-          colleagueCustomField.id,
-        ],
+        visibleFieldIds: [BUILTIN_FIELD_IDS.name, colleagueCustomField.id],
       }),
     );
   });
@@ -205,6 +249,13 @@ describe('EmployeesService', () => {
   });
 
   it('passes tenure filter to the registry query engine', async () => {
+    listCatalogAccess.resolveCatalogAccess.mockResolvedValue({
+      sections: managerCatalogSections,
+      elevated: true,
+    });
+    listCatalogAccess.resolveCatalogSections.mockResolvedValue(
+      managerCatalogSections,
+    );
     fieldRegistryService.listFields.mockResolvedValue(builtinFields);
     permissionChecker.hasPermission.mockResolvedValue(false);
     fieldRegistryService.queryEmployees.mockResolvedValue({
@@ -268,6 +319,13 @@ describe('EmployeesService', () => {
   });
 
   it('returns paginated totals from the registry query', async () => {
+    listCatalogAccess.resolveCatalogAccess.mockResolvedValue({
+      sections: managerCatalogSections,
+      elevated: true,
+    });
+    listCatalogAccess.resolveCatalogSections.mockResolvedValue(
+      managerCatalogSections,
+    );
     fieldRegistryService.listFields.mockResolvedValue(builtinFields);
     permissionChecker.hasPermission.mockResolvedValue(false);
     fieldRegistryService.queryEmployees.mockResolvedValue({
@@ -316,10 +374,18 @@ describe('EmployeesService', () => {
       name: 'Grade',
       type: 'text',
       source: 'builtin',
+      sectionId: 'S4',
       sortable: true,
       filterable: true,
       editable: true,
     };
+    listCatalogAccess.resolveCatalogAccess.mockResolvedValue({
+      sections: managerCatalogSections,
+      elevated: true,
+    });
+    listCatalogAccess.resolveCatalogSections.mockResolvedValue(
+      managerCatalogSections,
+    );
     fieldRegistryService.listFields.mockResolvedValue([
       ...builtinFields,
       gradeField,
@@ -352,10 +418,18 @@ describe('EmployeesService', () => {
       name: 'Grade',
       type: 'text',
       source: 'builtin',
+      sectionId: 'S4',
       sortable: true,
       filterable: true,
       editable: true,
     };
+    listCatalogAccess.resolveCatalogAccess.mockResolvedValue({
+      sections: managerCatalogSections,
+      elevated: true,
+    });
+    listCatalogAccess.resolveCatalogSections.mockResolvedValue(
+      managerCatalogSections,
+    );
     fieldRegistryService.listFields.mockResolvedValue([gradeField]);
     fieldRegistryService.assertEmployeeExists.mockResolvedValue(undefined);
     accessResolver.resolveAudience.mockResolvedValue({
@@ -385,10 +459,18 @@ describe('EmployeesService', () => {
       name: 'Grade',
       type: 'text',
       source: 'builtin',
+      sectionId: 'S4',
       sortable: true,
       filterable: true,
       editable: true,
     };
+    listCatalogAccess.resolveCatalogAccess.mockResolvedValue({
+      sections: managerCatalogSections,
+      elevated: true,
+    });
+    listCatalogAccess.resolveCatalogSections.mockResolvedValue(
+      managerCatalogSections,
+    );
     fieldRegistryService.listFields.mockResolvedValue([gradeField]);
     fieldRegistryService.assertEmployeeExists.mockResolvedValue(undefined);
     accessResolver.resolveAudience.mockResolvedValue({
@@ -416,6 +498,7 @@ describe('EmployeesService', () => {
       filterable: true,
       editable: true,
       visibility: 'management',
+      sectionId: 'S16',
     };
     fieldRegistryService.listFields.mockResolvedValue([customField]);
     fieldRegistryService.assertEmployeeExists.mockResolvedValue(undefined);
@@ -468,6 +551,7 @@ describe('EmployeesService', () => {
       filterable: true,
       editable: true,
       visibility: 'management',
+      sectionId: 'S16',
     };
     fieldRegistryService.listFields.mockResolvedValue([customField]);
     fieldRegistryService.assertEmployeeExists.mockResolvedValue(undefined);
@@ -491,6 +575,7 @@ describe('EmployeesService', () => {
       name: 'Department',
       type: 'text',
       source: 'builtin',
+      sectionId: 'S1',
       sortable: true,
       filterable: true,
     };
@@ -540,6 +625,13 @@ describe('EmployeesService', () => {
   });
 
   it('passes filters through unchanged and leaves filtersHidden unset when every filter is visible', async () => {
+    listCatalogAccess.resolveCatalogAccess.mockResolvedValue({
+      sections: managerCatalogSections,
+      elevated: true,
+    });
+    listCatalogAccess.resolveCatalogSections.mockResolvedValue(
+      managerCatalogSections,
+    );
     fieldRegistryService.listFields.mockResolvedValue(builtinFields);
     permissionChecker.hasPermission.mockResolvedValue(false);
     fieldRegistryService.queryEmployees.mockResolvedValue({
@@ -564,6 +656,255 @@ describe('EmployeesService', () => {
     expect(result.filtersHidden).toBe(false);
   });
 
+  it('omits S4 built-in cells for colleague audience rows (Story 3.6)', async () => {
+    const gradeField: FieldSpec = {
+      id: BUILTIN_FIELD_IDS.grade,
+      name: 'Grade',
+      type: 'text',
+      source: 'builtin',
+      sectionId: 'S4',
+      sortable: true,
+      filterable: true,
+      editable: true,
+    };
+    listCatalogAccess.resolveCatalogAccess.mockResolvedValue({
+      sections: managerCatalogSections,
+      elevated: true,
+    });
+    listCatalogAccess.resolveCatalogSections.mockResolvedValue(
+      managerCatalogSections,
+    );
+    fieldRegistryService.listFields.mockResolvedValue([
+      ...builtinFields,
+      gradeField,
+    ]);
+    permissionChecker.hasPermission.mockResolvedValue(false);
+    fieldRegistryService.queryEmployees.mockResolvedValue({
+      rows: [
+        {
+          employeeId: 'report-1',
+          cells: {
+            [BUILTIN_FIELD_IDS.name]: 'Report',
+            [BUILTIN_FIELD_IDS.grade]: 'Senior',
+          },
+        },
+        {
+          employeeId: 'peer-1',
+          cells: {
+            [BUILTIN_FIELD_IDS.name]: 'Peer',
+            [BUILTIN_FIELD_IDS.grade]: 'Mid',
+          },
+        },
+      ],
+      total: 2,
+      page: 1,
+      pageSize: 50,
+    });
+    accessResolver.resolveAudience.mockImplementation(
+      (_viewerId: string, subjectId: string) => {
+        if (subjectId === 'report-1') {
+          return Promise.resolve({
+            role: 'ReportingLine',
+            sections: {
+              S1: 'R',
+              S4: 'RW',
+              S10: 'R',
+              S11: 'R',
+              S16: 'none',
+            },
+          });
+        }
+        return Promise.resolve({
+          role: 'Colleague',
+          sections: {
+            S1: 'R',
+            S4: 'none',
+            S10: 'R',
+            S11: 'R',
+            S16: 'none',
+          },
+        });
+      },
+    );
+
+    const result = await service.listEmployees('viewer-1', {});
+
+    expect(result.rows[0]?.cells[BUILTIN_FIELD_IDS.grade]).toBe('Senior');
+    expect(result.rows[1]?.cells[BUILTIN_FIELD_IDS.grade]).toBeUndefined();
+  });
+
+  it('shows Self-granted S4 fields on the viewer own row only (Story 3.6)', async () => {
+    const employmentTypeField: FieldSpec = {
+      id: BUILTIN_FIELD_IDS.employment_type,
+      name: 'Employment type',
+      type: 'text',
+      source: 'builtin',
+      sectionId: 'S4',
+      sortable: true,
+      filterable: true,
+      editable: true,
+    };
+    listCatalogAccess.resolveCatalogAccess.mockResolvedValue({
+      sections: new Set(['S1', 'S4', 'S10', 'S11', 'S16']),
+      elevated: false,
+    });
+    listCatalogAccess.resolveCatalogSections.mockResolvedValue(
+      new Set(['S1', 'S4', 'S10', 'S11', 'S16']),
+    );
+    fieldRegistryService.listFields.mockResolvedValue([
+      builtinFields[0],
+      employmentTypeField,
+    ]);
+    permissionChecker.hasPermission.mockResolvedValue(false);
+    fieldRegistryService.queryEmployees.mockResolvedValue({
+      rows: [
+        {
+          employeeId: 'viewer-1',
+          cells: {
+            [BUILTIN_FIELD_IDS.name]: 'Me',
+            [BUILTIN_FIELD_IDS.employment_type]: 'Full-time',
+          },
+        },
+        {
+          employeeId: 'peer-1',
+          cells: {
+            [BUILTIN_FIELD_IDS.name]: 'Peer',
+            [BUILTIN_FIELD_IDS.employment_type]: 'Contract',
+          },
+        },
+      ],
+      total: 2,
+      page: 1,
+      pageSize: 50,
+    });
+    accessResolver.resolveAudience.mockImplementation(
+      (_viewerId: string, subjectId: string) => {
+        if (subjectId === 'viewer-1') {
+          return Promise.resolve({
+            role: 'Self',
+            sections: {
+              S1: 'R',
+              S4: 'R',
+              S10: 'R',
+              S11: 'R',
+              S16: 'R',
+            },
+          });
+        }
+        return Promise.resolve({
+          role: 'Colleague',
+          sections: {
+            S1: 'R',
+            S4: 'none',
+            S10: 'R',
+            S11: 'R',
+            S16: 'none',
+          },
+        });
+      },
+    );
+
+    const result = await service.listEmployees('viewer-1', {});
+
+    expect(result.rows[0]?.cells[BUILTIN_FIELD_IDS.employment_type]).toBe(
+      'Full-time',
+    );
+    expect(
+      result.rows[1]?.cells[BUILTIN_FIELD_IDS.employment_type],
+    ).toBeUndefined();
+    const employmentField = result.fields.find(
+      (field) => field.id === BUILTIN_FIELD_IDS.employment_type,
+    );
+    expect(employmentField?.filterable).toBe(false);
+    expect(employmentField?.sortable).toBe(false);
+  });
+
+  it('enriches S10 and S11 integrated list cells when visible (Story 3.6)', async () => {
+    const integratedFields: FieldSpec[] = [
+      {
+        id: BUILTIN_FIELD_IDS.current_leave_dates,
+        name: 'Current leave dates',
+        type: 'text',
+        source: 'derived',
+        sectionId: 'S10',
+        sortable: false,
+        filterable: false,
+      },
+      {
+        id: BUILTIN_FIELD_IDS.project_names,
+        name: 'Project names',
+        type: 'text',
+        source: 'derived',
+        sectionId: 'S11',
+        sortable: false,
+        filterable: false,
+      },
+    ];
+    listCatalogAccess.resolveCatalogAccess.mockResolvedValue({
+      sections: colleagueCatalogSections,
+      elevated: false,
+    });
+    listCatalogAccess.resolveCatalogSections.mockResolvedValue(
+      colleagueCatalogSections,
+    );
+    fieldRegistryService.listFields.mockResolvedValue([
+      builtinFields[0],
+      ...integratedFields,
+    ]);
+    permissionChecker.hasPermission.mockResolvedValue(false);
+    fieldRegistryService.queryEmployees.mockResolvedValue({
+      rows: [
+        {
+          employeeId: 'peer-1',
+          cells: {
+            [BUILTIN_FIELD_IDS.name]: 'Peer',
+            [BUILTIN_FIELD_IDS.current_leave_dates]: null,
+            [BUILTIN_FIELD_IDS.project_names]: null,
+          },
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+    });
+    accessResolver.resolveAudience.mockResolvedValue({
+      role: 'Colleague',
+      sections: {
+        S1: 'R',
+        S4: 'none',
+        S10: 'R',
+        S11: 'R',
+        S16: 'none',
+      },
+    });
+    leavesReader.formatListCell.mockResolvedValue({
+      value: '2026-09-01 – 2026-09-05',
+      unavailable: false,
+    });
+    projectAssignment.listByEmployee.mockResolvedValue([
+      {
+        employeeId: 'peer-1',
+        projectId: 'Project Alpha',
+        pmId: 'pm-1',
+        dmId: 'dm-1',
+        startDate: '2026-01-01',
+        endDate: null,
+        confirmed: true,
+        confirmedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    const result = await service.listEmployees('viewer-1', {});
+
+    expect(leavesReader.formatListCell).toHaveBeenCalledWith('peer-1', true);
+    expect(result.rows[0]?.cells[BUILTIN_FIELD_IDS.current_leave_dates]).toBe(
+      '2026-09-01 – 2026-09-05',
+    );
+    expect(result.rows[0]?.cells[BUILTIN_FIELD_IDS.project_names]).toBe(
+      'Project Alpha',
+    );
+  });
+
   it('lists lookup options with id and display name, sorted by name', async () => {
     prisma.employee.findMany.mockResolvedValue([
       { id: 'emp-2', user: { name: 'Zoe', email: 'zoe@example.com' } },
@@ -586,10 +927,18 @@ describe('EmployeesService', () => {
       name: 'Grade',
       type: 'text',
       source: 'builtin',
+      sectionId: 'S4',
       sortable: true,
       filterable: true,
       editable: true,
     };
+    listCatalogAccess.resolveCatalogAccess.mockResolvedValue({
+      sections: managerCatalogSections,
+      elevated: true,
+    });
+    listCatalogAccess.resolveCatalogSections.mockResolvedValue(
+      managerCatalogSections,
+    );
     fieldRegistryService.listFields.mockResolvedValue([gradeField]);
     fieldRegistryService.assertEmployeeExists.mockResolvedValue(undefined);
     accessResolver.resolveAudience.mockResolvedValue({

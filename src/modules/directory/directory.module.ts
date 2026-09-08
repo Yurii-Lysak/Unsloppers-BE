@@ -8,6 +8,7 @@ import { EmployeesController } from './employees.controller';
 import { CustomFieldsService } from './custom-fields.service';
 import { EmployeesService } from './employees.service';
 import { FieldRegistryService } from './field-registry.service';
+import { ListCatalogAccessService } from './list-catalog-access.service';
 import { SavedViewsController } from './saved-views.controller';
 import { SavedViewsService } from './saved-views.service';
 
@@ -28,6 +29,7 @@ import { SavedViewsService } from './saved-views.service';
     CustomFieldsService,
     EmployeesService,
     SavedViewsService,
+    ListCatalogAccessService,
     CustomFieldVisibilityService,
     CustomFieldsSectionProvider,
     {

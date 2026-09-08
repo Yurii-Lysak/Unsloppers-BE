@@ -454,6 +454,7 @@ export class FieldRegistryService extends FieldRegistry {
       name: definition.name,
       type: definition.type,
       source: 'custom',
+      sectionId: 'S16',
       sortable: true,
       filterable: true,
       editable: true,

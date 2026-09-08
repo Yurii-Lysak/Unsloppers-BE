@@ -240,7 +240,7 @@ describe('Employees export (e2e)', () => {
     const sheet = await readWorksheet(res.body);
     expect(sheet.rowCount).toBe(1);
     expect(sheet.getRow(1).getCell(1).value).toBe('Name');
-    expect(sheet.getRow(1).getCell(2).value).toBe('Grade');
+    expect(sheet.getRow(1).getCell(2).value).toBeNull();
   });
 
   it('exports entitled columns and values for the current view', async () => {
@@ -395,5 +395,35 @@ describe('Employees export (e2e)', () => {
       });
     expect(subjectRow).toBeDefined();
     expect((subjectRow as ExcelJS.CellValue[]).length).toBeLessThanOrEqual(3);
+  });
+
+  it('omits management built-in columns for colleague viewers (Story 3.6)', async () => {
+    const colleague = await createEmployeeUser(
+      testApp,
+      'export-colleague-grade@example.com',
+      'Colleague Viewer',
+      '2020-01-01',
+    );
+    await createEmployeeUser(
+      testApp,
+      'export-grade-peer@example.com',
+      'Peer',
+      '2020-01-01',
+      'Senior',
+    );
+
+    const agent = await loginAs(testApp, colleague.email);
+    const res = await exportRequest(agent, {
+      columns: JSON.stringify([
+        BUILTIN_FIELD_IDS.name,
+        BUILTIN_FIELD_IDS.grade,
+      ]),
+    });
+
+    expect(res.status).toBe(200);
+
+    const sheet = await readWorksheet(res.body);
+    expect(sheet.getRow(1).getCell(1).value).toBe('Name');
+    expect(sheet.getRow(1).getCell(2).value).toBeNull();
   });
 });
