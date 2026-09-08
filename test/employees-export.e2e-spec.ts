@@ -223,7 +223,10 @@ describe('Employees export (e2e)', () => {
     const agent = await loginAs(testApp, viewer.email);
 
     const res = await exportRequest(agent, {
-      columns: JSON.stringify([BUILTIN_FIELD_IDS.name, BUILTIN_FIELD_IDS.grade]),
+      columns: JSON.stringify([
+        BUILTIN_FIELD_IDS.name,
+        BUILTIN_FIELD_IDS.grade,
+      ]),
       filters: JSON.stringify([
         {
           fieldId: BUILTIN_FIELD_IDS.name,
