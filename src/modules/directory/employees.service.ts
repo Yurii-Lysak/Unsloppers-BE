@@ -272,6 +272,12 @@ export class EmployeesService extends EmployeeDirectory {
       throw new NotFoundException(`Field "${fieldId}" not found`);
     }
 
+    if (fieldId === BUILTIN_FIELD_IDS.mentor_status) {
+      throw new BadRequestException(
+        'mentor_status is a derived read-only field',
+      );
+    }
+
     const writableFieldIds = await this.resolveWritableFieldIds(
       viewerEmployeeId,
       employeeId,

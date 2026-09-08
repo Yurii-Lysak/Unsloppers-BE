@@ -91,6 +91,7 @@ export const BUILTIN_FIELD_IDS = {
   department: 'department',
   employment_type: 'employment_type',
   years_with_company: 'years_with_company',
+  mentor_status: 'mentor_status',
   current_leave_dates: 'current_leave_dates',
   project_names: 'project_names',
 } as const;

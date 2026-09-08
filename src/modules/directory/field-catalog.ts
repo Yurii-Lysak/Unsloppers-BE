@@ -2,6 +2,7 @@ import {
   BUILTIN_FIELD_IDS,
   FieldSpec,
 } from '../contracts/field-registry.contract';
+import { MENTOR_STATUS_VALUES } from '../mentorship/mentor-status.util';
 
 export const BUILTIN_FIELD_SPECS: FieldSpec[] = [
   {
@@ -60,6 +61,17 @@ export const BUILTIN_FIELD_SPECS: FieldSpec[] = [
     sectionId: 'S4',
     sortable: true,
     filterable: true,
+  },
+  {
+    id: BUILTIN_FIELD_IDS.mentor_status,
+    name: 'Mentor status',
+    type: 'select',
+    source: 'derived',
+    sectionId: 'S13',
+    sortable: true,
+    filterable: true,
+    editable: false,
+    options: [...MENTOR_STATUS_VALUES],
   },
   {
     id: BUILTIN_FIELD_IDS.current_leave_dates,

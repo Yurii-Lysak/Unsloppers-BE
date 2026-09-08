@@ -6,6 +6,7 @@ import {
   FilterOperator,
   SortOrder,
 } from '../contracts/field-registry.contract';
+import { computeMentorStatus } from '../mentorship/mentor-status.util';
 
 const MS_PER_YEAR = 365.25 * 24 * 60 * 60 * 1000;
 
@@ -17,6 +18,8 @@ export interface EmployeeSnapshot {
   department: string | null;
   employmentType: string | null;
   tenureStart: Date | null;
+  openToMentoring: boolean;
+  hasActiveMentorPair: boolean;
 }
 
 export function computeTenureYears(
@@ -66,6 +69,11 @@ export function getCellValue(
       return snapshot.employmentType;
     case BUILTIN_FIELD_IDS.years_with_company:
       return computeTenureYears(snapshot.tenureStart, asOf);
+    case BUILTIN_FIELD_IDS.mentor_status:
+      return computeMentorStatus(
+        snapshot.openToMentoring,
+        snapshot.hasActiveMentorPair,
+      );
     default:
       return null;
   }
