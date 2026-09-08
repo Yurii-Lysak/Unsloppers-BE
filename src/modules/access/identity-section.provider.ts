@@ -10,6 +10,7 @@ import { RegisterProvider } from '../registry/register-provider.decorator';
 import { IdentitySectionDto } from './entities/identity-section.entity';
 
 const MENTOR_VISIBLE_ROLES: ReadonlySet<AccessRole> = new Set([
+  'Self',
   'ReportingLine',
   'ProjectLine',
   'PP',
