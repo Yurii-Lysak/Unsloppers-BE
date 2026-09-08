@@ -176,8 +176,8 @@ describe('EmployeesService export', () => {
     ]);
     visibility.canViewFieldDefinition.mockResolvedValue(true);
     visibility.canViewFieldForSubject.mockImplementation(
-      async (_viewerId: string, employeeId: string) =>
-        employeeId === 'employee-1',
+      (_viewerId: string, employeeId: string) =>
+        Promise.resolve(employeeId === 'employee-1'),
     );
     fieldRegistryService.queryEmployees.mockResolvedValue({
       rows: [
