@@ -15,6 +15,7 @@ import { BootcampIdentity, loadBootcampSeedManifest } from './seed.manifest';
 import { buildSyntheticProfile } from './seed.synthetic';
 import { seedFunctionalRoles } from './seed.functional-roles';
 import { seedDemoMentorshipPair } from './seed.mentorship';
+import { seedDepartments } from './seed.departments';
 import { FunctionalRoleAssignmentService } from '../../modules/access/functional-role-assignment.service';
 
 export interface SeedSummary {
@@ -23,6 +24,8 @@ export interface SeedSummary {
   functionalRolesUpserted: number;
   hrAdminAssignments: number;
   mentorshipPairsSeeded: number;
+  departmentsUpserted: number;
+  unitManagerAssignments: number;
 }
 
 /**
@@ -88,10 +91,19 @@ export class SeedService {
       this.logger,
     );
 
+    // Story 6.2 — C12 Department rows depend on the department history rows
+    // written above and the Unit Manager built-in role seeded just above.
+    const departmentSeed = await seedDepartments(
+      this.prisma,
+      assignmentService,
+      this.logger,
+    );
+
     this.logger.log(
       `Seed complete: ${identitiesUpserted} identities upserted, ${duplicateEmails.length} duplicate ` +
         `email(s) deduped, ${functionalRoleSeed.rolesUpserted} built-in functional roles upserted, ` +
-        `${mentorshipPairsSeeded} mentorship pair(s) seeded.`,
+        `${mentorshipPairsSeeded} mentorship pair(s) seeded, ${departmentSeed.departmentsUpserted} ` +
+        `department(s) seeded.`,
     );
 
     return {
@@ -100,6 +112,8 @@ export class SeedService {
       functionalRolesUpserted: functionalRoleSeed.rolesUpserted,
       hrAdminAssignments: functionalRoleSeed.hrAdminAssignments,
       mentorshipPairsSeeded,
+      departmentsUpserted: departmentSeed.departmentsUpserted,
+      unitManagerAssignments: departmentSeed.unitManagerAssignments,
     };
   }
 

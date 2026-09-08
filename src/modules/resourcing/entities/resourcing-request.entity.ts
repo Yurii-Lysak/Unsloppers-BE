@@ -36,8 +36,8 @@ export class ResourcingRequestReadEntity {
   @ApiPropertyOptional()
   projectId?: string | null;
 
-  @ApiProperty({ enum: ['open'] })
-  status!: 'open';
+  @ApiProperty({ enum: ['open', 'pending_dm_review'] })
+  status!: 'open' | 'pending_dm_review';
 
   @ApiProperty({ type: ResourcingRequestAuthorEntity })
   author!: ResourcingRequestAuthorEntity;

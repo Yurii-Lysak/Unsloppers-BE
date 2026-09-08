@@ -52,8 +52,17 @@ function makePrismaMock() {
     }
   >();
   const openHistoryRows = new Set<string>();
+  // Story 6.2 — only the department dimension needs a real row store: `seedDepartments`
+  // reads `departmentHistory.findMany({ where: { effectiveTo: null } })`.
+  const departmentHistoryRows = new Map<
+    string,
+    { employeeId: string; value: string; effectiveFrom: Date }
+  >();
 
-  const historyDelegate = (dimension: string) => {
+  const historyDelegate = (
+    dimension: string,
+    rowStore?: typeof departmentHistoryRows,
+  ) => {
     const findFirst = jest.fn(({ where }: { where: { employeeId: string } }) =>
       Promise.resolve(
         openHistoryRows.has(`${where.employeeId}:${dimension}`)
@@ -61,11 +70,21 @@ function makePrismaMock() {
           : null,
       ),
     );
-    const create = jest.fn(({ data }: { data: { employeeId: string } }) => {
-      openHistoryRows.add(`${data.employeeId}:${dimension}`);
-      return Promise.resolve({ id: 'new-row', ...data });
-    });
-    return { findFirst, create };
+    const create = jest.fn(
+      ({
+        data,
+      }: {
+        data: { employeeId: string; value: string; effectiveFrom: Date };
+      }) => {
+        openHistoryRows.add(`${data.employeeId}:${dimension}`);
+        rowStore?.set(data.employeeId, { ...data });
+        return Promise.resolve({ id: 'new-row', ...data });
+      },
+    );
+    const findMany = jest.fn(() =>
+      Promise.resolve(rowStore ? [...rowStore.values()] : []),
+    );
+    return { findFirst, create, findMany };
   };
 
   const userUpsert = jest.fn(
@@ -316,10 +335,49 @@ function makePrismaMock() {
     Promise.resolve({ count: 0 }),
   );
 
-  const functionalRoleAssignmentUpsert = jest.fn(() =>
-    Promise.resolve({ id: 'assign-1' }),
+  // Story 6.2 — tracks real employeeId/roleId pairs (rather than always
+  // resolving empty) so `FunctionalRoleAssignmentService.assertAssignmentAllowed`'s
+  // "last manage_functional_roles holder" guard sees the HR Admin row that a
+  // prior `assign()` call in the same run actually committed — otherwise
+  // every *subsequent* non-admin-role assignment (e.g. Story 6.2's Unit
+  // Manager grant) incorrectly looks like it would zero out admin holders.
+  const functionalRoleAssignmentRows: { employeeId: string; roleId: string }[] =
+    [];
+  const functionalRoleAssignmentUpsert = jest.fn(
+    ({
+      where,
+    }: {
+      where: { employeeId_roleId: { employeeId: string; roleId: string } };
+    }) => {
+      const { employeeId, roleId } = where.employeeId_roleId;
+      const exists = functionalRoleAssignmentRows.some(
+        (row) => row.employeeId === employeeId && row.roleId === roleId,
+      );
+      if (!exists) {
+        functionalRoleAssignmentRows.push({ employeeId, roleId });
+      }
+      return Promise.resolve({
+        id: `assign-${functionalRoleAssignmentRows.length}`,
+      });
+    },
   );
-  const functionalRoleAssignmentFindMany = jest.fn(() => Promise.resolve([]));
+  const functionalRoleAssignmentFindMany = jest.fn(
+    ({
+      where,
+    }: {
+      where?: { employeeId?: string; roleId?: { in: string[] } };
+    } = {}) => {
+      let result = functionalRoleAssignmentRows;
+      if (where?.employeeId) {
+        result = result.filter((row) => row.employeeId === where.employeeId);
+      }
+      if (where?.roleId?.in) {
+        const roleIdSet = new Set(where.roleId.in);
+        result = result.filter((row) => roleIdSet.has(row.roleId));
+      }
+      return Promise.resolve(result.map((row) => ({ ...row })));
+    },
+  );
 
   const functionalRoleFindMany = jest.fn(
     ({
@@ -344,11 +402,68 @@ function makePrismaMock() {
 
   const grade = historyDelegate('grade');
   const position = historyDelegate('position');
-  const department = historyDelegate('department');
+  const department = historyDelegate('department', departmentHistoryRows);
   const employmentType = historyDelegate('employmentType');
 
   const mentorshipPairFindFirst = jest.fn(() => Promise.resolve(null));
   const mentorshipPairCreate = jest.fn(() => Promise.resolve({ id: 'pair-1' }));
+
+  // Story 6.2 — C12 `Department` model mock, seeded by `seedDepartments` from
+  // the `departmentHistoryRows` store populated above.
+  const departmentRowsById = new Map<
+    string,
+    {
+      id: string;
+      name: string;
+      parentId: string | null;
+      managerId: string | null;
+    }
+  >();
+  let departmentAutoId = 0;
+  const departmentModelFindUnique = jest.fn(
+    ({ where }: { where: { name?: string; id?: string } }) => {
+      if (where.name) {
+        for (const row of departmentRowsById.values()) {
+          if (row.name === where.name) {
+            return Promise.resolve(row);
+          }
+        }
+        return Promise.resolve(null);
+      }
+      return Promise.resolve(
+        where.id ? (departmentRowsById.get(where.id) ?? null) : null,
+      );
+    },
+  );
+  const departmentModelCreate = jest.fn(
+    ({ data }: { data: { name: string; managerId: string | null } }) => {
+      departmentAutoId += 1;
+      const row = {
+        id: `department-${departmentAutoId}`,
+        name: data.name,
+        parentId: null,
+        managerId: data.managerId ?? null,
+      };
+      departmentRowsById.set(row.id, row);
+      return Promise.resolve(row);
+    },
+  );
+  const departmentModelUpdate = jest.fn(
+    ({
+      where,
+      data,
+    }: {
+      where: { id: string };
+      data: { managerId: string | null };
+    }) => {
+      const row = departmentRowsById.get(where.id);
+      if (!row) {
+        return Promise.reject(new Error('department not found'));
+      }
+      row.managerId = data.managerId;
+      return Promise.resolve(row);
+    },
+  );
 
   const prisma = {
     user: {
@@ -388,6 +503,11 @@ function makePrismaMock() {
       findFirst: mentorshipPairFindFirst,
       create: mentorshipPairCreate,
     },
+    department: {
+      findUnique: departmentModelFindUnique,
+      create: departmentModelCreate,
+      update: departmentModelUpdate,
+    },
   } as unknown as PrismaService;
 
   return {
@@ -405,6 +525,7 @@ function makePrismaMock() {
     functionalRoleAssignmentUpsert,
     mentorshipPairCreate,
     mentorshipPairFindFirst,
+    departmentRowsById,
   };
 }
 
@@ -434,6 +555,11 @@ describe('SeedService', () => {
     expect(summary.functionalRolesUpserted).toBe(5);
     expect(summary.hrAdminAssignments).toBe(1);
     expect(summary.mentorshipPairsSeeded).toBe(1);
+    // Fixture's 3 identities land in 3 distinct synthetic departments
+    // (deterministic per-email hash) — each a singleton, so each member is
+    // trivially "resolvable" as that department's Unit Manager.
+    expect(summary.departmentsUpserted).toBe(3);
+    expect(summary.unitManagerAssignments).toBe(3);
     expect(userUpsert).toHaveBeenCalledTimes(3);
     expect(externalIdentityUpsert).toHaveBeenCalledTimes(3);
     expect(mentorshipPairCreate).toHaveBeenCalledTimes(1);
@@ -461,7 +587,10 @@ describe('SeedService', () => {
 
     expect(userUpsert).toHaveBeenCalledTimes(6);
     expect(gradeCreate).toHaveBeenCalledTimes(3);
-    expect(functionalRoleAssignmentUpsert).toHaveBeenCalledTimes(2);
+    // 1 HR Admin assignment + 3 Unit Manager assignments (one per singleton
+    // department), per run — assign() upserts every run regardless of
+    // whether the assignment already exists (idempotent, not a no-op call).
+    expect(functionalRoleAssignmentUpsert).toHaveBeenCalledTimes(8);
   });
 
   it('seeds D11 built-in role permission sets and HR Admin bootstrap assignment', async () => {
