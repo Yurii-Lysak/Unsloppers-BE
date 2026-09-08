@@ -333,15 +333,7 @@ describe('ProfileAssemblerService', () => {
     });
   });
 
-  it('assembleProfileViaSharedLink passes creator audience to providers', async () => {
-    const creatorAudience: ResolvedAudience = {
-      role: 'ProjectLine',
-      sections: {
-        ...ALL_SECTIONS_NONE,
-        S1: 'R',
-        S5: 'R',
-      },
-    };
+  it('assembleProfileViaSharedLink passes response audience to providers', async () => {
     const responseAudience: ResolvedAudience = {
       role: 'SharedLink',
       sections: {
@@ -353,7 +345,6 @@ describe('ProfileAssemblerService', () => {
 
     sharedLinks.computeClampedSectionIds.mockResolvedValue(['S1', 'S5']);
     sharedLinks.buildSharedLinkAudience.mockReturnValue(responseAudience);
-    sharedLinks.getCreatorAudienceForLink.mockResolvedValue(creatorAudience);
 
     const s1Provider: SectionProvider = {
       getSection: jest.fn().mockResolvedValue({ displayName: 'Subject User' }),
@@ -385,7 +376,7 @@ describe('ProfileAssemblerService', () => {
     expect(getS5Section).toHaveBeenCalledWith(
       'recipient-1',
       'subject-1',
-      creatorAudience,
+      responseAudience,
     );
     expect(profile.audience.role).toBe('SharedLink');
     expect(Object.keys(profile.sections).sort()).toEqual(['S1', 'S5']);
@@ -399,10 +390,6 @@ describe('ProfileAssemblerService', () => {
 
     sharedLinks.computeClampedSectionIds.mockResolvedValue([]);
     sharedLinks.buildSharedLinkAudience.mockReturnValue(emptyAudience);
-    sharedLinks.getCreatorAudienceForLink.mockResolvedValue({
-      role: 'Colleague',
-      sections: { ...ALL_SECTIONS_NONE },
-    });
 
     const profile = await service.assembleProfileViaSharedLink({
       id: 'link-1',

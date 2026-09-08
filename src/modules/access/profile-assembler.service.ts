@@ -64,7 +64,6 @@ export class ProfileAssemblerService {
       viewerEmployeeId,
       subjectEmployeeId,
       audience,
-      audience,
     );
   }
 
@@ -75,13 +74,10 @@ export class ProfileAssemblerService {
       await this.sharedLinks.computeClampedSectionIds(link);
     const responseAudience =
       this.sharedLinks.buildSharedLinkAudience(clampedSections);
-    const providerAudience =
-      await this.sharedLinks.getCreatorAudienceForLink(link);
     return this.assembleWithAudiences(
       link.recipientEmployeeId,
       link.subjectEmployeeId,
       responseAudience,
-      providerAudience,
     );
   }
 
@@ -89,7 +85,6 @@ export class ProfileAssemblerService {
     viewerEmployeeId: string,
     subjectEmployeeId: string,
     responseAudience: ResolvedAudience,
-    providerAudience: ResolvedAudience,
   ): Promise<EmployeeProfileEntity> {
     const subject = await this.prisma.employee.findUnique({
       where: { id: subjectEmployeeId },
@@ -113,7 +108,7 @@ export class ProfileAssemblerService {
         accessLevel,
         viewerEmployeeId,
         subjectEmployeeId,
-        providerAudience,
+        responseAudience,
       );
       sections[sectionId] = envelope;
 

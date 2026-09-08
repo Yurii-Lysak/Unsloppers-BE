@@ -85,6 +85,9 @@ model Employee {
   managementNotesAbout   ManagementNote[] @relation("ManagementNoteSubject")
   managementNotesAuthored ManagementNote[] @relation("ManagementNoteAuthor")
 
+  feedbackRecordsAbout    FeedbackRecord[] @relation("FeedbackRecordSubject")
+  feedbackRecordsAuthored FeedbackRecord[] @relation("FeedbackRecordAuthor")
+
   riskRecordsAbout    RiskRecord[] @relation("RiskRecordSubject")
   riskRecordsAuthored RiskRecord[] @relation("RiskRecordAuthor")
 
@@ -398,6 +401,24 @@ model ManagementNote {
 
   @@index([subjectEmployeeId])
   @@map("management_notes")
+}
+
+model FeedbackRecord {
+  id                 String   @id @default(uuid())
+  subjectEmployeeId  String
+  authorEmployeeId   String
+  recordedAt         DateTime @db.Date
+  context            String   @db.VarChar(500)
+  body               String   @db.Text
+  sharedWithEmployee Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  subjectEmployee Employee @relation("FeedbackRecordSubject", fields: [subjectEmployeeId], references: [id], onDelete: Restrict)
+  authorEmployee  Employee @relation("FeedbackRecordAuthor", fields: [authorEmployeeId], references: [id], onDelete: Restrict)
+
+  @@index([subjectEmployeeId])
+  @@map("feedback_records")
 }
 
 enum RiskLevel {
