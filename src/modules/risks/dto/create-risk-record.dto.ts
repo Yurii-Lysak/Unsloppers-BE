@@ -1,11 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import {
-  IsIn,
-  IsNotEmpty,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { IsIn, IsNotEmpty, IsString, MaxLength } from 'class-validator';
 import type { RiskLevel } from '../../../generated/prisma/client';
 import { RISK_LEVELS } from '../risk-input';
 import { IsRiskCalendarDate } from './is-risk-calendar-date.validator';

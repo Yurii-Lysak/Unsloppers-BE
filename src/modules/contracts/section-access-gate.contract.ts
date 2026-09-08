@@ -17,4 +17,13 @@ export abstract class SectionAccessGate {
   ): Promise<ResolvedAudience>;
 
   abstract listGrantedSections(audience: ResolvedAudience): SectionId[];
+
+  /** True when the viewer holds S6 over at least one subject (excluding self). */
+  abstract canAccessRiskDashboard(viewerEmployeeId: string): Promise<boolean>;
+
+  /**
+   * Employee IDs where C1 grants S6 via Reporting-line, Project-line, or PP.
+   * Never includes the viewer's own ID.
+   */
+  abstract listS6SubjectIds(viewerEmployeeId: string): Promise<string[]>;
 }
