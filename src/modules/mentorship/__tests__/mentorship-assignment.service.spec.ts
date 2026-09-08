@@ -246,6 +246,7 @@ describe('MentorshipAssignmentService', () => {
         mentorId: 'mentor-1',
         menteeId: 'mentee-1',
         startedAt: new Date('2026-09-08T12:00:00.000Z'),
+        endedAt: null,
         mentor: {
           user: { name: 'Mentor', email: 'mentor@example.com' },
         },
@@ -255,7 +256,7 @@ describe('MentorshipAssignmentService', () => {
       },
     ]);
 
-    await expect(service.listActivePairs('viewer-1')).resolves.toEqual([
+    await expect(service.listPairs('viewer-1', 'active')).resolves.toEqual([
       {
         id: 'pair-1',
         mentorId: 'mentor-1',
@@ -263,8 +264,64 @@ describe('MentorshipAssignmentService', () => {
         menteeId: 'mentee-1',
         menteeDisplayName: 'Mentee',
         startedAt: '2026-09-08T12:00:00.000Z',
+        endedAt: null,
+        status: 'active',
       },
     ]);
+
+    const activeFindManyArg = prisma.mentorshipPair.findMany.mock.calls[0]?.[0] as {
+      where: { endedAt: unknown };
+    };
+    expect(activeFindManyArg.where.endedAt).toBeNull();
+  });
+
+  it('lists scoped ended pairs', async () => {
+    sectionGate.listS6SubjectIds.mockResolvedValue(['mentee-1']);
+    prisma.mentorshipPair.findMany.mockResolvedValue([
+      {
+        id: 'pair-2',
+        mentorId: 'mentor-1',
+        menteeId: 'mentee-1',
+        startedAt: new Date('2026-01-01T12:00:00.000Z'),
+        endedAt: new Date('2026-06-01T12:00:00.000Z'),
+        mentor: {
+          user: { name: 'Mentor', email: 'mentor@example.com' },
+        },
+        mentee: {
+          user: { name: 'Mentee', email: 'mentee@example.com' },
+        },
+      },
+    ]);
+
+    await expect(service.listPairs('viewer-1', 'ended')).resolves.toEqual([
+      {
+        id: 'pair-2',
+        mentorId: 'mentor-1',
+        mentorDisplayName: 'Mentor',
+        menteeId: 'mentee-1',
+        menteeDisplayName: 'Mentee',
+        startedAt: '2026-01-01T12:00:00.000Z',
+        endedAt: '2026-06-01T12:00:00.000Z',
+        status: 'ended',
+      },
+    ]);
+
+    const endedFindManyArg = prisma.mentorshipPair.findMany.mock.calls[0]?.[0] as {
+      where: { endedAt: { not: null } };
+    };
+    expect(endedFindManyArg.where.endedAt).toEqual({ not: null });
+  });
+
+  it('lists all scoped pairs when status is all', async () => {
+    sectionGate.listS6SubjectIds.mockResolvedValue(['mentee-1']);
+    prisma.mentorshipPair.findMany.mockResolvedValue([]);
+
+    await expect(service.listPairs('viewer-1', 'all')).resolves.toEqual([]);
+
+    const allFindManyArg = prisma.mentorshipPair.findMany.mock.calls[0]?.[0] as {
+      where: Record<string, unknown>;
+    };
+    expect(allFindManyArg.where.endedAt).toBeUndefined();
   });
 
   it('rejects ending a pair without feedback', async () => {
