@@ -21,6 +21,7 @@ import { RisksModule } from './modules/risks/risks.module';
 import { ActionItemsModule } from './modules/action-items/action-items.module';
 import { MentorshipModule } from './modules/mentorship/mentorship.module';
 import { CampaignsModule } from './modules/campaigns/campaigns.module';
+import { DashboardsModule } from './modules/dashboards/dashboards.module';
 import { ResourcingModule } from './modules/resourcing/resourcing.module';
 
 @Module({
@@ -50,6 +51,7 @@ import { ResourcingModule } from './modules/resourcing/resourcing.module';
     ActionItemsModule,
     MentorshipModule,
     CampaignsModule,
+    DashboardsModule,
     ResourcingModule,
     HealthModule,
     UsersModule,

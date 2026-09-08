@@ -36,6 +36,29 @@ export class ActiveMentorLookupService extends ActiveMentorLookup {
     return { id: pair.mentor.id, displayName };
   }
 
+  async getActiveMenteesForMentor(
+    mentorId: string,
+  ): Promise<ActiveMentorDto[]> {
+    const pairs = await this.prisma.mentorshipPair.findMany({
+      where: { mentorId, endedAt: null },
+      orderBy: { startedAt: 'desc' },
+      include: {
+        mentee: {
+          include: { user: { select: { name: true, email: true } } },
+        },
+      },
+    });
+
+    const mentees: ActiveMentorDto[] = [];
+    for (const pair of pairs) {
+      const displayName = this.relationDisplayName(pair.mentee.user);
+      if (displayName) {
+        mentees.push({ id: pair.mentee.id, displayName });
+      }
+    }
+    return mentees;
+  }
+
   private relationDisplayName(user: {
     name: string | null;
     email: string;

@@ -1,0 +1,39 @@
+import { ApiProperty } from '@nestjs/swagger';
+
+export type DashboardBlockId =
+  'counters' | 'table' | 'ownActionItems' | 'quickNav';
+
+export type DashboardGrouping = 'people' | 'project';
+
+export type DashboardVariant = 'um' | 'dm' | 'pm' | 'pp';
+
+export class DashboardCounterSpecEntity {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  providerId!: string;
+
+  @ApiProperty()
+  labelKey!: string;
+}
+
+export class DashboardConfigEntity {
+  @ApiProperty({ enum: ['um', 'dm', 'pm', 'pp'] })
+  variant!: DashboardVariant;
+
+  @ApiProperty({ enum: ['people', 'project'] })
+  grouping!: DashboardGrouping;
+
+  @ApiProperty({
+    type: [String],
+    enum: ['counters', 'table', 'ownActionItems', 'quickNav'],
+  })
+  blocks!: DashboardBlockId[];
+
+  @ApiProperty({ type: [DashboardCounterSpecEntity] })
+  counters!: DashboardCounterSpecEntity[];
+
+  @ApiProperty({ enum: ['seed-map', 'functional-role'] })
+  resolvedBy!: 'seed-map' | 'functional-role';
+}
