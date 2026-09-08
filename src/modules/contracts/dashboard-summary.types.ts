@@ -1,13 +1,14 @@
-import type { RiskLevel } from '../../generated/prisma/client';
-
 export interface DashboardSummaryScope {
   subjectIds: string[];
 }
 
+export type DashboardRiskLevel =
+  'low' | 'need_attention' | 'medium' | 'high' | 'leaver';
+
 export interface DashboardRiskRowFragment {
   employeeId: string;
   displayName: string;
-  currentLevel: RiskLevel;
+  currentLevel: DashboardRiskLevel;
   trend?: 'up' | 'down' | 'flat';
   recordedAt: string;
 }

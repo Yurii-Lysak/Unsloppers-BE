@@ -203,7 +203,10 @@ describe('DashboardsService', () => {
 
     const summary = await service.getSummary('dm-viewer');
 
-    expect(audience.listProjectGroups.mock.calls).toEqual([['dm-viewer', 'dm'], ['dm-viewer', 'dm']]);
+    expect(audience.listProjectGroups.mock.calls).toEqual([
+      ['dm-viewer', 'dm'],
+      ['dm-viewer', 'dm'],
+    ]);
     expect(summary.grouping).toBe('project');
     expect(summary.groups).toHaveLength(2);
     expect(summary.groups?.[1]?.rows).toEqual([]);

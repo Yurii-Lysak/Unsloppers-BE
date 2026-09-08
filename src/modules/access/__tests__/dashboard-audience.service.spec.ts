@@ -39,7 +39,7 @@ describe('DashboardAudienceService', () => {
     const result = await service.listManagerSubordinateIds('manager-1');
 
     expect(result).toEqual(['sub-1']);
-    expect(prisma.employee.findMany.mock.calls[0][0]).toEqual({
+    expect(prisma.employee.findMany).toHaveBeenCalledWith({
       where: { managerId: 'manager-1' },
       select: { id: true },
     });
@@ -96,7 +96,7 @@ describe('DashboardAudienceService', () => {
 
     await service.listProjectGroups('pm-1', 'pm');
 
-    expect(prisma.projectAssignment.findMany.mock.calls[0][0]).toEqual({
+    expect(prisma.projectAssignment.findMany).toHaveBeenCalledWith({
       where: { pmId: 'pm-1' },
       select: {
         projectId: true,
