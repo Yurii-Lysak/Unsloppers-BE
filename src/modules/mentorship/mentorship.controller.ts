@@ -146,16 +146,21 @@ export class MentorshipPoolController {
   @Get('pairs')
   @SwaggerListActiveMentorshipPairs()
   async listPairs(@Req() request: Request, @Query('status') status?: string) {
-    if (status !== 'active') {
+    const normalizedStatus = status ?? 'all';
+
+    if (!['active', 'ended', 'all'].includes(normalizedStatus)) {
       throw new BadRequestException(
-        'Only status=active is supported for mentorship pairs listing.',
+        'status must be one of: active, ended, all.',
       );
     }
 
     const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
     await this.assertAssignEndMentorshipsPermission(request);
 
-    const pairs = await this.assignment.listActivePairs(viewerEmployeeId);
+    const pairs = await this.assignment.listPairs(
+      viewerEmployeeId,
+      normalizedStatus as 'active' | 'ended' | 'all',
+    );
     return { pairs };
   }
 

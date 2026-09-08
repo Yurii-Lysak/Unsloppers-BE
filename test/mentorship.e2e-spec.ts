@@ -756,6 +756,127 @@ describe('Mentorship (e2e)', () => {
       listRes.body as { pairs: Array<{ id: string }> }
     ).pairs.map((row) => row.id);
     expect(pairIds).toContain(pair.id);
+
+    const activeRow = (
+      listRes.body as {
+        pairs: Array<{
+          id: string;
+          endedAt: string | null;
+          status: string;
+        }>;
+      }
+    ).pairs.find((row) => row.id === pair.id);
+    expect(activeRow?.endedAt).toBeNull();
+    expect(activeRow?.status).toBe('active');
+  });
+
+  it('lists scoped ended and all pairs for managers', async () => {
+    const mentor = await createEmployeeUser(
+      testApp,
+      'ended-mentor@example.com',
+    );
+    const mentee = await createEmployeeUser(
+      testApp,
+      'ended-mentee@example.com',
+    );
+    const manager = await createEmployeeUser(
+      testApp,
+      'ended-manager@example.com',
+    );
+    const outsiderMentor = await createEmployeeUser(
+      testApp,
+      'ended-outsider-mentor@example.com',
+    );
+    const outsiderMentee = await createEmployeeUser(
+      testApp,
+      'ended-outsider-mentee@example.com',
+    );
+
+    await testApp.prisma.employee.update({
+      where: { id: mentee.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+
+    const endedPair = await testApp.prisma.mentorshipPair.create({
+      data: {
+        mentorId: mentor.employeeId,
+        menteeId: mentee.employeeId,
+        endedAt: new Date('2026-07-01T12:00:00.000Z'),
+        closureFeedback: 'Completed successfully.',
+      },
+    });
+    const activePair = await testApp.prisma.mentorshipPair.create({
+      data: {
+        mentorId: outsiderMentor.employeeId,
+        menteeId: mentee.employeeId,
+      },
+    });
+    const outOfScopePair = await testApp.prisma.mentorshipPair.create({
+      data: {
+        mentorId: outsiderMentor.employeeId,
+        menteeId: outsiderMentee.employeeId,
+        endedAt: new Date('2026-06-01T12:00:00.000Z'),
+        closureFeedback: 'Out of scope.',
+      },
+    });
+
+    await grantPermission(
+      testApp,
+      manager.employeeId,
+      PERMISSION_KEYS.ASSIGN_END_MENTORSHIPS,
+    );
+
+    const managerAgent = await loginAs(testApp, manager.email);
+
+    const endedRes = await managerAgent
+      .get('/api/v1/mentorship/pairs?status=ended')
+      .expect(200);
+    const endedRows = (
+      endedRes.body as {
+        pairs: Array<{ id: string; status: string; closureFeedback?: string }>;
+      }
+    ).pairs;
+    const endedIds = endedRows.map((row) => row.id);
+    expect(endedIds).toContain(endedPair.id);
+    expect(endedIds).not.toContain(activePair.id);
+    expect(endedIds).not.toContain(outOfScopePair.id);
+    expect(
+      endedRows.every((row) => row.closureFeedback === undefined),
+    ).toBe(true);
+
+    const allRes = await managerAgent
+      .get('/api/v1/mentorship/pairs?status=all')
+      .expect(200);
+    const allIds = (allRes.body as { pairs: Array<{ id: string }> }).pairs.map(
+      (row) => row.id,
+    );
+    expect(allIds).toContain(endedPair.id);
+    expect(allIds).toContain(activePair.id);
+    expect(allIds).not.toContain(outOfScopePair.id);
+
+    const defaultRes = await managerAgent
+      .get('/api/v1/mentorship/pairs')
+      .expect(200);
+    expect(
+      (defaultRes.body as { pairs: Array<{ id: string }> }).pairs.map(
+        (row) => row.id,
+      ),
+    ).toEqual(allIds);
+  });
+
+  it('rejects unsupported mentorship pair list status values', async () => {
+    const manager = await createEmployeeUser(
+      testApp,
+      'list-status-manager@example.com',
+    );
+    await grantPermission(
+      testApp,
+      manager.employeeId,
+      PERMISSION_KEYS.ASSIGN_END_MENTORSHIPS,
+    );
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    await managerAgent.get('/api/v1/mentorship/pairs?status=foo').expect(400);
   });
 
   it('forbids ending a pair without assign_end_mentorships permission', async () => {

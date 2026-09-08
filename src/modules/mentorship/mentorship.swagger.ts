@@ -5,6 +5,7 @@ import {
   ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
+  ApiQuery,
 } from '@nestjs/swagger';
 import {
   ActiveMentorshipPairsListEntity,
@@ -60,8 +61,17 @@ export const SwaggerCreateMentorshipPair = () =>
 
 export const SwaggerListActiveMentorshipPairs = () =>
   applyDecorators(
+    ApiQuery({
+      name: 'status',
+      required: false,
+      enum: ['active', 'ended', 'all'],
+      description: 'Filter pairs by lifecycle status. Defaults to all.',
+    }),
     ApiOkResponse({ type: ActiveMentorshipPairsListEntity }),
-    ApiBadRequestResponse({ description: 'Unsupported status query value' }),
+    ApiBadRequestResponse({
+      description:
+        'Unsupported status query value (must be active, ended, or all)',
+    }),
     ApiForbiddenResponse({
       description: 'Viewer lacks assign and end mentorships permission',
     }),
