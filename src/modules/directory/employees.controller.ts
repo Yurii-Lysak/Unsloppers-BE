@@ -7,6 +7,7 @@ import {
   Patch,
   Query,
   Req,
+  StreamableFile,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
@@ -14,10 +15,12 @@ import { CurrentUserProvider } from '../contracts/current-user-provider.contract
 import { UpdateEmployeeFieldDto } from './dto/update-employee-field.dto';
 import { EmployeeFieldUpdateEntity } from './entities/employee-field-update.entity';
 import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
+import { ExportEmployeesQueryDto } from './dto/export-employees-query.dto';
 import { EmployeeLookupEntity } from './entities/employee-lookup.entity';
 import { EmployeeSummaryEntity } from './entities/employee-summary.entity';
 import { EmployeesService } from './employees.service';
 import {
+  SwaggerExportEmployees,
   SwaggerGetEmployee,
   SwaggerListEmployees,
   SwaggerLookupEmployees,
@@ -46,6 +49,23 @@ export class EmployeesController {
   async lookup(@Req() request: Request): Promise<EmployeeLookupEntity[]> {
     await this.currentUser.getCurrentUser(request);
     return this.employees.listLookupOptions();
+  }
+
+  @Get('export')
+  @SwaggerExportEmployees()
+  async export(
+    @Req() request: Request,
+    @Query() query: ExportEmployeesQueryDto,
+  ): Promise<StreamableFile> {
+    const { userId } = await this.currentUser.getCurrentUser(request);
+    const { buffer, filename } = await this.employees.exportEmployees(
+      userId,
+      query,
+    );
+    return new StreamableFile(buffer, {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      disposition: `attachment; filename="${filename}"`,
+    });
   }
 
   @Get(':employeeId')

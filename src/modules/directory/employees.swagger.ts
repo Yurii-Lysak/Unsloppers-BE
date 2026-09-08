@@ -25,6 +25,19 @@ export const SwaggerLookupEmployees = () =>
     ApiUnauthorizedResponse({ description: 'Unauthenticated' }),
   );
 
+export const SwaggerExportEmployees = () =>
+  applyDecorators(
+    ApiOkResponse({
+      description:
+        'Excel workbook (.xlsx) of the access-resolved employee list',
+      schema: { type: 'string', format: 'binary' },
+    }),
+    ApiBadRequestResponse({
+      description: 'Invalid filters, sort, or columns parameters',
+    }),
+    ApiUnauthorizedResponse({ description: 'Unauthenticated' }),
+  );
+
 export const SwaggerGetEmployee = () =>
   applyDecorators(
     ApiOkResponse({ type: EmployeeSummaryEntity }),

@@ -27,6 +27,14 @@ import { CustomFieldsService } from './custom-fields.service';
 import { CustomFieldVisibilityService } from './custom-field-visibility.service';
 import { MANAGE_CUSTOM_FIELDS_PERMISSION } from './directory.constants';
 import { FieldRegistryService } from './field-registry.service';
+import { ExportEmployeesQueryDto } from './dto/export-employees-query.dto';
+import { MAX_PAGE_SIZE, MIN_PAGE } from '../contracts/employee-list.constants';
+import {
+  buildExportFilename,
+  dedupeColumnIds,
+  formatExportCellValue,
+} from './employee-export.helpers';
+import * as ExcelJS from 'exceljs';
 
 /**
  * Employee directory reads (Story 3.1) and inline field writes (Story 3.3).
@@ -99,6 +107,102 @@ export class EmployeesService extends EmployeeDirectory {
       pageSize: result.pageSize,
       filtersHidden,
     };
+  }
+
+  async exportEmployees(
+    viewerId: string,
+    query: ExportEmployeesQueryDto,
+  ): Promise<{ buffer: Buffer; filename: string }> {
+    const requestedColumnIds = dedupeColumnIds(query.columns);
+    const allFields = await this.fieldRegistryService.listFields();
+    const knownFieldIds = new Set(allFields.map((field) => field.id));
+    for (const columnId of requestedColumnIds) {
+      if (!knownFieldIds.has(columnId)) {
+        throw new BadRequestException(`Unknown field "${columnId}"`);
+      }
+    }
+
+    const viewerEmployeeId = await this.resolveViewerEmployeeId(viewerId);
+    const visibleFields = await this.filterVisibleFields(
+      viewerEmployeeId,
+      viewerId,
+      allFields,
+    );
+    const visibleFieldIds = new Set(visibleFields.map((field) => field.id));
+    const exportColumnIds = requestedColumnIds.filter((columnId) =>
+      visibleFieldIds.has(columnId),
+    );
+    if (exportColumnIds.length === 0) {
+      throw new BadRequestException('No exportable columns for this viewer');
+    }
+    const fieldById = new Map(allFields.map((field) => [field.id, field]));
+
+    const { rows } = await this.listAllEmployees(viewerId, {
+      sort: query.sort,
+      order: query.order,
+      filters: query.filters,
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Employees');
+    worksheet.addRow(
+      exportColumnIds.map(
+        (columnId) => fieldById.get(columnId)?.name ?? columnId,
+      ),
+    );
+
+    for (const row of rows) {
+      worksheet.addRow(
+        exportColumnIds.map((columnId) =>
+          formatExportCellValue(row.cells[columnId]),
+        ),
+      );
+    }
+
+    const arrayBuffer = await workbook.xlsx.writeBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    return {
+      buffer,
+      filename: buildExportFilename(),
+    };
+  }
+
+  private async listAllEmployees(
+    viewerId: string,
+    query: Omit<EmployeeListQueryOptions, 'page' | 'pageSize'>,
+  ): Promise<{
+    rows: EmployeeDirectoryRowDto[];
+    fields: FieldSpec[];
+    filtersHidden: boolean;
+  }> {
+    const allRows: EmployeeDirectoryRowDto[] = [];
+    let page = MIN_PAGE;
+    let total = 0;
+    let fields: FieldSpec[] = [];
+    let filtersHidden = false;
+
+    while (true) {
+      const result = await this.listEmployees(viewerId, {
+        ...query,
+        page,
+        pageSize: MAX_PAGE_SIZE,
+      });
+      fields = result.fields;
+      filtersHidden = result.filtersHidden ?? false;
+      total = result.total;
+      allRows.push(
+        ...result.rows.map((row) => ({
+          employeeId: row.employeeId,
+          cells: row.cells,
+        })),
+      );
+      if (allRows.length >= total) {
+        break;
+      }
+      page += 1;
+    }
+
+    return { rows: allRows, fields, filtersHidden };
   }
 
   /**
