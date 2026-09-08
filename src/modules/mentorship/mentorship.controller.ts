@@ -7,6 +7,7 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Post,
   Req,
   UseInterceptors,
   UsePipes,
@@ -20,9 +21,13 @@ import { PermissionChecker } from '../contracts/permission-checker.contract';
 import { SectionAccessGate } from '../contracts/section-access-gate.contract';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatchOpenToMentoringDto } from './dto/patch-open-to-mentoring.dto';
+import { CreateMentorshipPairDto } from './dto/create-mentorship-pair.dto';
+import { MentorshipAssignmentService } from './mentorship-assignment.service';
 import { MentorshipService } from './mentorship.service';
 import { RejectMentorshipStatusWriteInterceptor } from './reject-mentorship-status-write.interceptor';
 import {
+  SwaggerCreateMentorshipPair,
+  SwaggerListAssignableMentees,
   SwaggerListWillingMentors,
   SwaggerPatchOpenToMentoring,
 } from './mentorship.swagger';
@@ -102,6 +107,7 @@ export class EmployeeMentorshipController {
 export class MentorshipPoolController {
   constructor(
     private readonly mentorship: MentorshipService,
+    private readonly assignment: MentorshipAssignmentService,
     private readonly currentUser: CurrentUserProvider,
     private readonly prisma: PrismaService,
     private readonly permissionChecker: PermissionChecker,
@@ -110,6 +116,48 @@ export class MentorshipPoolController {
   @Get('willing-mentors')
   @SwaggerListWillingMentors()
   async listWillingMentors(@Req() request: Request) {
+    await this.resolveViewerEmployeeId(request);
+    await this.assertAssignEndMentorshipsPermission(request);
+
+    const mentors = await this.mentorship.listWillingMentors();
+    return { mentors };
+  }
+
+  @Get('assignable-mentees')
+  @SwaggerListAssignableMentees()
+  async listAssignableMentees(@Req() request: Request) {
+    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
+    await this.assertAssignEndMentorshipsPermission(request);
+
+    const mentees =
+      await this.assignment.listAssignableMentees(viewerEmployeeId);
+    return { mentees };
+  }
+
+  @Post('pairs')
+  @UsePipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  )
+  @SwaggerCreateMentorshipPair()
+  async createPair(
+    @Req() request: Request,
+    @Body() dto: CreateMentorshipPairDto,
+  ) {
+    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
+    await this.assertAssignEndMentorshipsPermission(request);
+
+    return this.assignment.createPair(
+      viewerEmployeeId,
+      dto.mentorId,
+      dto.menteeId,
+    );
+  }
+
+  private async resolveViewerEmployeeId(request: Request): Promise<string> {
     const { userId } = await this.currentUser.getCurrentUser(request);
     const employee = await this.prisma.employee.findUnique({
       where: { userId },
@@ -118,7 +166,13 @@ export class MentorshipPoolController {
     if (!employee) {
       throw new ForbiddenException('Authenticated user has no employee record');
     }
+    return employee.id;
+  }
 
+  private async assertAssignEndMentorshipsPermission(
+    request: Request,
+  ): Promise<void> {
+    const { userId } = await this.currentUser.getCurrentUser(request);
     const allowed = await this.permissionChecker.hasPermission(
       userId,
       PERMISSION_KEYS.ASSIGN_END_MENTORSHIPS,
@@ -128,8 +182,5 @@ export class MentorshipPoolController {
         'Viewer lacks assign and end mentorships permission',
       );
     }
-
-    const mentors = await this.mentorship.listWillingMentors();
-    return { mentors };
   }
 }
