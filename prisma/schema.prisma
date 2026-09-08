@@ -97,6 +97,9 @@ model Employee {
   // Story 10.1 — campaigns this employee created (creator-scoped list/get/patch).
   createdCampaigns FormCampaign[] @relation("FormCampaignCreator")
 
+  // Story 6.1 — resourcing requests authored by this employee.
+  resourcingRequests ResourcingRequest[] @relation("ResourcingRequestAuthor")
+
   // Story 1.7 — active mentorship pairs where this employee is mentor or mentee.
   mentorPairs MentorshipPair[] @relation("MentorPairs")
   menteePairs MentorshipPair[] @relation("MenteePairs")
@@ -484,6 +487,33 @@ model ActionItem {
   @@index([assigneeId])
   @@index([authorId])
   @@map("action_items")
+}
+
+// Story 6.1 — resourcing request (CAP-6). Only `open` is reachable until later
+// stories add fulfilment/close transitions.
+enum ResourcingRequestStatus {
+  open
+}
+
+model ResourcingRequest {
+  id               String                  @id @default(uuid())
+  authorId         String
+  vacancyDetails   String                  @db.Text
+  expectedCompBand String                  @db.VarChar(200)
+  duration         String                  @db.VarChar(200)
+  workload         String                  @db.VarChar(200)
+  headcount        Int                     @default(1)
+  department       String                  @db.VarChar(200)
+  projectId        String?                 @db.VarChar(128)
+  status           ResourcingRequestStatus @default(open)
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  author Employee @relation("ResourcingRequestAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([authorId])
+  @@index([projectId])
+  @@map("resourcing_requests")
 }
 
 // Story 10.1 — draft-only Form Campaign record (CAP-10, epic-10-context.md).

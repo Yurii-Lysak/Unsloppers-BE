@@ -25,29 +25,25 @@ describe('Rate limiting (e2e)', () => {
       await testApp.close();
     });
 
-    it(
-      'returns 429 when login attempts exceed the per-IP limit',
-      async () => {
-        for (let attempt = 0; attempt < LOGIN_THROTTLE_LIMIT; attempt++) {
-          await request(testApp.server)
-            .post('/api/v1/auth/login')
-            .send({
-              email: 'nonexistent@altexsoft.com',
-              password: 'wrong-password',
-            })
-            .expect(401);
-        }
-
+    it('returns 429 when login attempts exceed the per-IP limit', async () => {
+      for (let attempt = 0; attempt < LOGIN_THROTTLE_LIMIT; attempt++) {
         await request(testApp.server)
           .post('/api/v1/auth/login')
           .send({
             email: 'nonexistent@altexsoft.com',
             password: 'wrong-password',
           })
-          .expect(429);
-      },
-      120_000,
-    );
+          .expect(401);
+      }
+
+      await request(testApp.server)
+        .post('/api/v1/auth/login')
+        .send({
+          email: 'nonexistent@altexsoft.com',
+          password: 'wrong-password',
+        })
+        .expect(429);
+    }, 120_000);
   });
 
   describe('GET /shared-links/:token/profile', () => {
@@ -81,29 +77,25 @@ describe('Rate limiting (e2e)', () => {
       await testApp.close();
     });
 
-    it(
-      'returns 429 when consumption exceeds the per-IP limit',
-      async () => {
-        const recipientAgent = request.agent(testApp.server);
-        await recipientAgent
-          .post('/api/v1/auth/login')
-          .send({
-            email: BOOTCAMP_COLLEAGUE_EMAIL,
-            password: BOOTCAMP_E2E_PASSWORD,
-          })
-          .expect(200);
+    it('returns 429 when consumption exceeds the per-IP limit', async () => {
+      const recipientAgent = request.agent(testApp.server);
+      await recipientAgent
+        .post('/api/v1/auth/login')
+        .send({
+          email: BOOTCAMP_COLLEAGUE_EMAIL,
+          password: BOOTCAMP_E2E_PASSWORD,
+        })
+        .expect(200);
 
-        for (let attempt = 0; attempt < SHARED_LINK_THROTTLE_LIMIT; attempt++) {
-          await recipientAgent
-            .get(`/api/v1/shared-links/${sharedLinkToken}/profile`)
-            .expect(200);
-        }
-
+      for (let attempt = 0; attempt < SHARED_LINK_THROTTLE_LIMIT; attempt++) {
         await recipientAgent
           .get(`/api/v1/shared-links/${sharedLinkToken}/profile`)
-          .expect(429);
-      },
-      120_000,
-    );
+          .expect(200);
+      }
+
+      await recipientAgent
+        .get(`/api/v1/shared-links/${sharedLinkToken}/profile`)
+        .expect(429);
+    }, 120_000);
   });
 });
