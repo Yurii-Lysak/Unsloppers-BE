@@ -33,6 +33,9 @@ describe('FieldRegistryService', () => {
       findUnique: jest.fn(),
       findMany: jest.fn(),
     },
+    mentorshipPair: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     gradeHistory: {
       create: jest.fn(),
     },
@@ -564,6 +567,73 @@ describe('FieldRegistryService', () => {
       expect(result.rows[0]?.cells.years_with_company).toBeGreaterThanOrEqual(
         7,
       );
+    });
+
+    it('filters and sorts by derived mentor_status', async () => {
+      prisma.customFieldDefinition.findMany.mockResolvedValue([]);
+      prisma.employee.findMany.mockResolvedValue([
+        {
+          id: 'emp-mentor',
+          openToMentoring: true,
+          user: { name: 'Active Mentor' },
+          gradeHistory: [],
+          positionHistory: [],
+          departmentHistory: [],
+          employmentTypeHistory: [],
+        },
+        {
+          id: 'emp-open',
+          openToMentoring: true,
+          user: { name: 'Open Mentor' },
+          gradeHistory: [],
+          positionHistory: [],
+          departmentHistory: [],
+          employmentTypeHistory: [],
+        },
+        {
+          id: 'emp-none',
+          openToMentoring: false,
+          user: { name: 'Not Mentoring' },
+          gradeHistory: [],
+          positionHistory: [],
+          departmentHistory: [],
+          employmentTypeHistory: [],
+        },
+      ]);
+      prisma.mentorshipPair.findMany.mockResolvedValue([
+        { mentorId: 'emp-mentor' },
+      ]);
+
+      const filtered = await service.queryEmployees({
+        page: 1,
+        pageSize: 50,
+        filters: [
+          {
+            fieldId: BUILTIN_FIELD_IDS.mentor_status,
+            operator: 'eq',
+            value: 'mentor',
+          },
+        ],
+      });
+
+      expect(filtered.total).toBe(1);
+      expect(filtered.rows[0]?.employeeId).toBe('emp-mentor');
+      expect(filtered.rows[0]?.cells[BUILTIN_FIELD_IDS.mentor_status]).toBe(
+        'mentor',
+      );
+
+      const sorted = await service.queryEmployees({
+        page: 1,
+        pageSize: 50,
+        sort: BUILTIN_FIELD_IDS.mentor_status,
+        order: 'desc',
+      });
+
+      expect(sorted.rows.map((row) => row.employeeId)).toEqual([
+        'emp-open',
+        'emp-none',
+        'emp-mentor',
+      ]);
     });
   });
 

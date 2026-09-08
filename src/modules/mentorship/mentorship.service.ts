@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { AccessRole } from '../contracts/access-resolver.contract';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ActiveMentorLookup } from '../contracts/active-mentor-lookup.contract';
+import { computeMentorStatus } from './mentor-status.util';
 import {
   MentorStatus,
   MentorshipPairHistoryEntity,
@@ -116,9 +117,6 @@ export class MentorshipService {
       where: { mentorId: employeeId, endedAt: null },
       select: { id: true },
     });
-    if (activeAsMentor) {
-      return 'mentor';
-    }
 
     const flag =
       openToMentoring ??
@@ -127,13 +125,10 @@ export class MentorshipService {
           where: { id: employeeId },
           select: { openToMentoring: true },
         })
-      )?.openToMentoring;
+      )?.openToMentoring ??
+      false;
 
-    if (flag) {
-      return 'openToMentoring';
-    }
-
-    return 'none';
+    return computeMentorStatus(flag, activeAsMentor !== null);
   }
 
   private async loadPairHistory(

@@ -636,7 +636,9 @@ export class FieldRegistryService extends FieldRegistry {
 
   private async loadEmployeeSnapshots(): Promise<EmployeeSnapshot[]> {
     const employees = await this.prisma.employee.findMany({
-      include: {
+      select: {
+        id: true,
+        openToMentoring: true,
         user: { select: { name: true } },
         gradeHistory: {
           select: { value: true, effectiveFrom: true, effectiveTo: true },
@@ -653,6 +655,15 @@ export class FieldRegistryService extends FieldRegistry {
       },
       orderBy: { id: 'asc' },
     });
+
+    const activeMentorPairs = await this.prisma.mentorshipPair.findMany({
+      where: { endedAt: null },
+      select: { mentorId: true },
+      distinct: ['mentorId'],
+    });
+    const activeMentorIds = new Set(
+      activeMentorPairs.map((pair) => pair.mentorId),
+    );
 
     return employees.map((employee) => {
       const gradeHistory = employee.gradeHistory as HistoryRowSnapshot[];
@@ -682,6 +693,8 @@ export class FieldRegistryService extends FieldRegistry {
         department: department?.value ?? null,
         employmentType: employmentType?.value ?? null,
         tenureStart: earliestDate(tenureDates),
+        openToMentoring: employee.openToMentoring,
+        hasActiveMentorPair: activeMentorIds.has(employee.id),
       };
     });
   }

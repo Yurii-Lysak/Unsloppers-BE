@@ -933,4 +933,79 @@ describe('Employees list (e2e)', () => {
     expect(reportRow?.cells[BUILTIN_FIELD_IDS.grade]).toBe('Mid');
     expect(peerRow?.cells[BUILTIN_FIELD_IDS.grade]).toBeUndefined();
   });
+
+  it('filters employees by derived mentor_status and rejects direct writes', async () => {
+    const viewer = await createEmployeeUser(
+      testApp,
+      'employees-mentor-status@example.com',
+      'Status Viewer',
+      '2020-01-01',
+    );
+    await testApp.prisma.fullAccessGrant.create({
+      data: { employeeId: viewer.employeeId },
+    });
+
+    const mentor = await createEmployeeUser(
+      testApp,
+      'employees-active-mentor@example.com',
+      'Active Mentor',
+      '2020-01-01',
+    );
+    const openOnly = await createEmployeeUser(
+      testApp,
+      'employees-open-only@example.com',
+      'Open Only',
+      '2020-01-01',
+    );
+    const neither = await createEmployeeUser(
+      testApp,
+      'employees-no-status@example.com',
+      'No Status',
+      '2020-01-01',
+    );
+
+    await testApp.prisma.employee.update({
+      where: { id: mentor.employeeId },
+      data: { openToMentoring: true },
+    });
+    await testApp.prisma.employee.update({
+      where: { id: openOnly.employeeId },
+      data: { openToMentoring: true },
+    });
+    await testApp.prisma.mentorshipPair.create({
+      data: { mentorId: mentor.employeeId, menteeId: neither.employeeId },
+    });
+
+    const agent = await loginAs(testApp, viewer.email);
+    const filters = JSON.stringify([
+      {
+        fieldId: BUILTIN_FIELD_IDS.mentor_status,
+        operator: 'eq',
+        value: 'mentor',
+      },
+    ]);
+
+    const listRes = await agent
+      .get('/api/v1/employees')
+      .query({ filters, sort: BUILTIN_FIELD_IDS.name, order: 'asc' })
+      .expect(200);
+
+    const body = listRes.body as EmployeeListResponse;
+    expect(body.total).toBe(1);
+    expect(body.rows[0].employeeId).toBe(mentor.employeeId);
+    expect(body.rows[0].cells[BUILTIN_FIELD_IDS.mentor_status]).toBe('mentor');
+    expect(body.rows[0].writableFieldIds ?? []).not.toContain(
+      BUILTIN_FIELD_IDS.mentor_status,
+    );
+    expect(
+      body.fields.some((field) => field.id === BUILTIN_FIELD_IDS.mentor_status),
+    ).toBe(true);
+
+    await agent
+      .patch(
+        `/api/v1/employees/${mentor.employeeId}/fields/${BUILTIN_FIELD_IDS.mentor_status}`,
+      )
+      .send({ value: 'openToMentoring' })
+      .expect(400);
+  });
 });
