@@ -3,7 +3,7 @@
 - **Priority:** Urgent
 - **Component:** Backend / Directory (Employees)
 - **Severity:** Security — access control gap
-- **Status:** Resolved — not a bug (owner decision 2026-09-07, option C below)
+- **Status:** Fixed — not a product bug (owner decision 2026-09-07, option C)
 - **ClickUp:** Filed
 
 ## Description
@@ -141,6 +141,10 @@ identity-only lookups. `test/colleague-whitelist.e2e-spec.ts`'s
 inline comment for the rationale trail.
 
 No further backend code change is planned for this item.
+
+Verified 2026-09-08: `colleague-whitelist.e2e-spec.ts` — 34 tests in
+colleague-whitelist + employee-profile-custom-fields suites pass; lookup
+assertion green on branch `fix/backend-e2e-tests-fix`.
 
 ## Recommended fix (superseded by the above — kept for the original,
 ## simpler framing before the cross-test conflict was found)

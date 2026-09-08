@@ -314,6 +314,7 @@ describe('Employee profile assembly (e2e)', () => {
 
   it('still returns S1 data when mentor lookup fails', async () => {
     const failingApp = await createTestApp({
+      truncate: false,
       providerOverrides: [
         {
           provide: ActiveMentorLookup,
@@ -337,8 +338,13 @@ describe('Employee profile assembly (e2e)', () => {
     });
 
     try {
-      const seeded = await seedProfileGraph(failingApp);
-      const agent = await loginAgent(failingApp, MANAGER_EMAIL);
+      const seeded = await seedProfileGraph(failingApp, {
+        emailSuffix: '-mentor-fail',
+      });
+      const agent = await loginAgent(
+        failingApp,
+        profileEmail('manager', '-mentor-fail'),
+      );
 
       const res = await agent
         .get(`/api/v1/employees/${seeded.reportEmployeeId}/profile`)
@@ -506,33 +512,49 @@ const loginAgent = async (testApp: TestApp, email: string) => {
   return agent;
 };
 
-const seedProfileGraph = async (testApp: TestApp) => {
+const profileEmail = (role: string, suffix = '') =>
+  `profile-${role}${suffix}@example.com`;
+
+const seedProfileGraph = async (
+  testApp: TestApp,
+  options?: { emailSuffix?: string },
+) => {
+  const suffix = options?.emailSuffix ?? '';
+  const managerEmail = profileEmail('manager', suffix);
+  const mentorEmail = profileEmail('mentor', suffix);
+  const dmEmail = profileEmail('dm', suffix);
+  const ppEmail = profileEmail('pp', suffix);
+  const reportEmail = profileEmail('report', suffix);
+  const colleagueEmail = profileEmail('colleague', suffix);
+  const noEmployeeEmail = profileEmail('no-employee', suffix);
+  const hrAdminEmail = profileEmail('hr-admin', suffix);
+
   const passwordHash = await hash(PASSWORD, 12);
 
   const managerUser = await testApp.prisma.user.create({
-    data: { email: MANAGER_EMAIL, passwordHash },
+    data: { email: managerEmail, passwordHash },
   });
   const mentorUser = await testApp.prisma.user.create({
-    data: { email: MENTOR_EMAIL, passwordHash },
+    data: { email: mentorEmail, passwordHash },
   });
   const dmUser = await testApp.prisma.user.create({
-    data: { email: DM_EMAIL, passwordHash },
+    data: { email: dmEmail, passwordHash },
   });
   const ppUser = await testApp.prisma.user.create({
-    data: { email: PP_EMAIL, passwordHash },
+    data: { email: ppEmail, passwordHash },
   });
   const reportUser = await testApp.prisma.user.create({
-    data: { email: REPORT_EMAIL, passwordHash },
+    data: { email: reportEmail, passwordHash },
   });
   const colleagueUser = await testApp.prisma.user.create({
-    data: { email: COLLEAGUE_EMAIL, passwordHash },
+    data: { email: colleagueEmail, passwordHash },
   });
   await testApp.prisma.user.create({
-    data: { email: NO_EMPLOYEE_EMAIL, passwordHash },
+    data: { email: noEmployeeEmail, passwordHash },
   });
   await testApp.prisma.user.create({
     data: {
-      email: HR_ADMIN_EMAIL,
+      email: hrAdminEmail,
       passwordHash,
       employee: { create: {} },
     },
