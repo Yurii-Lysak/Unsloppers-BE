@@ -16,14 +16,14 @@ datasource db {
 // without going through the seed path at all — TimeTracker is the only
 // identity source for these two fields, never a hand-authored value.
 model User {
-  id          String   @id @default(uuid())
-  email       String   @unique
-  name        String?
-  hash        String?
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String?
+  hash         String?
   passwordHash String?
-  countryCode String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  countryCode  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   employee Employee?
 
@@ -41,13 +41,13 @@ enum EmploymentStatus {
 // add fields as they're needed. An Employee has no lifecycle independent of
 // its User, hence Cascade.
 model Employee {
-  id        String   @id @default(uuid())
-  userId    String   @unique
+  id               String           @id @default(uuid())
+  userId           String           @unique
   employmentStatus EmploymentStatus @default(active)
   // Story 9.1 — self-declared willingness to mentor; writable by Self on S13 only.
   openToMentoring Boolean @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -70,8 +70,8 @@ model Employee {
   // FK: at most one active PP per employee. `onDelete: SetNull` clears the
   // assignment when the PP's Employee row is deleted rather than blocking delete.
   peoplePartnerId String?
-  peoplePartner     Employee?  @relation("PeoplePartnerAssignment", fields: [peoplePartnerId], references: [id], onDelete: SetNull)
-  ppAssignments     Employee[] @relation("PeoplePartnerAssignment")
+  peoplePartner   Employee?  @relation("PeoplePartnerAssignment", fields: [peoplePartnerId], references: [id], onDelete: SetNull)
+  ppAssignments   Employee[] @relation("PeoplePartnerAssignment")
 
   // Story 1.2 — the three legs of a ProjectAssignment row that can name this
   // Employee: the assigned employee, and the project's PM/DM. Three distinct
@@ -81,10 +81,10 @@ model Employee {
   pmProjectAssignments ProjectAssignment[] @relation("ProjectAssignmentPm")
   dmProjectAssignments ProjectAssignment[] @relation("ProjectAssignmentDm")
 
-  externalIdentities ExternalIdentity[]
+  externalIdentities        ExternalIdentity[]
   functionalRoleAssignments FunctionalRoleAssignment[]
 
-  managementNotesAbout   ManagementNote[] @relation("ManagementNoteSubject")
+  managementNotesAbout    ManagementNote[] @relation("ManagementNoteSubject")
   managementNotesAuthored ManagementNote[] @relation("ManagementNoteAuthor")
 
   feedbackRecordsAbout    FeedbackRecord[] @relation("FeedbackRecordSubject")
@@ -101,6 +101,17 @@ model Employee {
 
   // Story 6.1 — resourcing requests authored by this employee.
   resourcingRequests ResourcingRequest[] @relation("ResourcingRequestAuthor")
+
+  // Story 6.2 — resourcing requests where this employee is the resolved reviewing DM.
+  resourcingRequestsReviewing ResourcingRequest[] @relation("ResourcingRequestReviewingDm")
+
+  // Story 6.2 — C12 departments this employee manages (direct UM assignment).
+  managedDepartments Department[] @relation("DepartmentManager")
+
+  // Story 6.2 — proposals this employee (a UM) has authored, and proposals
+  // naming this employee as the internal candidate.
+  resourcingProposalsProposed    ResourcingProposal[] @relation("ResourcingProposalProposedBy")
+  resourcingProposalsAsCandidate ResourcingProposal[] @relation("ResourcingProposalCandidate")
 
   // Story 1.7 — active mentorship pairs where this employee is mentor or mentee.
   mentorPairs MentorshipPair[] @relation("MentorPairs")
@@ -136,19 +147,19 @@ enum ProjectAssignmentSource {
 }
 
 model ProjectAssignment {
-  id          String    @id @default(uuid())
+  id          String                  @id @default(uuid())
   employeeId  String
   projectId   String
   pmId        String
   dmId        String
-  startDate   DateTime  @db.Date
-  endDate     DateTime? @db.Date
-  confirmed   Boolean   @default(false)
+  startDate   DateTime                @db.Date
+  endDate     DateTime?               @db.Date
+  confirmed   Boolean                 @default(false)
   confirmedAt DateTime?
   source      ProjectAssignmentSource @default(manual)
-  sourceKey   String?   @unique
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  sourceKey   String?                 @unique
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
 
   employee Employee @relation("ProjectAssignmentEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
   pm       Employee @relation("ProjectAssignmentPm", fields: [pmId], references: [id], onDelete: Restrict)
@@ -195,16 +206,16 @@ model CustomFieldDefinition {
 // per row; the rest are NULL. Rows exist only after the first write (lazy).
 // multi_select values are JSON-encoded string arrays in valueText.
 model CustomFieldValue {
-  id                String   @id @default(uuid())
+  id                String    @id @default(uuid())
   employeeId        String
   fieldDefinitionId String
   valueText         String?
-  valueNumber       Decimal? @db.Decimal(18, 6)
+  valueNumber       Decimal?  @db.Decimal(18, 6)
   valueDate         DateTime? @db.Date
   valueBoolean      Boolean?
   valueSelect       String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   employee        Employee              @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   fieldDefinition CustomFieldDefinition @relation(fields: [fieldDefinitionId], references: [id], onDelete: Cascade)
@@ -302,20 +313,20 @@ model EmploymentTypeHistory {
 // index (active rows only) live in migration SQL — see
 // `timeline_events_active_key` WHERE deleted_at IS NULL.
 model TimelineEvent {
-  id            String    @id @default(uuid())
-  employeeId    String
-  type          String
-  effectiveDate DateTime  @db.Date
-  oldValue      Json?
-  newValue      Json?
-  source                String
-  authorId              String?
-  systemWriteSkippedAt  DateTime?
-  deletedAt             DateTime?
-  deletedById           String?
-  updatedAt             DateTime  @updatedAt
-  updatedById           String?
-  createdAt             DateTime  @default(now())
+  id                   String    @id @default(uuid())
+  employeeId           String
+  type                 String
+  effectiveDate        DateTime  @db.Date
+  oldValue             Json?
+  newValue             Json?
+  source               String
+  authorId             String?
+  systemWriteSkippedAt DateTime?
+  deletedAt            DateTime?
+  deletedById          String?
+  updatedAt            DateTime  @updatedAt
+  updatedById          String?
+  createdAt            DateTime  @default(now())
 
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
 
@@ -491,10 +502,12 @@ model ActionItem {
   @@map("action_items")
 }
 
-// Story 6.1 — resourcing request (CAP-6). Only `open` is reachable until later
-// stories add fulfilment/close transitions.
+// Story 6.1/6.2 — resourcing request (CAP-6). `pending_dm_review` (6.2) is
+// reachable only via the explicit submit transition while `open` and at
+// least one `proposed` proposal exists; approve/reject/close land in 6.3/6.4.
 enum ResourcingRequestStatus {
   open
+  pending_dm_review
 }
 
 model ResourcingRequest {
@@ -508,14 +521,70 @@ model ResourcingRequest {
   department       String                  @db.VarChar(200)
   projectId        String?                 @db.VarChar(128)
   status           ResourcingRequestStatus @default(open)
+  // Story 6.2 — resolved once at submit time (immutable in 6.2); recipient
+  // for internal-candidate shared links, and 6.3's future approval gate.
+  reviewingDmId    String?
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
 
-  author Employee @relation("ResourcingRequestAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  author      Employee             @relation("ResourcingRequestAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  reviewingDm Employee?            @relation("ResourcingRequestReviewingDm", fields: [reviewingDmId], references: [id], onDelete: Restrict)
+  proposals   ResourcingProposal[]
 
   @@index([authorId])
   @@index([projectId])
+  @@index([reviewingDmId])
   @@map("resourcing_requests")
+}
+
+// Story 6.2 — C12 minimal department directory: live UM routing by
+// department name. Flat/nested via `parentId` (bootcamp seed ships flat —
+// every distinct value is a top-level department, `parentId` null).
+model Department {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  parentId  String?
+  managerId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  parent   Department?  @relation("DepartmentParent", fields: [parentId], references: [id], onDelete: SetNull)
+  children Department[] @relation("DepartmentParent")
+  manager  Employee?    @relation("DepartmentManager", fields: [managerId], references: [id], onDelete: SetNull)
+
+  @@index([parentId])
+  @@index([managerId])
+  @@map("departments")
+}
+
+// Story 6.2 — a UM's attached candidate (internal or external-link) against a
+// routed request. Only `proposed` is reachable until 6.3 adds
+// approve/reject. Exactly one of `candidateEmployeeId` (internal) or
+// `peopleForceCandidateUrl` (external, required) is populated per row —
+// enforced in `ResourcingService`, not the schema (Prisma has no partial
+// XOR check constraint here without hand-editing migration SQL, and this
+// isn't a concurrency-sensitive invariant like the temporal-history ones).
+enum ResourcingProposalStatus {
+  proposed
+}
+
+model ResourcingProposal {
+  id                      String                   @id @default(uuid())
+  requestId               String
+  proposedById            String
+  candidateEmployeeId     String?
+  peopleForceCandidateId  String?                  @db.VarChar(128)
+  peopleForceCandidateUrl String?                  @db.VarChar(2000)
+  status                  ResourcingProposalStatus @default(proposed)
+  createdAt               DateTime                 @default(now())
+
+  request           ResourcingRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  proposedBy        Employee          @relation("ResourcingProposalProposedBy", fields: [proposedById], references: [id], onDelete: Restrict)
+  candidateEmployee Employee?         @relation("ResourcingProposalCandidate", fields: [candidateEmployeeId], references: [id], onDelete: Restrict)
+
+  @@index([requestId])
+  @@index([candidateEmployeeId])
+  @@map("resourcing_proposals")
 }
 
 // Story 10.1 — draft-only Form Campaign record (CAP-10, epic-10-context.md).
@@ -527,19 +596,19 @@ enum FormCampaignStatus {
 }
 
 model FormCampaign {
-  id          String             @id @default(uuid())
-  creatorId   String
-  title       String
-  description String             @db.VarChar(500)
-  purpose     String             @db.Text
-  link        String
-  dueDate     DateTime           @db.Date
-  status                    FormCampaignStatus @default(draft)
-  audienceFilters           Json               @default("[]")
-  audienceAddedEmployeeIds  String[]           @default([])
-  audienceExcludedEmployeeIds String[]         @default([])
-  createdAt                 DateTime           @default(now())
-  updatedAt                 DateTime           @updatedAt
+  id                          String             @id @default(uuid())
+  creatorId                   String
+  title                       String
+  description                 String             @db.VarChar(500)
+  purpose                     String             @db.Text
+  link                        String
+  dueDate                     DateTime           @db.Date
+  status                      FormCampaignStatus @default(draft)
+  audienceFilters             Json               @default("[]")
+  audienceAddedEmployeeIds    String[]           @default([])
+  audienceExcludedEmployeeIds String[]           @default([])
+  createdAt                   DateTime           @default(now())
+  updatedAt                   DateTime           @updatedAt
 
   creator     Employee     @relation("FormCampaignCreator", fields: [creatorId], references: [id], onDelete: Restrict)
   actionItems ActionItem[]
@@ -578,9 +647,9 @@ model SharedLink {
   revokedAt           DateTime?
   createdAt           DateTime  @default(now())
 
-  subjectEmployee   Employee @relation("SharedLinkSubject", fields: [subjectEmployeeId], references: [id], onDelete: Restrict)
-  creatorEmployee   Employee @relation("SharedLinkCreator", fields: [creatorEmployeeId], references: [id], onDelete: Restrict)
-  recipientEmployee Employee @relation("SharedLinkRecipient", fields: [recipientEmployeeId], references: [id], onDelete: Restrict)
+  subjectEmployee   Employee            @relation("SharedLinkSubject", fields: [subjectEmployeeId], references: [id], onDelete: Restrict)
+  creatorEmployee   Employee            @relation("SharedLinkCreator", fields: [creatorEmployeeId], references: [id], onDelete: Restrict)
+  recipientEmployee Employee            @relation("SharedLinkRecipient", fields: [recipientEmployeeId], references: [id], onDelete: Restrict)
   sections          SharedLinkSection[]
 
   @@index([subjectEmployeeId])

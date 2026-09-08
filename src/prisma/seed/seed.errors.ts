@@ -43,3 +43,15 @@ export class InitialPasswordTooLongError extends Error {
 
 /** @deprecated Renamed to {@link EmptySeedPopulationError}; kept for test imports during transition. */
 export class PopulationSizeError extends EmptySeedPopulationError {}
+
+/**
+ * Thrown before any `Department` write when the bootcamp population cannot
+ * yield at least one department with a resolvable Unit Manager `managerId`
+ * (spec-6-2 Block If) — halts rather than inventing department names.
+ */
+export class DepartmentSeedHaltError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DepartmentSeedHaltError';
+  }
+}
