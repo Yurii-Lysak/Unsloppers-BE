@@ -16,6 +16,9 @@ import {
  *    (outside the Serializable transaction so skip metadata commits), closes
  *    the prior open row, inserts the new row, and calls C4 — the history
  *    mutations and `recordTimelineEvent` share one Serializable transaction.
+ *    When the incoming `effectiveFrom` equals the open row's `effectiveFrom`
+ *    (same calendar day), the write amends the open row's value in place and
+ *    updates the matching system timeline event instead of appending.
  *  - Every other operation (`update`, `updateMany`, `delete`, `deleteMany`,
  *    `upsert`, `createMany`, `createManyAndReturn`, `updateManyAndReturn`,
  *    `findUnique`, `findUniqueOrThrow`) is rejected outright: history rows
@@ -174,7 +177,7 @@ interface HistoryDelegate {
   }): Promise<HistoryRow | null>;
   update(args: {
     where: { id: string };
-    data: { effectiveTo: Date };
+    data: { effectiveTo?: Date; value?: string };
   }): Promise<HistoryRow>;
   create(args: {
     data: {
@@ -228,6 +231,133 @@ export function createTemporalHistoryExtension(
   });
 }
 
+async function handleSameDayAmend(
+  client: PrismaClient,
+  model: string,
+  property: string,
+  preOpenRow: HistoryRow,
+  employeeId: string,
+  value: string,
+  effectiveFrom: Date,
+  type: string,
+  timelineEventWriter: TimelineEventWriter,
+): Promise<HistoryRow> {
+  if (preOpenRow.value === value) {
+    return preOpenRow;
+  }
+
+  const manualConflict = await findManualConflict(client, {
+    employeeId,
+    type,
+    effectiveFrom,
+    oldValue: preOpenRow.value,
+    newValue: value,
+  });
+
+  if (manualConflict) {
+    await timelineEventWriter.markSystemWriteSkipped(
+      manualConflict.id,
+      new Date().toISOString(),
+    );
+    throw new ManualConflictSuppressedError(manualConflict.id);
+  }
+
+  try {
+    return await client.$transaction(
+      async (tx) => {
+        const delegate = (tx as unknown as Record<string, HistoryDelegate>)[
+          property
+        ];
+
+        const openRow = await delegate.findFirst({
+          where: { employeeId, effectiveTo: null },
+        });
+        if (!openRow) {
+          throw new Error(
+            `${model}: same-day amend lost the open row — retry the write.`,
+          );
+        }
+
+        const openEffectiveFrom = toDateOnly(openRow.effectiveFrom);
+        if (effectiveFrom.getTime() !== openEffectiveFrom.getTime()) {
+          throw new OutOfOrderEffectiveDateError(
+            model,
+            effectiveFrom,
+            openEffectiveFrom,
+          );
+        }
+
+        if (openRow.value === value) {
+          return openRow;
+        }
+
+        const updated = await delegate.update({
+          where: { id: openRow.id },
+          data: { value },
+        });
+
+        const timelineDelegate = (
+          tx as unknown as {
+            timelineEvent: {
+              findFirst(args: {
+                where: {
+                  employeeId: string;
+                  type: string;
+                  effectiveDate: Date;
+                  source: string;
+                  deletedAt: null;
+                };
+                orderBy: { createdAt: 'desc' };
+              }): Promise<{ id: string } | null>;
+              update(args: {
+                where: { id: string };
+                data: { newValue: string };
+              }): Promise<unknown>;
+            };
+          }
+        ).timelineEvent;
+
+        const systemEvent = await timelineDelegate.findFirst({
+          where: {
+            employeeId,
+            type,
+            effectiveDate: effectiveFrom,
+            source: 'system',
+            deletedAt: null,
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+
+        if (systemEvent) {
+          await timelineDelegate.update({
+            where: { id: systemEvent.id },
+            data: { newValue: value },
+          });
+        } else {
+          await timelineEventWriter.recordTimelineEvent(
+            employeeId,
+            type,
+            isoDate(effectiveFrom),
+            preOpenRow.value,
+            value,
+            'system',
+            undefined,
+            tx as unknown as TimelineEventWriteContext,
+          );
+        }
+
+        return updated;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  } catch (error) {
+    if (isSerializationFailure(error)) {
+      throw new ConcurrentHistoryWriteError(model, error);
+    }
+    throw error;
+  }
+}
+
 async function handleHistoryCreate(
   client: PrismaClient,
   model: string,
@@ -279,11 +409,24 @@ async function handleHistoryCreate(
 
   if (preOpenRow) {
     const openEffectiveFrom = toDateOnly(preOpenRow.effectiveFrom);
-    if (effectiveFrom.getTime() <= openEffectiveFrom.getTime()) {
+    if (effectiveFrom.getTime() < openEffectiveFrom.getTime()) {
       throw new OutOfOrderEffectiveDateError(
         model,
         effectiveFrom,
         openEffectiveFrom,
+      );
+    }
+    if (effectiveFrom.getTime() === openEffectiveFrom.getTime()) {
+      return handleSameDayAmend(
+        client,
+        model,
+        property,
+        preOpenRow,
+        employeeId,
+        value,
+        effectiveFrom,
+        type,
+        timelineEventWriter,
       );
     }
   }
@@ -319,7 +462,14 @@ async function handleHistoryCreate(
 
         if (openRow) {
           const openEffectiveFrom = toDateOnly(openRow.effectiveFrom);
-          if (effectiveFrom.getTime() <= openEffectiveFrom.getTime()) {
+          if (effectiveFrom.getTime() < openEffectiveFrom.getTime()) {
+            throw new OutOfOrderEffectiveDateError(
+              model,
+              effectiveFrom,
+              openEffectiveFrom,
+            );
+          }
+          if (effectiveFrom.getTime() === openEffectiveFrom.getTime()) {
             throw new OutOfOrderEffectiveDateError(
               model,
               effectiveFrom,

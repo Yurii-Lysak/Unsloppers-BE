@@ -1,25 +1,32 @@
 import {
+  Body,
   Controller,
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Query,
   Req,
+  StreamableFile,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { CurrentUserProvider } from '../contracts/current-user-provider.contract';
+import { UpdateEmployeeFieldDto } from './dto/update-employee-field.dto';
+import { EmployeeFieldUpdateEntity } from './entities/employee-field-update.entity';
 import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
+import { ExportEmployeesQueryDto } from './dto/export-employees-query.dto';
+import { EmployeeLookupEntity } from './entities/employee-lookup.entity';
 import { EmployeeSummaryEntity } from './entities/employee-summary.entity';
 import { EmployeesService } from './employees.service';
-import { SwaggerGetEmployee, SwaggerListEmployees } from './employees.swagger';
+import {
+  SwaggerExportEmployees,
+  SwaggerGetEmployee,
+  SwaggerListEmployees,
+  SwaggerLookupEmployees,
+  SwaggerUpdateEmployeeField,
+} from './employees.swagger';
 
-/**
- * Minimal employee directory reads for Story 1.5 navigation shell.
- * Story 1.8: summary DTO is S1-safe (`id`, `displayName` only). Full C1
- * per-row column projection lands in Epic 3; browsing all seeded employees
- * remains intentional for Colleague-tier viewers.
- */
 @ApiTags('employees')
 @Controller('employees')
 export class EmployeesController {
@@ -35,6 +42,32 @@ export class EmployeesController {
     return this.employees.listEmployees(userId, query);
   }
 
+  // Must stay before `:employeeId` — Nest matches static segments in
+  // declaration order, and `lookup` would otherwise fail `ParseUUIDPipe`.
+  @Get('lookup')
+  @SwaggerLookupEmployees()
+  async lookup(@Req() request: Request): Promise<EmployeeLookupEntity[]> {
+    await this.currentUser.getCurrentUser(request);
+    return this.employees.listLookupOptions();
+  }
+
+  @Get('export')
+  @SwaggerExportEmployees()
+  async export(
+    @Req() request: Request,
+    @Query() query: ExportEmployeesQueryDto,
+  ): Promise<StreamableFile> {
+    const { userId } = await this.currentUser.getCurrentUser(request);
+    const { buffer, filename } = await this.employees.exportEmployees(
+      userId,
+      query,
+    );
+    return new StreamableFile(buffer, {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      disposition: `attachment; filename="${filename}"`,
+    });
+  }
+
   @Get(':employeeId')
   @SwaggerGetEmployee()
   async getOne(
@@ -43,5 +76,17 @@ export class EmployeesController {
   ): Promise<EmployeeSummaryEntity> {
     await this.currentUser.getCurrentUser(request);
     return this.employees.getById(employeeId);
+  }
+
+  @Patch(':employeeId/fields/:fieldId')
+  @SwaggerUpdateEmployeeField()
+  async updateField(
+    @Req() request: Request,
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Param('fieldId') fieldId: string,
+    @Body() dto: UpdateEmployeeFieldDto,
+  ): Promise<EmployeeFieldUpdateEntity> {
+    const { userId } = await this.currentUser.getCurrentUser(request);
+    return this.employees.updateEmployeeField(userId, employeeId, fieldId, dto);
   }
 }

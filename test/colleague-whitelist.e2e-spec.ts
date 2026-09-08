@@ -237,12 +237,34 @@ describe('Colleague whitelist enforcement (e2e)', () => {
     await colleagueAgent.get(`/api/v1/users/${randomUUID()}`).expect(403);
   });
 
-  it('returns S1-safe directory list entries', async () => {
+  it('scopes the paginated employee list to the colleague whitelist (Story 3.6)', async () => {
     const res = await colleagueAgent.get('/api/v1/employees').expect(200);
+    const body = res.body as {
+      fields: Array<{ id: string }>;
+      rows: Array<{ cells: Record<string, unknown> }>;
+    };
+    const fieldIds = body.fields.map((field) => field.id);
+
+    expect(fieldIds).toContain('name');
+    expect(fieldIds).not.toContain('grade');
+    expect(fieldIds).not.toContain('years_with_company');
+    expect(fieldIds).toContain('current_leave_dates');
+    expect(fieldIds).toContain('project_names');
+
+    for (const row of body.rows) {
+      expect(row.cells.grade).toBeUndefined();
+      expect(row.cells.years_with_company).toBeUndefined();
+    }
+  });
+
+  it('returns S1-safe directory entries via the lookup endpoint', async () => {
+    const res = await colleagueAgent
+      .get('/api/v1/employees/lookup')
+      .expect(200);
     const rows = res.body as Array<Record<string, unknown>>;
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {
-      expect(Object.keys(row).sort()).toEqual(['displayName', 'id']);
+      expect(Object.keys(row).sort()).toEqual(['employeeId', 'name']);
     }
   });
 

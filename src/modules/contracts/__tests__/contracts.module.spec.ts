@@ -6,6 +6,7 @@ import { FieldRegistryStub } from '../stubs/field-registry.stub';
 import { ProjectAssignment } from '../project-assignment.contract';
 import { ExternalIdentityMapping } from '../external-identity-mapping.contract';
 import { ActionItemCreation } from '../action-item-creation.contract';
+import { EmployeeDirectory } from '../employee-directory.contract';
 import { CurrentUserProvider } from '../current-user-provider.contract';
 import { PermissionChecker } from '../permission-checker.contract';
 import { TimelineEventWriter } from '../timeline-event-writer.contract';
@@ -48,6 +49,10 @@ describe('ContractsModule', () => {
 
   it('leaves C6 unbound for the action-items module to implement', () => {
     expect(() => module.get(ActionItemCreation)).toThrow();
+  });
+
+  it('leaves EmployeeDirectory unbound for the directory module to implement', () => {
+    expect(() => module.get(EmployeeDirectory)).toThrow();
   });
 
   it('leaves C5 unbound for the integrations module to implement', () => {

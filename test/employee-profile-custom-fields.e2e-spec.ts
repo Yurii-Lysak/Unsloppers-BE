@@ -191,7 +191,7 @@ describe('Employee profile custom fields — S16 (e2e)', () => {
     expect(colleagueRaw).not.toContain('at-risk');
     expect(colleagueRaw).not.toContain('Performance flag');
     expect(colleagueRaw).not.toContain('Shirt size');
-    expect(colleagueRaw).not.toContain('L');
+    expect(colleagueBody.sections.S16?.data?.values?.[employeeField.id]).toBeUndefined();
   });
 
   it('renders an empty S16 section, never unavailable, when only management fields exist for the subject', async () => {

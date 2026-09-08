@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlingModule } from './common/throttling/throttling.module';
 import { ClockModule } from './clock/clock.module';
 import { envValidationSchema } from './config/env.validation';
 import { HealthModule } from './modules/health/health.module';
@@ -15,9 +16,11 @@ import { DirectoryModule } from './modules/directory/directory.module';
 import { TimelineModule } from './modules/timeline/timeline.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { ManagementNotesModule } from './modules/management-notes/management-notes.module';
+import { FeedbacksModule } from './modules/feedbacks/feedbacks.module';
 import { RisksModule } from './modules/risks/risks.module';
 import { ActionItemsModule } from './modules/action-items/action-items.module';
 import { MentorshipModule } from './modules/mentorship/mentorship.module';
+import { CampaignsModule } from './modules/campaigns/campaigns.module';
 
 @Module({
   imports: [
@@ -25,6 +28,7 @@ import { MentorshipModule } from './modules/mentorship/mentorship.module';
       isGlobal: true,
       validationSchema: envValidationSchema,
     }),
+    ThrottlingModule,
     ScheduleModule.forRoot(),
     ClockModule,
     ContractsModule,
@@ -40,9 +44,11 @@ import { MentorshipModule } from './modules/mentorship/mentorship.module';
     TimetrackerModule,
     IntegrationsModule,
     ManagementNotesModule,
+    FeedbacksModule,
     RisksModule,
     ActionItemsModule,
     MentorshipModule,
+    CampaignsModule,
     HealthModule,
     UsersModule,
   ],

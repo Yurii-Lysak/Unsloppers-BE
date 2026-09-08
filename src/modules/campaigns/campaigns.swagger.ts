@@ -1,0 +1,122 @@
+import { applyDecorators } from '@nestjs/common';
+import {
+  ApiBadRequestResponse,
+  ApiConflictResponse,
+  ApiCreatedResponse,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+} from '@nestjs/swagger';
+import {
+  CampaignCompletionEntity,
+  CampaignReadEntity,
+} from './entities/campaign.entity';
+import {
+  CampaignAudiencePreviewEntity,
+  CampaignAudienceResolveEntity,
+} from './entities/campaign-audience.entity';
+
+export const SwaggerCreateCampaign = () =>
+  applyDecorators(
+    ApiCreatedResponse({ type: CampaignReadEntity }),
+    ApiBadRequestResponse({ description: 'Invalid campaign payload' }),
+    ApiForbiddenResponse({
+      description: 'Viewer lacks create_form_campaigns permission',
+    }),
+  );
+
+const AUTHENTICATED_USER_HAS_NO_EMPLOYEE_RECORD =
+  'Authenticated user has no employee record';
+
+export const SwaggerListCampaigns = () =>
+  applyDecorators(
+    ApiOkResponse({ type: [CampaignReadEntity] }),
+    ApiForbiddenResponse({
+      description: AUTHENTICATED_USER_HAS_NO_EMPLOYEE_RECORD,
+    }),
+  );
+
+export const SwaggerGetCampaign = () =>
+  applyDecorators(
+    ApiOkResponse({ type: CampaignReadEntity }),
+    ApiForbiddenResponse({
+      description: AUTHENTICATED_USER_HAS_NO_EMPLOYEE_RECORD,
+    }),
+    ApiNotFoundResponse({ description: 'Campaign not found' }),
+  );
+
+export const SwaggerUpdateCampaign = () =>
+  applyDecorators(
+    ApiOkResponse({ type: CampaignReadEntity }),
+    ApiBadRequestResponse({ description: 'Invalid campaign payload' }),
+    ApiForbiddenResponse({
+      description: AUTHENTICATED_USER_HAS_NO_EMPLOYEE_RECORD,
+    }),
+    ApiNotFoundResponse({ description: 'Campaign not found' }),
+    ApiConflictResponse({ description: 'Campaign is not in draft state' }),
+  );
+
+export const SwaggerSaveCampaignAudience = () =>
+  applyDecorators(
+    ApiOkResponse({ type: CampaignReadEntity }),
+    ApiBadRequestResponse({ description: 'Invalid audience payload' }),
+    ApiForbiddenResponse({
+      description: AUTHENTICATED_USER_HAS_NO_EMPLOYEE_RECORD,
+    }),
+    ApiNotFoundResponse({ description: 'Campaign not found' }),
+    ApiConflictResponse({ description: 'Campaign is not in draft state' }),
+  );
+
+export const SwaggerPreviewCampaignAudience = () =>
+  applyDecorators(
+    ApiOkResponse({ type: CampaignAudiencePreviewEntity }),
+    ApiForbiddenResponse({
+      description: AUTHENTICATED_USER_HAS_NO_EMPLOYEE_RECORD,
+    }),
+    ApiNotFoundResponse({ description: 'Campaign not found' }),
+    ApiConflictResponse({ description: 'Campaign is not in draft state' }),
+  );
+
+export const SwaggerResolveCampaignAudience = () =>
+  applyDecorators(
+    ApiOkResponse({ type: CampaignAudienceResolveEntity }),
+    ApiForbiddenResponse({
+      description: AUTHENTICATED_USER_HAS_NO_EMPLOYEE_RECORD,
+    }),
+    ApiNotFoundResponse({ description: 'Campaign not found' }),
+    ApiConflictResponse({ description: 'Campaign is not in draft state' }),
+  );
+
+export const SwaggerActivateCampaign = () =>
+  applyDecorators(
+    ApiOkResponse({ type: CampaignReadEntity }),
+    ApiBadRequestResponse({
+      description:
+        'One or more resolved audience members are no longer active employees',
+      schema: {
+        properties: {
+          message: { type: 'string' },
+          invalidAssigneeIds: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    }),
+    ApiForbiddenResponse({
+      description: AUTHENTICATED_USER_HAS_NO_EMPLOYEE_RECORD,
+    }),
+    ApiNotFoundResponse({ description: 'Campaign not found' }),
+    ApiConflictResponse({
+      description: 'Campaign is not in draft state (already active)',
+    }),
+  );
+
+export const SwaggerGetCampaignCompletion = () =>
+  applyDecorators(
+    ApiOkResponse({ type: CampaignCompletionEntity }),
+    ApiForbiddenResponse({
+      description: AUTHENTICATED_USER_HAS_NO_EMPLOYEE_RECORD,
+    }),
+    ApiNotFoundResponse({ description: 'Campaign not found' }),
+    ApiConflictResponse({
+      description: 'Completion is only available for active campaigns',
+    }),
+  );

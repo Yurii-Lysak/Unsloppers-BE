@@ -11,6 +11,7 @@ export const loginAsOperator = async (testApp: TestApp) => {
     data: {
       email: E2E_OPERATOR_EMAIL,
       passwordHash: await hash(E2E_OPERATOR_PASSWORD, 12),
+      employee: { create: {} },
     },
   });
   const agent = request.agent(testApp.server);

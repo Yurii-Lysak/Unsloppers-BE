@@ -7,6 +7,8 @@
  * (Epic 3, Story 3.2).
  */
 
+import type { SectionId } from './access-resolver.contract';
+
 export type FieldValueType =
   'text' | 'number' | 'date' | 'boolean' | 'select' | 'multi_select';
 
@@ -34,6 +36,10 @@ export interface FieldSpec {
   source: FieldSource;
   sortable: boolean;
   filterable: boolean;
+  /** Profile section that governs list visibility (Story 3.6). Custom fields use S16. */
+  sectionId?: SectionId;
+  /** Whether the field type supports inline edit at all (per-row writability is separate). */
+  editable?: boolean;
   visibility?: FieldVisibility;
   options?: string[];
 }
@@ -85,10 +91,25 @@ export const BUILTIN_FIELD_IDS = {
   department: 'department',
   employment_type: 'employment_type',
   years_with_company: 'years_with_company',
+  current_leave_dates: 'current_leave_dates',
+  project_names: 'project_names',
 } as const;
+
+/** Display-only integration-backed list columns (Story 3.6 v1). */
+export const INTEGRATED_LIST_FIELD_IDS: ReadonlySet<string> = new Set([
+  BUILTIN_FIELD_IDS.current_leave_dates,
+  BUILTIN_FIELD_IDS.project_names,
+]);
 
 export type BuiltinFieldId =
   (typeof BUILTIN_FIELD_IDS)[keyof typeof BUILTIN_FIELD_IDS];
+
+/** Built-in list columns that may be inline-edited (S4 RW); excludes department per AD-14. */
+export const BUILTIN_EDITABLE_FIELD_IDS: ReadonlySet<string> = new Set([
+  BUILTIN_FIELD_IDS.grade,
+  BUILTIN_FIELD_IDS.position,
+  BUILTIN_FIELD_IDS.employment_type,
+]);
 
 export abstract class FieldRegistry {
   abstract defineField(

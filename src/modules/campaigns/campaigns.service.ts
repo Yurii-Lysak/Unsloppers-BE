@@ -1,0 +1,587 @@
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import type {
+  ActionItem,
+  FormCampaign,
+  Prisma,
+  User,
+} from '../../generated/prisma/client';
+import { Clock } from '../../clock/clock.service';
+import { ActionItemCreation } from '../contracts/action-item-creation.contract';
+import {
+  EmployeeDirectory,
+  EmployeeDirectoryRowDto,
+} from '../contracts/employee-directory.contract';
+import {
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGE_SIZE,
+  MIN_PAGE,
+} from '../contracts/employee-list.constants';
+import type { FieldFilter } from '../contracts/field-registry.contract';
+import { PrismaService } from '../../prisma/prisma.service';
+import {
+  assertNoDuplicateIds,
+  assertValidUuidIds,
+  normalizeAudienceDefinition,
+  parseStoredAudienceFilters,
+  resolveAudienceIds,
+  toFieldFilters,
+  type CampaignAudienceDefinition,
+} from './campaign-audience';
+import { CreateCampaignDto } from './dto/create-campaign.dto';
+import { PreviewCampaignAudienceQueryDto } from './dto/preview-campaign-audience-query.dto';
+import { SaveCampaignAudienceDto } from './dto/save-campaign-audience.dto';
+import { UpdateCampaignDto } from './dto/update-campaign.dto';
+import {
+  formatCampaignDueDate,
+  normalizeCampaignFields,
+  normalizePartialCampaignFields,
+} from './campaign-input';
+import { CampaignAudiencePreviewEntity } from './entities/campaign-audience.entity';
+import {
+  CampaignCompletionEntity,
+  CampaignReadEntity,
+} from './entities/campaign.entity';
+import {
+  formatActionItemDueDate,
+  isActionItemOverdue,
+} from '../../action-items/action-item-overdue';
+
+type CampaignWithCreator = FormCampaign & {
+  creator: {
+    id: string;
+    user: Pick<User, 'name' | 'email'>;
+  };
+};
+
+type CompletionActionItem = ActionItem & {
+  assignee: {
+    id: string;
+    user: Pick<User, 'name' | 'email'>;
+  };
+};
+
+@Injectable()
+export class CampaignsService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly employeeDirectory: EmployeeDirectory,
+    private readonly actionItemCreation: ActionItemCreation,
+    private readonly clock: Clock,
+  ) {}
+
+  async createCampaign(
+    creatorId: string,
+    dto: CreateCampaignDto,
+  ): Promise<CampaignReadEntity> {
+    const normalized = normalizeCampaignFields(dto);
+    const campaign = await this.prisma.formCampaign.create({
+      data: {
+        creatorId,
+        title: normalized.title,
+        description: normalized.description,
+        purpose: normalized.purpose,
+        link: normalized.link,
+        dueDate: normalized.dueDate,
+        status: 'draft',
+      },
+      include: this.creatorInclude,
+    });
+    return this.toReadDto(campaign);
+  }
+
+  async listForCreator(creatorId: string): Promise<CampaignReadEntity[]> {
+    const campaigns = await this.prisma.formCampaign.findMany({
+      where: { creatorId },
+      include: this.creatorInclude,
+      orderBy: { createdAt: 'desc' },
+    });
+    return campaigns.map((campaign) => this.toReadDto(campaign));
+  }
+
+  async getForCreator(
+    campaignId: string,
+    creatorId: string,
+  ): Promise<CampaignReadEntity> {
+    const campaign = await this.findOwnedCampaign(campaignId, creatorId);
+    return this.toReadDto(campaign);
+  }
+
+  async updateDraft(
+    campaignId: string,
+    creatorId: string,
+    dto: UpdateCampaignDto,
+  ): Promise<CampaignReadEntity> {
+    await this.findOwnedCampaign(campaignId, creatorId);
+
+    const normalized = normalizePartialCampaignFields(dto);
+    const result = await this.prisma.formCampaign.updateMany({
+      where: { id: campaignId, status: 'draft' },
+      data: normalized,
+    });
+    if (result.count === 0) {
+      throw new ConflictException('Only draft campaigns can be edited');
+    }
+
+    return this.getForCreator(campaignId, creatorId);
+  }
+
+  async saveAudience(
+    campaignId: string,
+    creatorId: string,
+    dto: SaveCampaignAudienceDto,
+  ): Promise<CampaignReadEntity> {
+    await this.findOwnedCampaign(campaignId, creatorId);
+
+    assertNoDuplicateIds(dto.addedEmployeeIds, 'addedEmployeeIds');
+    assertNoDuplicateIds(dto.excludedEmployeeIds, 'excludedEmployeeIds');
+    assertValidUuidIds(dto.addedEmployeeIds);
+    assertValidUuidIds(dto.excludedEmployeeIds);
+
+    const viewerUserId = await this.resolveCreatorUserId(creatorId);
+    const filters = toFieldFilters(dto.filters);
+    const normalized = normalizeAudienceDefinition({
+      filters,
+      addedEmployeeIds: dto.addedEmployeeIds,
+      excludedEmployeeIds: dto.excludedEmployeeIds,
+    });
+
+    await this.validateAddedEmployeeIds(
+      viewerUserId,
+      normalized.addedEmployeeIds,
+    );
+    const filterMatchIds = await this.collectFilterMatchIds(
+      viewerUserId,
+      normalized.filters,
+    );
+    this.validateExcludedEmployeeIds(
+      normalized.excludedEmployeeIds,
+      filterMatchIds,
+    );
+
+    const result = await this.prisma.formCampaign.updateMany({
+      where: { id: campaignId, status: 'draft' },
+      data: {
+        audienceFilters: normalized.filters as unknown as Prisma.InputJsonValue,
+        audienceAddedEmployeeIds: normalized.addedEmployeeIds,
+        audienceExcludedEmployeeIds: normalized.excludedEmployeeIds,
+      },
+    });
+    if (result.count === 0) {
+      throw new ConflictException('Only draft campaigns can be edited');
+    }
+
+    return this.getForCreator(campaignId, creatorId);
+  }
+
+  async previewAudience(
+    campaignId: string,
+    creatorId: string,
+    viewerUserId: string,
+    query: PreviewCampaignAudienceQueryDto,
+  ): Promise<CampaignAudiencePreviewEntity> {
+    const campaign = await this.findOwnedDraftCampaign(campaignId, creatorId);
+    const definition = this.toAudienceDefinition(campaign);
+    const resolvedIds = await this.resolveAudienceEmployeeIdsForDefinition(
+      viewerUserId,
+      definition,
+    );
+
+    const page = query.page ?? MIN_PAGE;
+    const pageSize = query.pageSize ?? DEFAULT_PAGE_SIZE;
+    const pageIds = resolvedIds.slice((page - 1) * pageSize, page * pageSize);
+    const rowMap = await this.loadRowMap(viewerUserId, definition);
+    const rows = pageIds
+      .map((employeeId) => rowMap.get(employeeId))
+      .filter((row): row is EmployeeDirectoryRowDto => row !== undefined);
+
+    const sample = await this.employeeDirectory.listEmployees(viewerUserId, {
+      page: MIN_PAGE,
+      pageSize: 1,
+    });
+
+    return {
+      fields: sample.fields,
+      rows,
+      total: resolvedIds.length,
+      page,
+      pageSize,
+    };
+  }
+
+  async resolveAudienceEmployeeIds(
+    campaignId: string,
+    creatorId: string,
+  ): Promise<string[]> {
+    const campaign = await this.findOwnedDraftCampaign(campaignId, creatorId);
+    const viewerUserId = await this.resolveCreatorUserId(creatorId);
+    return this.resolveAudienceEmployeeIdsForDefinition(
+      viewerUserId,
+      this.toAudienceDefinition(campaign),
+    );
+  }
+
+  async activateCampaign(
+    campaignId: string,
+    creatorId: string,
+  ): Promise<CampaignReadEntity> {
+    const campaign = await this.findOwnedCampaign(campaignId, creatorId);
+    if (campaign.status !== 'draft') {
+      throw new ConflictException('Only draft campaigns can be activated');
+    }
+    const viewerUserId = await this.resolveCreatorUserId(creatorId);
+    // Resolve while still draft, outside the transaction (mirrors
+    // `previewAudience`) — staleness is fine because C6 re-validates every
+    // assignee is active inside the transaction and 400s if not.
+    const assigneeIds = await this.resolveAudienceEmployeeIdsForDefinition(
+      viewerUserId,
+      this.toAudienceDefinition(campaign),
+    );
+
+    await this.prisma.$transaction(async (tx) => {
+      const result = await tx.formCampaign.updateMany({
+        where: { id: campaignId, status: 'draft' },
+        data: { status: 'active' },
+      });
+      if (result.count === 0) {
+        throw new ConflictException('Only draft campaigns can be activated');
+      }
+
+      // Re-fetch inside the transaction: a concurrent `PATCH :campaignId`
+      // landing between the pre-transaction read above and this commit must
+      // not leak stale title/description/link/dueDate into the generated
+      // action items — those have to match the row as it's actually locked.
+      const freshCampaign = await tx.formCampaign.findFirst({
+        where: { id: campaignId },
+      });
+      if (!freshCampaign) {
+        throw new NotFoundException(`Campaign ${campaignId} not found`);
+      }
+
+      await this.actionItemCreation.createCampaignActionItems(
+        {
+          campaignId,
+          authorId: creatorId,
+          title: freshCampaign.title,
+          description: freshCampaign.description,
+          dueDate: formatCampaignDueDate(freshCampaign.dueDate),
+          link: freshCampaign.link,
+          assigneeIds,
+        },
+        tx,
+      );
+    });
+
+    return this.getForCreator(campaignId, creatorId);
+  }
+
+  async getCompletion(
+    campaignId: string,
+    creatorId: string,
+  ): Promise<CampaignCompletionEntity> {
+    const campaign = await this.findOwnedCampaign(campaignId, creatorId);
+    if (campaign.status !== 'active') {
+      throw new ConflictException(
+        'Completion is only available for active campaigns',
+      );
+    }
+
+    const items = await this.prisma.actionItem.findMany({
+      where: { campaignId },
+      include: {
+        assignee: {
+          include: {
+            user: { select: { name: true, email: true } },
+          },
+        },
+      },
+    });
+
+    const recipients = items
+      .map((item) => this.toCompletionRow(item))
+      .sort((left, right) => {
+        const byName = left.assignee.displayName.localeCompare(
+          right.assignee.displayName,
+        );
+        if (byName !== 0) {
+          return byName;
+        }
+        return left.actionItemId.localeCompare(right.actionItemId);
+      });
+
+    return { recipients };
+  }
+
+  private toCompletionRow(item: CompletionActionItem) {
+    return {
+      actionItemId: item.id,
+      assignee: {
+        id: item.assignee.id,
+        displayName: this.displayName(item.assignee.user),
+      },
+      status: item.status,
+      dueDate: formatActionItemDueDate(item.dueDate),
+      isOverdue: isActionItemOverdue(item.status, item.dueDate, this.clock),
+      ...(item.completedAt
+        ? { completedAt: item.completedAt.toISOString() }
+        : {}),
+    };
+  }
+
+  private async resolveAudienceEmployeeIdsForDefinition(
+    viewerUserId: string,
+    definition: CampaignAudienceDefinition,
+  ): Promise<string[]> {
+    const filterMatchIds = await this.collectFilterMatchIds(
+      viewerUserId,
+      definition.filters,
+    );
+    return resolveAudienceIds(filterMatchIds, definition);
+  }
+
+  private async collectFilterMatchIds(
+    viewerUserId: string,
+    filters: FieldFilter[],
+  ): Promise<string[]> {
+    if (filters.length === 0) {
+      return [];
+    }
+    const ids: string[] = [];
+    let page = MIN_PAGE;
+    while (true) {
+      const result = await this.employeeDirectory.listEmployees(viewerUserId, {
+        filters,
+        page,
+        pageSize: MAX_PAGE_SIZE,
+      });
+      ids.push(...result.rows.map((row) => row.employeeId));
+      if (ids.length >= result.total) {
+        break;
+      }
+      page += 1;
+    }
+    return ids;
+  }
+
+  private async loadRowMap(
+    viewerUserId: string,
+    definition: CampaignAudienceDefinition,
+  ): Promise<Map<string, EmployeeDirectoryRowDto>> {
+    const rowMap = new Map<string, EmployeeDirectoryRowDto>();
+
+    if (definition.filters.length > 0) {
+      let page = MIN_PAGE;
+      while (true) {
+        const result = await this.employeeDirectory.listEmployees(
+          viewerUserId,
+          {
+            filters: definition.filters,
+            page,
+            pageSize: MAX_PAGE_SIZE,
+          },
+        );
+        for (const row of result.rows) {
+          rowMap.set(row.employeeId, {
+            employeeId: row.employeeId,
+            cells: row.cells,
+          });
+        }
+        if (page * MAX_PAGE_SIZE >= result.total) {
+          break;
+        }
+        page += 1;
+      }
+    }
+
+    const missingAddedIds = definition.addedEmployeeIds.filter(
+      (id) => !rowMap.has(id),
+    );
+    if (missingAddedIds.length > 0) {
+      let page = MIN_PAGE;
+      while (true) {
+        const result = await this.employeeDirectory.listEmployees(
+          viewerUserId,
+          {
+            page,
+            pageSize: MAX_PAGE_SIZE,
+          },
+        );
+        for (const row of result.rows) {
+          if (missingAddedIds.includes(row.employeeId)) {
+            rowMap.set(row.employeeId, {
+              employeeId: row.employeeId,
+              cells: row.cells,
+            });
+          }
+        }
+        if (page * MAX_PAGE_SIZE >= result.total) {
+          break;
+        }
+        page += 1;
+      }
+    }
+
+    return rowMap;
+  }
+
+  private async validateAddedEmployeeIds(
+    viewerUserId: string,
+    addedEmployeeIds: string[],
+  ): Promise<void> {
+    if (addedEmployeeIds.length === 0) {
+      return;
+    }
+
+    const visibleIds = await this.collectVisibleEmployeeIds(viewerUserId);
+    const activeEmployees = await this.prisma.employee.findMany({
+      where: {
+        id: { in: addedEmployeeIds },
+        employmentStatus: 'active',
+      },
+      select: { id: true },
+    });
+    const activeIdSet = new Set(activeEmployees.map((entry) => entry.id));
+
+    const invalidEmployeeIds = addedEmployeeIds.filter(
+      (id) => !visibleIds.has(id) || !activeIdSet.has(id),
+    );
+    if (invalidEmployeeIds.length > 0) {
+      throw new BadRequestException({
+        message: 'Invalid added employee ids',
+        invalidEmployeeIds,
+      });
+    }
+  }
+
+  private validateExcludedEmployeeIds(
+    excludedEmployeeIds: string[],
+    filterMatchIds: string[],
+  ): void {
+    if (excludedEmployeeIds.length === 0) {
+      return;
+    }
+    const filterMatchSet = new Set(filterMatchIds);
+    const invalidExcludedEmployeeIds = excludedEmployeeIds.filter(
+      (id) => !filterMatchSet.has(id),
+    );
+    if (invalidExcludedEmployeeIds.length > 0) {
+      throw new BadRequestException({
+        message: 'Excluded employee ids must be current filter matches',
+        invalidExcludedEmployeeIds,
+      });
+    }
+  }
+
+  private async collectVisibleEmployeeIds(
+    viewerUserId: string,
+  ): Promise<Set<string>> {
+    const ids = new Set<string>();
+    let page = MIN_PAGE;
+    while (true) {
+      const result = await this.employeeDirectory.listEmployees(viewerUserId, {
+        page,
+        pageSize: MAX_PAGE_SIZE,
+      });
+      for (const row of result.rows) {
+        ids.add(row.employeeId);
+      }
+      if (page * MAX_PAGE_SIZE >= result.total) {
+        break;
+      }
+      page += 1;
+    }
+    return ids;
+  }
+
+  private async findOwnedDraftCampaign(
+    campaignId: string,
+    creatorId: string,
+  ): Promise<CampaignWithCreator> {
+    const campaign = await this.findOwnedCampaign(campaignId, creatorId);
+    if (campaign.status !== 'draft') {
+      throw new ConflictException('Only draft campaigns can be edited');
+    }
+    return campaign;
+  }
+
+  private async resolveCreatorUserId(creatorId: string): Promise<string> {
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: creatorId },
+      select: { userId: true },
+    });
+    if (!employee) {
+      throw new NotFoundException(`Employee ${creatorId} not found`);
+    }
+    return employee.userId;
+  }
+
+  private toAudienceDefinition(
+    campaign: CampaignWithCreator,
+  ): CampaignAudienceDefinition {
+    return {
+      filters: parseStoredAudienceFilters(campaign.audienceFilters),
+      addedEmployeeIds: campaign.audienceAddedEmployeeIds,
+      excludedEmployeeIds: campaign.audienceExcludedEmployeeIds,
+    };
+  }
+
+  private readonly creatorInclude = {
+    creator: {
+      include: {
+        user: { select: { name: true, email: true } },
+      },
+    },
+  } as const;
+
+  private async findOwnedCampaign(
+    campaignId: string,
+    creatorId: string,
+  ): Promise<CampaignWithCreator> {
+    const campaign = await this.prisma.formCampaign.findFirst({
+      where: { id: campaignId, creatorId },
+      include: this.creatorInclude,
+    });
+    if (!campaign) {
+      throw new NotFoundException(`Campaign ${campaignId} not found`);
+    }
+    return campaign;
+  }
+
+  private toReadDto(campaign: CampaignWithCreator): CampaignReadEntity {
+    return {
+      id: campaign.id,
+      title: campaign.title,
+      description: campaign.description,
+      purpose: campaign.purpose,
+      link: campaign.link,
+      dueDate: formatCampaignDueDate(campaign.dueDate),
+      status: campaign.status,
+      creator: {
+        id: campaign.creator.id,
+        displayName: this.displayName(campaign.creator.user),
+      },
+      createdAt: campaign.createdAt.toISOString(),
+      updatedAt: campaign.updatedAt.toISOString(),
+      audience: {
+        filters: parseStoredAudienceFilters(campaign.audienceFilters),
+        addedEmployeeIds: campaign.audienceAddedEmployeeIds,
+        excludedEmployeeIds: campaign.audienceExcludedEmployeeIds,
+      },
+    };
+  }
+
+  private displayName(user: Pick<User, 'name' | 'email'>): string {
+    const name = user.name?.trim();
+    if (name) {
+      return name;
+    }
+    if (user.email) {
+      return user.email;
+    }
+    return 'Unknown';
+  }
+}

@@ -12,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { Public } from '../../common/decorators/public.decorator';
+import { ThrottleLogin } from '../../common/throttling/throttle.decorators';
 import { CurrentUserProvider } from '../contracts/current-user-provider.contract';
 import { clearSessionCookie, setSessionCookie } from './auth-cookie';
 import { AuthService } from './auth.service';
@@ -29,6 +30,7 @@ export class AuthController {
   ) {}
 
   @Public()
+  @ThrottleLogin()
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @SwaggerLogin()

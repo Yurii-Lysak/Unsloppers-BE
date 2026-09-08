@@ -54,6 +54,23 @@ async function createEmployeeUser(
   return { userId: user.id, employeeId: employee.id, email };
 }
 
+async function createTestCampaign(
+  testApp: TestApp,
+  creatorId: string,
+): Promise<string> {
+  const campaign = await testApp.prisma.formCampaign.create({
+    data: {
+      creatorId,
+      title: 'Test campaign',
+      description: 'Test campaign description',
+      purpose: 'Testing',
+      link: 'https://forms.example.com/test',
+      dueDate: new Date('2026-12-31'),
+    },
+  });
+  return campaign.id;
+}
+
 async function loginAs(
   testApp: TestApp,
   email: string,
@@ -874,6 +891,7 @@ describe('Action items (e2e)', () => {
       data: { managerId: manager.employeeId },
     });
 
+    const campaignId = await createTestCampaign(testApp, manager.employeeId);
     const item = await testApp.prisma.actionItem.create({
       data: {
         assigneeId: report.employeeId,
@@ -881,7 +899,7 @@ describe('Action items (e2e)', () => {
         title: 'Campaign follow-up',
         dueDate: new Date('2026-09-20'),
         source: 'campaign',
-        campaignId: randomUUID(),
+        campaignId,
         status: 'open',
       },
     });
@@ -1175,6 +1193,7 @@ describe('Action items overdue highlighting (e2e)', () => {
   it('uses the same overdue derivation for campaign-sourced items', async () => {
     const { manager, report } = await setupManagerReport();
 
+    const campaignId = await createTestCampaign(testApp, manager.employeeId);
     const item = await testApp.prisma.actionItem.create({
       data: {
         assigneeId: report.employeeId,
@@ -1182,7 +1201,7 @@ describe('Action items overdue highlighting (e2e)', () => {
         title: 'Campaign overdue',
         dueDate: new Date('2025-12-31T00:00:00.000Z'),
         source: 'campaign',
-        campaignId: randomUUID(),
+        campaignId,
         status: 'open',
       },
     });
@@ -1260,7 +1279,7 @@ describe('Action items overdue highlighting (e2e)', () => {
         data: { managerId: sender.employeeId },
       });
 
-      const campaignId = randomUUID();
+      const campaignId = await createTestCampaign(testApp, sender.employeeId);
       const actionItems = testApp.app.get(ActionItemsService);
       const created = await actionItems.createCampaignActionItems({
         campaignId,
@@ -1316,7 +1335,7 @@ describe('Action items overdue highlighting (e2e)', () => {
         testApp,
         'ai-bulk-conflict-recipient@example.com',
       );
-      const campaignId = randomUUID();
+      const campaignId = await createTestCampaign(testApp, sender.employeeId);
       const actionItems = testApp.app.get(ActionItemsService);
 
       await actionItems.createCampaignActionItems({
@@ -1354,7 +1373,7 @@ describe('Action items overdue highlighting (e2e)', () => {
         data: { managerId: sender.employeeId },
       });
 
-      const campaignId = randomUUID();
+      const campaignId = await createTestCampaign(testApp, sender.employeeId);
       const actionItems = testApp.app.get(ActionItemsService);
       const [item] = await actionItems.createCampaignActionItems({
         campaignId,
@@ -1459,7 +1478,7 @@ describe('Action items overdue highlighting (e2e)', () => {
         testApp,
         'ai-bulk-empty-conflict-recipient@example.com',
       );
-      const campaignId = randomUUID();
+      const campaignId = await createTestCampaign(testApp, sender.employeeId);
       const actionItems = testApp.app.get(ActionItemsService);
 
       await actionItems.createCampaignActionItems({
@@ -1497,7 +1516,7 @@ describe('Action items overdue highlighting (e2e)', () => {
         data: { managerId: sender.employeeId },
       });
 
-      const campaignId = randomUUID();
+      const campaignId = await createTestCampaign(testApp, sender.employeeId);
       const actionItems = testApp.app.get(ActionItemsService);
       const [item] = await actionItems.createCampaignActionItems({
         campaignId,
@@ -1536,7 +1555,7 @@ describe('Action items overdue highlighting (e2e)', () => {
         testApp,
         'ai-bulk-tx-rollback-recipient@example.com',
       );
-      const campaignId = randomUUID();
+      const campaignId = await createTestCampaign(testApp, sender.employeeId);
       const actionItems = testApp.app.get(ActionItemsService);
 
       await expect(

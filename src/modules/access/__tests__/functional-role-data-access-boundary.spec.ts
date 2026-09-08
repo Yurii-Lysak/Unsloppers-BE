@@ -15,6 +15,7 @@ describe('Functional role data-access boundary', () => {
   const prisma = {
     employee: {
       findUnique: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
     },
     functionalRoleAssignment: {
       findMany: jest.fn(),
@@ -24,6 +25,9 @@ describe('Functional role data-access boundary', () => {
     },
     fullAccessGrant: {
       findFirst: jest.fn().mockResolvedValue(null),
+    },
+    projectAssignment: {
+      count: jest.fn().mockResolvedValue(0),
     },
   };
 
