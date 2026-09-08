@@ -13,6 +13,8 @@ import {
 } from '../contracts/employee-directory.contract';
 import {
   BUILTIN_EDITABLE_FIELD_IDS,
+  BUILTIN_FIELD_IDS,
+  INTEGRATED_LIST_FIELD_IDS,
   EmployeeListQueryOptions,
   FieldFilter,
   FieldSpec,
@@ -27,6 +29,9 @@ import { CustomFieldsService } from './custom-fields.service';
 import { CustomFieldVisibilityService } from './custom-field-visibility.service';
 import { MANAGE_CUSTOM_FIELDS_PERMISSION } from './directory.constants';
 import { FieldRegistryService } from './field-registry.service';
+import { ListCatalogAccessService } from './list-catalog-access.service';
+import { EmployeeListLeavesReader } from '../contracts/employee-list-leaves.contract';
+import { ProjectAssignment } from '../contracts/project-assignment.contract';
 import { ExportEmployeesQueryDto } from './dto/export-employees-query.dto';
 import { MAX_PAGE_SIZE, MIN_PAGE } from '../contracts/employee-list.constants';
 import {
@@ -48,6 +53,9 @@ export class EmployeesService extends EmployeeDirectory {
     private readonly permissionChecker: PermissionChecker,
     private readonly accessResolver: AccessResolver,
     private readonly sectionGate: SectionAccessGate,
+    private readonly listCatalogAccess: ListCatalogAccessService,
+    private readonly projectAssignment: ProjectAssignment,
+    private readonly leavesReader: EmployeeListLeavesReader,
     private readonly prisma: PrismaService,
   ) {
     super();
@@ -88,8 +96,14 @@ export class EmployeesService extends EmployeeDirectory {
       visibleFields,
     );
 
+    const enrichedRows = await this.enrichIntegratedFields(
+      viewerEmployeeId,
+      maskedRows,
+      visibleFields,
+    );
+
     const rowsWithWritability = await Promise.all(
-      maskedRows.map(async (row) => ({
+      enrichedRows.map(async (row) => ({
         ...row,
         writableFieldIds: await this.resolveWritableFieldIds(
           viewerEmployeeId,
@@ -224,12 +238,20 @@ export class EmployeesService extends EmployeeDirectory {
       return { filters, filtersHidden: false };
     }
     const knownFieldIds = new Set(allFields.map((field) => field.id));
-    const hasHiddenFieldFilter = filters.some(
+    const hiddenFieldFilters = filters.filter(
       (filter) =>
         knownFieldIds.has(filter.fieldId) &&
         !visibleFieldIds.includes(filter.fieldId),
     );
-    if (hasHiddenFieldFilter) {
+    const visibleFilters = filters.filter((filter) =>
+      visibleFieldIds.includes(filter.fieldId),
+    );
+    if (hiddenFieldFilters.length > 0 && visibleFilters.length === 0) {
+      throw new BadRequestException(
+        `Field "${hiddenFieldFilters[0].fieldId}" is not filterable for this viewer`,
+      );
+    }
+    if (hiddenFieldFilters.length > 0) {
       return { filters: [], filtersHidden: true };
     }
     return { filters, filtersHidden: false };
@@ -330,6 +352,8 @@ export class EmployeesService extends EmployeeDirectory {
     viewerId: string,
     fields: FieldSpec[],
   ): Promise<FieldSpec[]> {
+    const { sections: catalogSections, elevated } =
+      await this.listCatalogAccess.resolveCatalogAccess(viewerEmployeeId);
     const canManage = await this.permissionChecker.hasPermission(
       viewerId,
       MANAGE_CUSTOM_FIELDS_PERMISSION,
@@ -337,23 +361,43 @@ export class EmployeesService extends EmployeeDirectory {
 
     const visible: FieldSpec[] = [];
     for (const field of fields) {
-      if (field.source !== 'custom') {
-        visible.push(field);
+      if (field.source === 'custom') {
+        if (!catalogSections.has('S16')) {
+          continue;
+        }
+        if (canManage) {
+          visible.push(field);
+          continue;
+        }
+        if (
+          field.visibility &&
+          (await this.visibility.canViewFieldDefinition(
+            viewerEmployeeId,
+            field.visibility,
+          ))
+        ) {
+          visible.push(field);
+        }
         continue;
       }
-      if (canManage) {
-        visible.push(field);
+
+      if (!field.sectionId || !catalogSections.has(field.sectionId)) {
         continue;
       }
+
       if (
-        field.visibility &&
-        (await this.visibility.canViewFieldDefinition(
-          viewerEmployeeId,
-          field.visibility,
-        ))
+        !elevated &&
+        field.id === BUILTIN_FIELD_IDS.years_with_company
       ) {
-        visible.push(field);
+        continue;
       }
+
+      if (!elevated && field.sectionId === 'S4') {
+        visible.push({ ...field, filterable: false, sortable: false });
+        continue;
+      }
+
+      visible.push(field);
     }
     return visible;
   }
@@ -364,38 +408,98 @@ export class EmployeesService extends EmployeeDirectory {
     rows: EmployeeDirectoryRowDto[],
     visibleFields: FieldSpec[],
   ): Promise<EmployeeDirectoryRowDto[]> {
-    const customFields = visibleFields.filter(
-      (field) => field.source === 'custom' && field.visibility,
-    );
-    if (customFields.length === 0) {
-      return rows;
-    }
-
     const canManage = await this.permissionChecker.hasPermission(
       viewerId,
       MANAGE_CUSTOM_FIELDS_PERMISSION,
     );
-    if (canManage) {
-      return rows;
-    }
 
     const maskedRows: EmployeeDirectoryRowDto[] = [];
     for (const row of rows) {
+      const audience = await this.accessResolver.resolveAudience(
+        viewerEmployeeId,
+        row.employeeId,
+      );
       const cells = { ...row.cells };
-      for (const field of customFields) {
-        if (
-          !(await this.visibility.canViewFieldForSubject(
-            viewerEmployeeId,
-            row.employeeId,
-            field.visibility!,
-          ))
-        ) {
+
+      for (const field of visibleFields) {
+        if (field.source === 'custom' && field.visibility) {
+          if (canManage) {
+            continue;
+          }
+          if (
+            !(await this.visibility.canViewFieldForSubject(
+              viewerEmployeeId,
+              row.employeeId,
+              field.visibility,
+            ))
+          ) {
+            delete cells[field.id];
+          }
+          continue;
+        }
+
+        if (field.sectionId && audience.sections[field.sectionId] === 'none') {
           delete cells[field.id];
         }
       }
+
       maskedRows.push({ employeeId: row.employeeId, cells });
     }
     return maskedRows;
+  }
+
+  private async enrichIntegratedFields(
+    viewerEmployeeId: string,
+    rows: EmployeeDirectoryRowDto[],
+    visibleFields: FieldSpec[],
+  ): Promise<EmployeeDirectoryRowDto[]> {
+    const integratedFieldIds = visibleFields
+      .map((field) => field.id)
+      .filter((fieldId) => INTEGRATED_LIST_FIELD_IDS.has(fieldId));
+    if (integratedFieldIds.length === 0) {
+      return rows;
+    }
+
+    const enrichedRows: EmployeeDirectoryRowDto[] = [];
+    for (const row of rows) {
+      const audience = await this.accessResolver.resolveAudience(
+        viewerEmployeeId,
+        row.employeeId,
+      );
+      const cells = { ...row.cells };
+
+      if (
+        integratedFieldIds.includes(BUILTIN_FIELD_IDS.current_leave_dates) &&
+        audience.sections.S10 !== 'none'
+      ) {
+        const leaveCell = await this.leavesReader.formatListCell(
+          row.employeeId,
+          audience.role === 'Colleague',
+        );
+        cells[BUILTIN_FIELD_IDS.current_leave_dates] = leaveCell.value;
+      }
+
+      if (
+        integratedFieldIds.includes(BUILTIN_FIELD_IDS.project_names) &&
+        audience.sections.S11 !== 'none'
+      ) {
+        cells[BUILTIN_FIELD_IDS.project_names] =
+          await this.formatProjectNames(row.employeeId);
+      }
+
+      enrichedRows.push({ employeeId: row.employeeId, cells });
+    }
+
+    return enrichedRows;
+  }
+
+  private async formatProjectNames(subjectEmployeeId: string): Promise<string> {
+    const assignments =
+      await this.projectAssignment.listByEmployee(subjectEmployeeId);
+    if (assignments.length === 0) {
+      return '';
+    }
+    return assignments.map((row) => row.projectId).join(', ');
   }
 
   private async resolveWritableFieldIds(
