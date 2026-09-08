@@ -1,186 +1,1 @@
-import {
-  Body,
-  Controller,
-  ForbiddenException,
-  Get,
-  NotFoundException,
-  Param,
-  ParseUUIDPipe,
-  Patch,
-  Post,
-  Req,
-  UseInterceptors,
-  UsePipes,
-  ValidationPipe,
-} from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
-import type { Request } from 'express';
-import { CurrentUserProvider } from '../contracts/current-user-provider.contract';
-import { PERMISSION_KEYS } from '../contracts/permission-keys';
-import { PermissionChecker } from '../contracts/permission-checker.contract';
-import { SectionAccessGate } from '../contracts/section-access-gate.contract';
-import { PrismaService } from '../../prisma/prisma.service';
-import { PatchOpenToMentoringDto } from './dto/patch-open-to-mentoring.dto';
-import { CreateMentorshipPairDto } from './dto/create-mentorship-pair.dto';
-import { MentorshipAssignmentService } from './mentorship-assignment.service';
-import { MentorshipService } from './mentorship.service';
-import { RejectMentorshipStatusWriteInterceptor } from './reject-mentorship-status-write.interceptor';
-import {
-  SwaggerCreateMentorshipPair,
-  SwaggerListAssignableMentees,
-  SwaggerListWillingMentors,
-  SwaggerPatchOpenToMentoring,
-} from './mentorship.swagger';
-
-@ApiTags('mentorship')
-@Controller('employees/:employeeId/mentorship')
-export class EmployeeMentorshipController {
-  constructor(
-    private readonly mentorship: MentorshipService,
-    private readonly currentUser: CurrentUserProvider,
-    private readonly prisma: PrismaService,
-    private readonly sectionGate: SectionAccessGate,
-  ) {}
-
-  @Patch('open-to-mentoring')
-  @UseInterceptors(RejectMentorshipStatusWriteInterceptor)
-  @UsePipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  )
-  @SwaggerPatchOpenToMentoring()
-  async patchOpenToMentoring(
-    @Req() request: Request,
-    @Param('employeeId', ParseUUIDPipe) employeeId: string,
-    @Body() dto: PatchOpenToMentoringDto,
-  ) {
-    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
-    await this.assertSubjectEmployeeExists(employeeId);
-
-    if (viewerEmployeeId !== employeeId) {
-      throw new ForbiddenException(
-        'Only the profile owner may update open-to-mentoring',
-      );
-    }
-
-    await this.sectionGate.requireSection(
-      viewerEmployeeId,
-      employeeId,
-      'S13',
-      'RW',
-    );
-
-    return this.mentorship.updateOpenToMentoring(
-      employeeId,
-      dto.openToMentoring,
-    );
-  }
-
-  private async assertSubjectEmployeeExists(employeeId: string): Promise<void> {
-    const subject = await this.prisma.employee.findUnique({
-      where: { id: employeeId },
-      select: { id: true },
-    });
-    if (!subject) {
-      throw new NotFoundException(`Employee ${employeeId} not found`);
-    }
-  }
-
-  private async resolveViewerEmployeeId(request: Request): Promise<string> {
-    const { userId } = await this.currentUser.getCurrentUser(request);
-    const employee = await this.prisma.employee.findUnique({
-      where: { userId },
-      select: { id: true },
-    });
-    if (!employee) {
-      throw new ForbiddenException('Authenticated user has no employee record');
-    }
-    return employee.id;
-  }
-}
-
-@ApiTags('mentorship')
-@Controller('mentorship')
-export class MentorshipPoolController {
-  constructor(
-    private readonly mentorship: MentorshipService,
-    private readonly assignment: MentorshipAssignmentService,
-    private readonly currentUser: CurrentUserProvider,
-    private readonly prisma: PrismaService,
-    private readonly permissionChecker: PermissionChecker,
-  ) {}
-
-  @Get('willing-mentors')
-  @SwaggerListWillingMentors()
-  async listWillingMentors(@Req() request: Request) {
-    await this.resolveViewerEmployeeId(request);
-    await this.assertAssignEndMentorshipsPermission(request);
-
-    const mentors = await this.mentorship.listWillingMentors();
-    return { mentors };
-  }
-
-  @Get('assignable-mentees')
-  @SwaggerListAssignableMentees()
-  async listAssignableMentees(@Req() request: Request) {
-    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
-    await this.assertAssignEndMentorshipsPermission(request);
-
-    const mentees =
-      await this.assignment.listAssignableMentees(viewerEmployeeId);
-    return { mentees };
-  }
-
-  @Post('pairs')
-  @UsePipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  )
-  @SwaggerCreateMentorshipPair()
-  async createPair(
-    @Req() request: Request,
-    @Body() dto: CreateMentorshipPairDto,
-  ) {
-    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
-    await this.assertAssignEndMentorshipsPermission(request);
-
-    return this.assignment.createPair(
-      viewerEmployeeId,
-      dto.mentorId,
-      dto.menteeId,
-    );
-  }
-
-  private async resolveViewerEmployeeId(request: Request): Promise<string> {
-    const { userId } = await this.currentUser.getCurrentUser(request);
-    const employee = await this.prisma.employee.findUnique({
-      where: { userId },
-      select: { id: true },
-    });
-    if (!employee) {
-      throw new ForbiddenException('Authenticated user has no employee record');
-    }
-    return employee.id;
-  }
-
-  private async assertAssignEndMentorshipsPermission(
-    request: Request,
-  ): Promise<void> {
-    const { userId } = await this.currentUser.getCurrentUser(request);
-    const allowed = await this.permissionChecker.hasPermission(
-      userId,
-      PERMISSION_KEYS.ASSIGN_END_MENTORSHIPS,
-    );
-    if (!allowed) {
-      throw new ForbiddenException(
-        'Viewer lacks assign and end mentorships permission',
-      );
-    }
-  }
-}
+import {  BadRequestException,  Body,  Controller,  ForbiddenException,  Get,  NotFoundException,  Param,  ParseUUIDPipe,  Patch,  Post,  Query,  Req,  UseInterceptors,  UsePipes,  ValidationPipe,} from '@nestjs/common';import { ApiTags } from '@nestjs/swagger';import type { Request } from 'express';import { CurrentUserProvider } from '../contracts/current-user-provider.contract';import { PERMISSION_KEYS } from '../contracts/permission-keys';import { PermissionChecker } from '../contracts/permission-checker.contract';import { SectionAccessGate } from '../contracts/section-access-gate.contract';import { PrismaService } from '../../prisma/prisma.service';import { PatchOpenToMentoringDto } from './dto/patch-open-to-mentoring.dto';import { CreateMentorshipPairDto } from './dto/create-mentorship-pair.dto';import { EndMentorshipPairDto } from './dto/end-mentorship-pair.dto';import { MentorshipAssignmentService } from './mentorship-assignment.service';import { MentorshipService } from './mentorship.service';import { RejectMentorshipStatusWriteInterceptor } from './reject-mentorship-status-write.interceptor';import {  SwaggerCreateMentorshipPair,  SwaggerEndMentorshipPair,  SwaggerListActiveMentorshipPairs,  SwaggerListAssignableMentees,  SwaggerListWillingMentors,  SwaggerPatchOpenToMentoring,} from './mentorship.swagger';@ApiTags('mentorship')@Controller('employees/:employeeId/mentorship')export class EmployeeMentorshipController {  constructor(    private readonly mentorship: MentorshipService,    private readonly currentUser: CurrentUserProvider,    private readonly prisma: PrismaService,    private readonly sectionGate: SectionAccessGate,  ) {}  @Patch('open-to-mentoring')  @UseInterceptors(RejectMentorshipStatusWriteInterceptor)  @UsePipes(    new ValidationPipe({      whitelist: true,      forbidNonWhitelisted: true,      transform: true,    }),  )  @SwaggerPatchOpenToMentoring()  async patchOpenToMentoring(    @Req() request: Request,    @Param('employeeId', ParseUUIDPipe) employeeId: string,    @Body() dto: PatchOpenToMentoringDto,  ) {    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);    await this.assertSubjectEmployeeExists(employeeId);    if (viewerEmployeeId !== employeeId) {      throw new ForbiddenException(        'Only the profile owner may update open-to-mentoring',      );    }    await this.sectionGate.requireSection(      viewerEmployeeId,      employeeId,      'S13',      'RW',    );    return this.mentorship.updateOpenToMentoring(      employeeId,      dto.openToMentoring,      'Self',    );  }  private async assertSubjectEmployeeExists(employeeId: string): Promise<void> {    const subject = await this.prisma.employee.findUnique({      where: { id: employeeId },      select: { id: true },    });    if (!subject) {      throw new NotFoundException(`Employee ${employeeId} not found`);    }  }  private async resolveViewerEmployeeId(request: Request): Promise<string> {    const { userId } = await this.currentUser.getCurrentUser(request);    const employee = await this.prisma.employee.findUnique({      where: { userId },      select: { id: true },    });    if (!employee) {      throw new ForbiddenException('Authenticated user has no employee record');    }    return employee.id;  }}@ApiTags('mentorship')@Controller('mentorship')export class MentorshipPoolController {  constructor(    private readonly mentorship: MentorshipService,    private readonly assignment: MentorshipAssignmentService,    private readonly currentUser: CurrentUserProvider,    private readonly prisma: PrismaService,    private readonly permissionChecker: PermissionChecker,  ) {}  @Get('willing-mentors')  @SwaggerListWillingMentors()  async listWillingMentors(@Req() request: Request) {    await this.resolveViewerEmployeeId(request);    await this.assertAssignEndMentorshipsPermission(request);    const mentors = await this.mentorship.listWillingMentors();    return { mentors };  }  @Get('assignable-mentees')  @SwaggerListAssignableMentees()  async listAssignableMentees(@Req() request: Request) {    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);    await this.assertAssignEndMentorshipsPermission(request);    const mentees =      await this.assignment.listAssignableMentees(viewerEmployeeId);    return { mentees };  }  @Get('pairs')  @SwaggerListActiveMentorshipPairs()  async listPairs(@Req() request: Request, @Query('status') status?: string) {    if (status !== 'active') {      throw new BadRequestException(        'Only status=active is supported for mentorship pairs listing.',      );    }    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);    await this.assertAssignEndMentorshipsPermission(request);    const pairs = await this.assignment.listActivePairs(viewerEmployeeId);    return { pairs };  }  @Post('pairs')  @UsePipes(    new ValidationPipe({      whitelist: true,      forbidNonWhitelisted: true,      transform: true,    }),  )  @SwaggerCreateMentorshipPair()  async createPair(    @Req() request: Request,    @Body() dto: CreateMentorshipPairDto,  ) {    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);    await this.assertAssignEndMentorshipsPermission(request);    return this.assignment.createPair(      viewerEmployeeId,      dto.mentorId,      dto.menteeId,    );  }  @Patch('pairs/:pairId/end')  @UsePipes(    new ValidationPipe({      whitelist: true,      forbidNonWhitelisted: true,      transform: true,    }),  )  @SwaggerEndMentorshipPair()  async endPair(    @Req() request: Request,    @Param('pairId', ParseUUIDPipe) pairId: string,    @Body() dto: EndMentorshipPairDto,  ) {    const viewerEmployeeId = await this.resolveViewerEmployeeId(request);    await this.assertAssignEndMentorshipsPermission(request);    return this.assignment.endPair(      viewerEmployeeId,      pairId,      dto.closureFeedback,    );  }  private async resolveViewerEmployeeId(request: Request): Promise<string> {    const { userId } = await this.currentUser.getCurrentUser(request);    const employee = await this.prisma.employee.findUnique({      where: { userId },      select: { id: true },    });    if (!employee) {      throw new ForbiddenException('Authenticated user has no employee record');    }    return employee.id;  }  private async assertAssignEndMentorshipsPermission(    request: Request,  ): Promise<void> {    const { userId } = await this.currentUser.getCurrentUser(request);    const allowed = await this.permissionChecker.hasPermission(      userId,      PERMISSION_KEYS.ASSIGN_END_MENTORSHIPS,    );    if (!allowed) {      throw new ForbiddenException(        'Viewer lacks assign and end mentorships permission',      );    }  }}

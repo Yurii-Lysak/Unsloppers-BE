@@ -34,6 +34,6 @@ export class MentorshipSectionProvider extends SectionProvider {
       throw new ForbiddenException('S13 is not visible to this viewer');
     }
 
-    return this.mentorship.buildSection(subjectEmployeeId);
+    return this.mentorship.buildSection(subjectEmployeeId, resolved.role);
   }
 }

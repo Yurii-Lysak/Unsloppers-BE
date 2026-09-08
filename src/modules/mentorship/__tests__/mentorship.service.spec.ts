@@ -14,6 +14,7 @@ describe('MentorshipService', () => {
     },
     mentorshipPair: {
       findFirst: jest.fn(),
+      findMany: jest.fn(),
     },
   };
   const activeMentorLookup = {
@@ -23,6 +24,7 @@ describe('MentorshipService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    prisma.mentorshipPair.findMany.mockResolvedValue([]);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MentorshipService,
@@ -57,26 +59,73 @@ describe('MentorshipService', () => {
     );
   });
 
-  it('buildSection loads mentor, mentees, flag, and derived status', async () => {
+  it('buildSection loads mentor, mentees, flag, derived status, and history', async () => {
+    prisma.employee.findUnique.mockResolvedValue({
+      id: 'subject-1',
+      openToMentoring: true,
+    });
+    prisma.mentorshipPair.findFirst
+      .mockResolvedValueOnce({ id: 'pair-mentor' })
+      .mockResolvedValueOnce(null);
+    activeMentorLookup.getActiveMentorForMentee.mockResolvedValue({
+      id: 'mentor-1',
+      displayName: 'Mentor',
+    });
+    prisma.mentorshipPair.findMany
+      .mockResolvedValueOnce([
+        {
+          id: 'pair-mentee',
+          mentee: {
+            id: 'mentee-1',
+            user: { name: 'Mentee', email: 'mentee@example.com' },
+          },
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    await expect(
+      service.buildSection('subject-1', 'ReportingLine'),
+    ).resolves.toEqual({
+      openToMentoring: true,
+      mentorStatus: 'openToMentoring',
+      mentor: { id: 'mentor-1', displayName: 'Mentor', pairId: 'pair-mentor' },
+      mentees: [
+        { id: 'mentee-1', displayName: 'Mentee', pairId: 'pair-mentee' },
+      ],
+      pairHistory: [],
+    });
+  });
+
+  it('redacts closure feedback for Self audience in pair history', async () => {
     prisma.employee.findUnique.mockResolvedValue({
       id: 'subject-1',
       openToMentoring: true,
     });
     prisma.mentorshipPair.findFirst.mockResolvedValue(null);
-    activeMentorLookup.getActiveMentorForMentee.mockResolvedValue({
-      id: 'mentor-1',
-      displayName: 'Mentor',
-    });
-    activeMentorLookup.getActiveMenteesForMentor.mockResolvedValue([
-      { id: 'mentee-1', displayName: 'Mentee' },
-    ]);
+    activeMentorLookup.getActiveMentorForMentee.mockResolvedValue(null);
+    prisma.mentorshipPair.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'ended-pair',
+          mentorId: 'subject-1',
+          menteeId: 'mentee-1',
+          startedAt: new Date('2026-01-01T00:00:00.000Z'),
+          endedAt: new Date('2026-06-01T00:00:00.000Z'),
+          closureFeedback: 'Private note',
+          mentor: {
+            id: 'subject-1',
+            user: { name: 'Subject', email: 'subject@example.com' },
+          },
+          mentee: {
+            id: 'mentee-1',
+            user: { name: 'Mentee', email: 'mentee@example.com' },
+          },
+        },
+      ]);
 
-    await expect(service.buildSection('subject-1')).resolves.toEqual({
-      openToMentoring: true,
-      mentorStatus: 'openToMentoring',
-      mentor: { id: 'mentor-1', displayName: 'Mentor' },
-      mentees: [{ id: 'mentee-1', displayName: 'Mentee' }],
-    });
+    const section = await service.buildSection('subject-1', 'Self');
+    expect(section.pairHistory[0]?.closureFeedback).toBeUndefined();
   });
 
   it('throws when subject employee is missing', async () => {
