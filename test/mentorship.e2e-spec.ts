@@ -575,4 +575,328 @@ describe('Mentorship (e2e)', () => {
       .send({ mentorId: mentor.employeeId, menteeId: mentee.employeeId })
       .expect(403);
   });
+
+  it('rejects ending a pair without closing feedback', async () => {
+    const mentor = await createEmployeeUser(testApp, 'end-mentor@example.com');
+    const mentee = await createEmployeeUser(testApp, 'end-mentee@example.com');
+    const manager = await createEmployeeUser(
+      testApp,
+      'end-manager@example.com',
+    );
+
+    await testApp.prisma.employee.update({
+      where: { id: mentor.employeeId },
+      data: { openToMentoring: true },
+    });
+    await testApp.prisma.employee.update({
+      where: { id: mentee.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+    const pair = await testApp.prisma.mentorshipPair.create({
+      data: { mentorId: mentor.employeeId, menteeId: mentee.employeeId },
+    });
+    await grantPermission(
+      testApp,
+      manager.employeeId,
+      PERMISSION_KEYS.ASSIGN_END_MENTORSHIPS,
+    );
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    await managerAgent
+      .patch(`/api/v1/mentorship/pairs/${pair.id}/end`)
+      .send({ closureFeedback: '   ' })
+      .expect(400);
+
+    const stillActive = await testApp.prisma.mentorshipPair.findUnique({
+      where: { id: pair.id },
+    });
+    expect(stillActive?.endedAt).toBeNull();
+  });
+
+  it('ends an active pair with feedback, timeline events, and mentor status revert', async () => {
+    const mentor = await createEmployeeUser(
+      testApp,
+      'endok-mentor@example.com',
+    );
+    const mentee = await createEmployeeUser(
+      testApp,
+      'endok-mentee@example.com',
+    );
+    const manager = await createEmployeeUser(
+      testApp,
+      'endok-manager@example.com',
+    );
+
+    await testApp.prisma.employee.update({
+      where: { id: mentor.employeeId },
+      data: { openToMentoring: true },
+    });
+    await testApp.prisma.employee.update({
+      where: { id: mentee.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+    const pair = await testApp.prisma.mentorshipPair.create({
+      data: { mentorId: mentor.employeeId, menteeId: mentee.employeeId },
+    });
+    await grantPermission(
+      testApp,
+      manager.employeeId,
+      PERMISSION_KEYS.ASSIGN_END_MENTORSHIPS,
+    );
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    const endRes = await managerAgent
+      .patch(`/api/v1/mentorship/pairs/${pair.id}/end`)
+      .send({ closureFeedback: 'Pair concluded after a successful run.' })
+      .expect(200);
+
+    const body = endRes.body as {
+      mentorStatus: string;
+      closureFeedback: string;
+      endedAt: string;
+    };
+    expect(body.mentorStatus).toBe('openToMentoring');
+    expect(body.closureFeedback).toBe('Pair concluded after a successful run.');
+
+    const endedPair = await testApp.prisma.mentorshipPair.findUnique({
+      where: { id: pair.id },
+    });
+    expect(endedPair?.endedAt).not.toBeNull();
+    expect(endedPair?.closureFeedback).toBe(
+      'Pair concluded after a successful run.',
+    );
+
+    const mentorTimeline = await testApp.prisma.timelineEvent.findMany({
+      where: { employeeId: mentor.employeeId, type: 'mentorshipEnd' },
+    });
+    const menteeTimeline = await testApp.prisma.timelineEvent.findMany({
+      where: { employeeId: mentee.employeeId, type: 'mentorshipEnd' },
+    });
+    expect(mentorTimeline).toHaveLength(1);
+    expect(menteeTimeline).toHaveLength(1);
+  });
+
+  it('returns conflict when ending an already-ended pair', async () => {
+    const mentor = await createEmployeeUser(
+      testApp,
+      'conflict-mentor@example.com',
+    );
+    const mentee = await createEmployeeUser(
+      testApp,
+      'conflict-mentee@example.com',
+    );
+    const manager = await createEmployeeUser(
+      testApp,
+      'conflict-manager@example.com',
+    );
+
+    await testApp.prisma.employee.update({
+      where: { id: mentee.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+    const pair = await testApp.prisma.mentorshipPair.create({
+      data: {
+        mentorId: mentor.employeeId,
+        menteeId: mentee.employeeId,
+        endedAt: new Date('2026-08-01T12:00:00.000Z'),
+        closureFeedback: 'Original note.',
+      },
+    });
+    await grantPermission(
+      testApp,
+      manager.employeeId,
+      PERMISSION_KEYS.ASSIGN_END_MENTORSHIPS,
+    );
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    await managerAgent
+      .patch(`/api/v1/mentorship/pairs/${pair.id}/end`)
+      .send({ closureFeedback: 'Overwrite attempt.' })
+      .expect(409);
+
+    const unchanged = await testApp.prisma.mentorshipPair.findUnique({
+      where: { id: pair.id },
+    });
+    expect(unchanged?.closureFeedback).toBe('Original note.');
+  });
+
+  it('lists scoped active pairs for managers', async () => {
+    const mentor = await createEmployeeUser(
+      testApp,
+      'active-mentor@example.com',
+    );
+    const mentee = await createEmployeeUser(
+      testApp,
+      'active-mentee@example.com',
+    );
+    const manager = await createEmployeeUser(
+      testApp,
+      'active-manager@example.com',
+    );
+
+    await testApp.prisma.employee.update({
+      where: { id: mentee.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+    const pair = await testApp.prisma.mentorshipPair.create({
+      data: { mentorId: mentor.employeeId, menteeId: mentee.employeeId },
+    });
+    await grantPermission(
+      testApp,
+      manager.employeeId,
+      PERMISSION_KEYS.ASSIGN_END_MENTORSHIPS,
+    );
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    const listRes = await managerAgent
+      .get('/api/v1/mentorship/pairs?status=active')
+      .expect(200);
+
+    const pairIds = (
+      listRes.body as { pairs: Array<{ id: string }> }
+    ).pairs.map((row) => row.id);
+    expect(pairIds).toContain(pair.id);
+  });
+
+  it('forbids ending a pair without assign_end_mentorships permission', async () => {
+    const mentor = await createEmployeeUser(testApp, 'endperm-mentor@example.com');
+    const mentee = await createEmployeeUser(testApp, 'endperm-mentee@example.com');
+    const viewer = await createEmployeeUser(testApp, 'endperm-viewer@example.com');
+
+    await testApp.prisma.employee.update({
+      where: { id: mentee.employeeId },
+      data: { managerId: viewer.employeeId },
+    });
+    const pair = await testApp.prisma.mentorshipPair.create({
+      data: { mentorId: mentor.employeeId, menteeId: mentee.employeeId },
+    });
+
+    const viewerAgent = await loginAs(testApp, viewer.email);
+    await viewerAgent
+      .patch(`/api/v1/mentorship/pairs/${pair.id}/end`)
+      .send({ closureFeedback: 'Should be denied.' })
+      .expect(403);
+  });
+
+  it('rejects ending a pair outside viewer scope', async () => {
+    const mentor = await createEmployeeUser(testApp, 'endscope-mentor@example.com');
+    const mentee = await createEmployeeUser(testApp, 'endscope-mentee@example.com');
+    const manager = await createEmployeeUser(
+      testApp,
+      'endscope-manager@example.com',
+    );
+
+    const pair = await testApp.prisma.mentorshipPair.create({
+      data: { mentorId: mentor.employeeId, menteeId: mentee.employeeId },
+    });
+    await grantPermission(
+      testApp,
+      manager.employeeId,
+      PERMISSION_KEYS.ASSIGN_END_MENTORSHIPS,
+    );
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    await managerAgent
+      .patch(`/api/v1/mentorship/pairs/${pair.id}/end`)
+      .send({ closureFeedback: 'Out of scope.' })
+      .expect(403);
+  });
+
+  it('reverts mentor status to none when self-flag is off after last pair ends', async () => {
+    const mentor = await createEmployeeUser(
+      testApp,
+      'endflag-mentor@example.com',
+    );
+    const mentee = await createEmployeeUser(
+      testApp,
+      'endflag-mentee@example.com',
+    );
+    const manager = await createEmployeeUser(
+      testApp,
+      'endflag-manager@example.com',
+    );
+
+    await testApp.prisma.employee.update({
+      where: { id: mentor.employeeId },
+      data: { openToMentoring: false },
+    });
+    await testApp.prisma.employee.update({
+      where: { id: mentee.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+    const pair = await testApp.prisma.mentorshipPair.create({
+      data: { mentorId: mentor.employeeId, menteeId: mentee.employeeId },
+    });
+    await grantPermission(
+      testApp,
+      manager.employeeId,
+      PERMISSION_KEYS.ASSIGN_END_MENTORSHIPS,
+    );
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    const endRes = await managerAgent
+      .patch(`/api/v1/mentorship/pairs/${pair.id}/end`)
+      .send({ closureFeedback: 'Final note with flag off.' })
+      .expect(200);
+
+    expect((endRes.body as { mentorStatus: string }).mentorStatus).toBe('none');
+  });
+
+  it('redacts closure feedback in S13 for Self but exposes it for manager', async () => {
+    const mentor = await createEmployeeUser(testApp, 'vis-mentor@example.com');
+    const mentee = await createEmployeeUser(testApp, 'vis-mentee@example.com');
+    const manager = await createEmployeeUser(
+      testApp,
+      'vis-manager@example.com',
+    );
+
+    await testApp.prisma.employee.update({
+      where: { id: mentee.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+    await testApp.prisma.mentorshipPair.create({
+      data: {
+        mentorId: mentor.employeeId,
+        menteeId: mentee.employeeId,
+        endedAt: new Date('2026-08-01T12:00:00.000Z'),
+        closureFeedback: 'Manager-only closure note.',
+      },
+    });
+
+    const menteeAgent = await loginAs(testApp, mentee.email);
+    const selfProfile = await menteeAgent
+      .get(`/api/v1/employees/${mentee.employeeId}/profile`)
+      .expect(200);
+    const selfS13 = (
+      selfProfile.body as {
+        sections: {
+          S13?: {
+            data?: {
+              pairHistory?: Array<{ closureFeedback?: string }>;
+            };
+          };
+        };
+      }
+    ).sections.S13;
+    expect(selfS13?.data?.pairHistory?.[0]?.closureFeedback).toBeUndefined();
+
+    const managerAgent = await loginAs(testApp, manager.email);
+    const managerProfile = await managerAgent
+      .get(`/api/v1/employees/${mentee.employeeId}/profile`)
+      .expect(200);
+    const managerS13 = (
+      managerProfile.body as {
+        sections: {
+          S13?: {
+            data?: {
+              pairHistory?: Array<{ closureFeedback?: string }>;
+            };
+          };
+        };
+      }
+    ).sections.S13;
+    expect(managerS13?.data?.pairHistory?.[0]?.closureFeedback).toBe(
+      'Manager-only closure note.',
+    );
+  });
 });

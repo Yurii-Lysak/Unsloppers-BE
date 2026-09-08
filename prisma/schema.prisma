@@ -552,11 +552,12 @@ model FormCampaign {
 // Epic 9 adds closure note, consent checks, and write APIs. Partial unique on
 // active mentee is enforced in migration SQL — see Design Notes in spec 1.7.
 model MentorshipPair {
-  id        String    @id @default(uuid())
-  mentorId  String
-  menteeId  String
-  startedAt DateTime  @default(now())
-  endedAt   DateTime?
+  id               String    @id @default(uuid())
+  mentorId         String
+  menteeId         String
+  startedAt        DateTime  @default(now())
+  endedAt          DateTime?
+  closureFeedback  String?
 
   mentor Employee @relation("MentorPairs", fields: [mentorId], references: [id], onDelete: Restrict)
   mentee Employee @relation("MenteePairs", fields: [menteeId], references: [id], onDelete: Restrict)

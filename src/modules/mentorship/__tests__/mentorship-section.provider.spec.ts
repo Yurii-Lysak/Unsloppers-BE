@@ -75,6 +75,6 @@ describe('MentorshipSectionProvider', () => {
 
     await provider.getSection('viewer', 'subject', audience);
 
-    expect(mentorship.buildSection).toHaveBeenCalledWith('subject');
+    expect(mentorship.buildSection).toHaveBeenCalledWith('subject', 'Self');
   });
 });

@@ -19,6 +19,7 @@ describe('MentorshipAssignmentService', () => {
   };
   const pairService = {
     createActivePair: jest.fn(),
+    endActivePair: jest.fn(),
   };
   const mentorship = {
     deriveMentorStatus: jest.fn(),
@@ -32,6 +33,7 @@ describe('MentorshipAssignmentService', () => {
     },
     mentorshipPair: {
       findMany: jest.fn(),
+      findUnique: jest.fn(),
     },
     $transaction: jest.fn(),
   };
@@ -230,6 +232,105 @@ describe('MentorshipAssignmentService', () => {
       '2026-09-08',
       null,
       'mentor-1',
+      'system',
+      'viewer-1',
+      tx,
+    );
+  });
+
+  it('lists scoped active pairs', async () => {
+    sectionGate.listS6SubjectIds.mockResolvedValue(['mentee-1']);
+    prisma.mentorshipPair.findMany.mockResolvedValue([
+      {
+        id: 'pair-1',
+        mentorId: 'mentor-1',
+        menteeId: 'mentee-1',
+        startedAt: new Date('2026-09-08T12:00:00.000Z'),
+        mentor: {
+          user: { name: 'Mentor', email: 'mentor@example.com' },
+        },
+        mentee: {
+          user: { name: 'Mentee', email: 'mentee@example.com' },
+        },
+      },
+    ]);
+
+    await expect(service.listActivePairs('viewer-1')).resolves.toEqual([
+      {
+        id: 'pair-1',
+        mentorId: 'mentor-1',
+        mentorDisplayName: 'Mentor',
+        menteeId: 'mentee-1',
+        menteeDisplayName: 'Mentee',
+        startedAt: '2026-09-08T12:00:00.000Z',
+      },
+    ]);
+  });
+
+  it('rejects ending a pair without feedback', async () => {
+    await expect(
+      service.endPair('viewer-1', 'pair-1', '   '),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects ending a pair outside viewer scope', async () => {
+    sectionGate.listS6SubjectIds.mockResolvedValue(['other-emp']);
+    prisma.mentorshipPair.findUnique.mockResolvedValue({
+      mentorId: 'mentor-1',
+      menteeId: 'mentee-1',
+    });
+
+    await expect(
+      service.endPair('viewer-1', 'pair-1', 'Closing note.'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('ends a pair and writes mentorshipEnd timeline events atomically', async () => {
+    sectionGate.listS6SubjectIds.mockResolvedValue(['mentee-1']);
+    mentorship.deriveMentorStatus.mockResolvedValue('openToMentoring');
+    prisma.mentorshipPair.findUnique.mockResolvedValue({
+      mentorId: 'mentor-1',
+      menteeId: 'mentee-1',
+    });
+
+    const endedAt = new Date('2026-09-08T15:00:00.000Z');
+    const startedAt = new Date('2026-01-01T12:00:00.000Z');
+    const tx = {};
+
+    prisma.$transaction.mockImplementation(
+      (callback: (transactionClient: typeof tx) => unknown) => callback(tx),
+    );
+    pairService.endActivePair.mockResolvedValue({
+      id: 'pair-1',
+      mentorId: 'mentor-1',
+      menteeId: 'mentee-1',
+      startedAt,
+      endedAt,
+      closureFeedback: 'Pair concluded successfully.',
+    });
+
+    await expect(
+      service.endPair('viewer-1', 'pair-1', 'Pair concluded successfully.'),
+    ).resolves.toEqual({
+      id: 'pair-1',
+      mentorId: 'mentor-1',
+      menteeId: 'mentee-1',
+      startedAt: startedAt.toISOString(),
+      endedAt: endedAt.toISOString(),
+      closureFeedback: 'Pair concluded successfully.',
+      mentorStatus: 'openToMentoring',
+    });
+
+    expect(pairService.endActivePair).toHaveBeenCalled();
+    expect(timelineWriter.recordTimelineEvent).toHaveBeenCalledTimes(2);
+    expect(timelineWriter.recordTimelineEvent).toHaveBeenCalledWith(
+      'mentor-1',
+      'mentorshipEnd',
+      '2026-09-08',
+      null,
+      'mentee-1',
       'system',
       'viewer-1',
       tx,
