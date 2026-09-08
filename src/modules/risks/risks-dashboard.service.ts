@@ -61,6 +61,21 @@ export class RisksDashboardService {
     return { counts: this.buildCounts(snapshots) };
   }
 
+  async getScopedData(
+    viewerEmployeeId: string,
+    subjectIds: string[],
+  ): Promise<{
+    counts: RiskDashboardCountsEntity;
+    rows: RiskDashboardRowEntity[];
+  }> {
+    const snapshots = await this.loadSnapshotsForSubjects(subjectIds);
+    const sorted = [...snapshots].sort((a, b) => this.compareRows(a, b));
+    return {
+      counts: this.buildCounts(sorted),
+      rows: sorted.map((row) => this.toRowEntity(row)),
+    };
+  }
+
   async getDashboard(
     viewerEmployeeId: string,
     query: ListRiskDashboardQueryDto,
@@ -116,6 +131,12 @@ export class RisksDashboardService {
   ): Promise<SubjectRiskSnapshot[]> {
     const subjectIds =
       await this.sectionGate.listS6SubjectIds(viewerEmployeeId);
+    return this.loadSnapshotsForSubjects(subjectIds);
+  }
+
+  private async loadSnapshotsForSubjects(
+    subjectIds: string[],
+  ): Promise<SubjectRiskSnapshot[]> {
     if (subjectIds.length === 0) {
       return [];
     }

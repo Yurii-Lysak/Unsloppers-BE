@@ -21,6 +21,10 @@ import { SharedLinkService } from './shared-link.service';
 import { IdentitySectionProvider } from './identity-section.provider';
 import { ProjectsSectionProvider } from './projects-section.provider';
 import { SectionAccessGateService } from './section-access-gate.service';
+import { DashboardAudienceService } from './dashboard-audience.service';
+import { DashboardVariantResolverService } from './dashboard-variant-resolver.service';
+import { DashboardAudience } from '../contracts/dashboard-audience.contract';
+import { DashboardVariantResolver } from '../contracts/dashboard-variant-resolver.contract';
 import { RelationshipJournal } from '../contracts/relationship-journal.contract';
 import { RelationshipJournalService } from './relationship-journal.service';
 import { RelationshipGraphGenerationService } from './relationship-graph-generation.service';
@@ -61,6 +65,11 @@ import { RelationshipGraphGenerationService } from './relationship-graph-generat
     IdentitySectionProvider,
     ProjectsSectionProvider,
     { provide: SectionAccessGate, useClass: SectionAccessGateService },
+    { provide: DashboardAudience, useClass: DashboardAudienceService },
+    {
+      provide: DashboardVariantResolver,
+      useClass: DashboardVariantResolverService,
+    },
     RelationshipGraphGenerationService,
   ],
   exports: [
@@ -71,6 +80,8 @@ import { RelationshipGraphGenerationService } from './relationship-graph-generat
     FunctionalRoleAssignmentService,
     ProfileAssemblerService,
     SectionAccessGate,
+    DashboardAudience,
+    DashboardVariantResolver,
     RelationshipJournal,
     RelationshipGraphGenerationService,
   ],

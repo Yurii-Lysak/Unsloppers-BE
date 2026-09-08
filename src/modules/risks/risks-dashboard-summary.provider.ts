@@ -1,7 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
+import type { DashboardSummaryScope } from '../contracts/dashboard-summary.types';
 import { DashboardSummaryProvider } from '../contracts/dashboard-summary-provider.contract';
 import { RegisterProvider } from '../registry/register-provider.decorator';
-import { RiskDashboardSummaryEntity } from './entities/risk-dashboard.entity';
 import { RisksDashboardService } from './risks-dashboard.service';
 
 @Injectable()
@@ -11,13 +11,40 @@ export class RisksDashboardSummaryProvider extends DashboardSummaryProvider {
     super();
   }
 
-  async getSummary(
-    viewerEmployeeId: string,
-  ): Promise<RiskDashboardSummaryEntity> {
-    const access = await this.dashboard.getAccess(viewerEmployeeId);
-    if (!access.canAccess) {
-      throw new ForbiddenException('Risk dashboard summary is not accessible');
+  async getSummary(viewerEmployeeId: string, scope?: DashboardSummaryScope) {
+    if (scope?.subjectIds) {
+      try {
+        const data = await this.dashboard.getScopedData(
+          viewerEmployeeId,
+          scope.subjectIds,
+        );
+        return {
+          providerId: 'risks' as const,
+          status: 'available' as const,
+          counts: data.counts,
+          rows: data.rows,
+        };
+      } catch {
+        return { providerId: 'risks', status: 'unavailable' as const };
+      }
     }
-    return this.dashboard.getSummary(viewerEmployeeId);
+
+    try {
+      const access = await this.dashboard.getAccess(viewerEmployeeId);
+      if (!access.canAccess) {
+        throw new ForbiddenException(
+          'Risk dashboard summary is not accessible',
+        );
+      }
+      const summary = await this.dashboard.getSummary(viewerEmployeeId);
+      return {
+        providerId: 'risks' as const,
+        status: 'available' as const,
+        counts: summary.counts,
+        rows: [],
+      };
+    } catch {
+      return { providerId: 'risks', status: 'unavailable' as const };
+    }
   }
 }

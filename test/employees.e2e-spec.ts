@@ -427,7 +427,10 @@ describe('Employees list (e2e)', () => {
       },
     ]);
 
-    const res = await agent.get('/api/v1/employees').query({ filters }).expect(200);
+    const res = await agent
+      .get('/api/v1/employees')
+      .query({ filters })
+      .expect(200);
 
     const body = res.body as EmployeeListResponse & { filtersHidden?: boolean };
     expect(body.filtersHidden).toBe(true);
