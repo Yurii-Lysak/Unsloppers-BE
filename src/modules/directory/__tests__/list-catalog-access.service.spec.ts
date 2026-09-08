@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { AccessResolver } from '../../contracts/access-resolver.contract';
+import {
+  AccessResolver,
+  ResolvedAudience,
+  SectionId,
+} from '../../contracts/access-resolver.contract';
 import { SectionAccessGate } from '../../contracts/section-access-gate.contract';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ListCatalogAccessService } from '../list-catalog-access.service';
@@ -22,10 +26,11 @@ describe('ListCatalogAccessService', () => {
   beforeEach(async () => {
     jest.resetAllMocks();
     prisma.fullAccessGrant.findFirst.mockResolvedValue(null);
-    sectionGate.listGrantedSections.mockImplementation((audience) =>
-      Object.entries(audience.sections)
-        .filter(([, grant]) => grant !== 'none')
-        .map(([sectionId]) => sectionId),
+    sectionGate.listGrantedSections.mockImplementation(
+      (audience: ResolvedAudience) =>
+        Object.entries(audience.sections)
+          .filter(([, grant]) => grant !== 'none')
+          .map(([sectionId]) => sectionId as SectionId),
     );
 
     const module: TestingModule = await Test.createTestingModule({

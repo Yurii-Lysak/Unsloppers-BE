@@ -701,9 +701,9 @@ describe('EmployeesService', () => {
       pageSize: 50,
     });
     accessResolver.resolveAudience.mockImplementation(
-      async (_viewerId: string, subjectId: string) => {
+      (_viewerId: string, subjectId: string) => {
         if (subjectId === 'report-1') {
-          return {
+          return Promise.resolve({
             role: 'ReportingLine',
             sections: {
               S1: 'R',
@@ -712,9 +712,9 @@ describe('EmployeesService', () => {
               S11: 'R',
               S16: 'none',
             },
-          };
+          });
         }
-        return {
+        return Promise.resolve({
           role: 'Colleague',
           sections: {
             S1: 'R',
@@ -723,7 +723,7 @@ describe('EmployeesService', () => {
             S11: 'R',
             S16: 'none',
           },
-        };
+        });
       },
     );
 
@@ -778,9 +778,9 @@ describe('EmployeesService', () => {
       pageSize: 50,
     });
     accessResolver.resolveAudience.mockImplementation(
-      async (_viewerId: string, subjectId: string) => {
+      (_viewerId: string, subjectId: string) => {
         if (subjectId === 'viewer-1') {
-          return {
+          return Promise.resolve({
             role: 'Self',
             sections: {
               S1: 'R',
@@ -789,9 +789,9 @@ describe('EmployeesService', () => {
               S11: 'R',
               S16: 'R',
             },
-          };
+          });
         }
-        return {
+        return Promise.resolve({
           role: 'Colleague',
           sections: {
             S1: 'R',
@@ -800,7 +800,7 @@ describe('EmployeesService', () => {
             S11: 'R',
             S16: 'none',
           },
-        };
+        });
       },
     );
 
@@ -809,7 +809,9 @@ describe('EmployeesService', () => {
     expect(result.rows[0]?.cells[BUILTIN_FIELD_IDS.employment_type]).toBe(
       'Full-time',
     );
-    expect(result.rows[1]?.cells[BUILTIN_FIELD_IDS.employment_type]).toBeUndefined();
+    expect(
+      result.rows[1]?.cells[BUILTIN_FIELD_IDS.employment_type],
+    ).toBeUndefined();
     const employmentField = result.fields.find(
       (field) => field.id === BUILTIN_FIELD_IDS.employment_type,
     );
