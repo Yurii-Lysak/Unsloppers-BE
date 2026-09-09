@@ -7,8 +7,11 @@ import type { CDSAssessment, IDPRecord } from '../../generated/prisma/client';
 import { Clock } from '../../clock/clock.service';
 import { DepartmentDirectory } from '../contracts/department-directory.contract';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CreateCdsAssessmentDto } from './dto/create-cds-assessment.dto';
 import { CreateIdpRecordDto } from './dto/create-idp-record.dto';
+import { UpdateCdsAssessmentConclusionDto } from './dto/update-cds-assessment-conclusion.dto';
 import { UpdateIdpRecordDto } from './dto/update-idp-record.dto';
+import { parseCdsAssessmentDate } from './cds-assessment-input';
 import {
   formatIdpCalendarDate,
   normalizeCreateIdpRecordFields,
@@ -40,6 +43,50 @@ export class CdsService {
       assessments,
       idpRecords,
     };
+  }
+
+  async createAssessment(
+    subjectEmployeeId: string,
+    dto: CreateCdsAssessmentDto,
+  ): Promise<CdsAssessmentEntryEntity> {
+    const record = await this.prisma.cDSAssessment.create({
+      data: {
+        employeeId: subjectEmployeeId,
+        date: parseCdsAssessmentDate(dto.date),
+        assessor: dto.assessor,
+        resultLink: dto.resultLink,
+        conclusion: dto.conclusion,
+      },
+    });
+    return this.toAssessmentDto(record);
+  }
+
+  async updateAssessmentConclusion(
+    subjectEmployeeId: string,
+    assessmentId: string,
+    dto: UpdateCdsAssessmentConclusionDto,
+  ): Promise<CdsAssessmentEntryEntity> {
+    const result = await this.prisma.cDSAssessment.updateMany({
+      where: {
+        id: assessmentId,
+        employeeId: subjectEmployeeId,
+      },
+      data: {
+        conclusion: dto.conclusion,
+      },
+    });
+    if (result.count === 0) {
+      await this.assertAssessmentForSubject(subjectEmployeeId, assessmentId);
+    }
+
+    const updated = await this.findAssessmentForSubject(
+      subjectEmployeeId,
+      assessmentId,
+    );
+    if (!updated) {
+      throw new NotFoundException(`Assessment ${assessmentId} not found`);
+    }
+    return this.toAssessmentDto(updated);
   }
 
   async createIdpRecord(
@@ -195,6 +242,28 @@ export class CdsService {
     return this.prisma.iDPRecord.findFirst({
       where: { id: idpId, employeeId: subjectEmployeeId },
     });
+  }
+
+  private findAssessmentForSubject(
+    subjectEmployeeId: string,
+    assessmentId: string,
+  ): Promise<CDSAssessment | null> {
+    return this.prisma.cDSAssessment.findFirst({
+      where: { id: assessmentId, employeeId: subjectEmployeeId },
+    });
+  }
+
+  private async assertAssessmentForSubject(
+    subjectEmployeeId: string,
+    assessmentId: string,
+  ): Promise<void> {
+    const assessment = await this.findAssessmentForSubject(
+      subjectEmployeeId,
+      assessmentId,
+    );
+    if (!assessment) {
+      throw new NotFoundException(`Assessment ${assessmentId} not found`);
+    }
   }
 
   private async assertOpenIdpRecord(

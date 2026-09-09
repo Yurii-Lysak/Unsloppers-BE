@@ -9,7 +9,12 @@ type PrismaMock = {
   departmentHistory: { findFirst: jest.Mock };
   positionHistory: { findFirst: jest.Mock };
   skillsMatrixEntry: { findUnique: jest.Mock };
-  cDSAssessment: { findMany: jest.Mock };
+  cDSAssessment: {
+    findMany: jest.Mock;
+    create: jest.Mock;
+    updateMany: jest.Mock;
+    findFirst: jest.Mock;
+  };
   iDPRecord: {
     findMany: jest.Mock;
     create: jest.Mock;
@@ -32,7 +37,12 @@ describe('CdsService', () => {
     departmentHistory: { findFirst: jest.fn() },
     positionHistory: { findFirst: jest.fn() },
     skillsMatrixEntry: { findUnique: jest.fn() },
-    cDSAssessment: { findMany: jest.fn() },
+    cDSAssessment: {
+      findMany: jest.fn(),
+      create: jest.fn(),
+      updateMany: jest.fn(),
+      findFirst: jest.fn(),
+    },
     iDPRecord: {
       findMany: jest.fn(),
       create: jest.fn(),
@@ -380,6 +390,76 @@ describe('CdsService', () => {
         },
       ],
     });
+  });
+
+  it('createAssessment appends a new assessment entry', async () => {
+    prisma.cDSAssessment.create.mockResolvedValue({
+      id: 'assessment-new',
+      employeeId: 'subject-1',
+      date: new Date('2026-07-01T00:00:00.000Z'),
+      assessor: 'Assessment Manager',
+      resultLink: 'https://skills-matrix.example/results/new',
+      conclusion: 'New assessment conclusion',
+      createdAt: new Date('2026-07-02T10:00:00.000Z'),
+    });
+
+    await expect(
+      service.createAssessment('subject-1', {
+        date: '2026-07-01',
+        assessor: 'Assessment Manager',
+        resultLink: 'https://skills-matrix.example/results/new',
+        conclusion: 'New assessment conclusion',
+      }),
+    ).resolves.toEqual({
+      id: 'assessment-new',
+      date: '2026-07-01',
+      assessor: 'Assessment Manager',
+      resultLink: 'https://skills-matrix.example/results/new',
+      conclusion: 'New assessment conclusion',
+      createdAt: '2026-07-02T10:00:00.000Z',
+    });
+  });
+
+  it('updateAssessmentConclusion updates only the conclusion field', async () => {
+    prisma.cDSAssessment.updateMany.mockResolvedValue({ count: 1 });
+    prisma.cDSAssessment.findFirst.mockResolvedValue({
+      id: 'assessment-1',
+      employeeId: 'subject-1',
+      date: new Date('2026-06-15T00:00:00.000Z'),
+      assessor: 'Assessment Manager',
+      resultLink: 'https://skills-matrix.example/results/1',
+      conclusion: 'Updated conclusion',
+      createdAt: new Date('2026-06-16T10:00:00.000Z'),
+    });
+
+    await expect(
+      service.updateAssessmentConclusion('subject-1', 'assessment-1', {
+        conclusion: 'Updated conclusion',
+      }),
+    ).resolves.toEqual({
+      id: 'assessment-1',
+      date: '2026-06-15',
+      assessor: 'Assessment Manager',
+      resultLink: 'https://skills-matrix.example/results/1',
+      conclusion: 'Updated conclusion',
+      createdAt: '2026-06-16T10:00:00.000Z',
+    });
+
+    expect(prisma.cDSAssessment.updateMany).toHaveBeenCalledWith({
+      where: { id: 'assessment-1', employeeId: 'subject-1' },
+      data: { conclusion: 'Updated conclusion' },
+    });
+  });
+
+  it('updateAssessmentConclusion throws 404 when assessment is missing', async () => {
+    prisma.cDSAssessment.updateMany.mockResolvedValue({ count: 0 });
+    prisma.cDSAssessment.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.updateAssessmentConclusion('subject-1', 'missing-assessment', {
+        conclusion: 'Updated conclusion',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('createIdpRecord persists required fields with completedAt null', async () => {
