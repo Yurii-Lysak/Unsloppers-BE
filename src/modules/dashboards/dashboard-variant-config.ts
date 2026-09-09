@@ -137,8 +137,14 @@ export const DASHBOARD_VARIANT_DEFINITIONS: Record<
   pm: {
     variant: 'pm',
     grouping: 'project',
-    blocks: ['counters', 'table', 'ownActionItems', 'quickNav'],
-    counters: [],
+    blocks: [
+      'counters',
+      'table',
+      'resourcingRequests',
+      'ownActionItems',
+      'quickNav',
+    ],
+    counters: DM_COUNTERS,
     quickNav: DM_QUICK_NAV_LINKS,
   },
   pp: {

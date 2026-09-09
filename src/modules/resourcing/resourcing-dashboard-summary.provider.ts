@@ -15,7 +15,7 @@ export class ResourcingDashboardSummaryProvider extends DashboardSummaryProvider
   async getSummary(viewerEmployeeId: string, scope?: DashboardSummaryScope) {
     try {
       const requests =
-        scope?.variant === 'dm'
+        scope?.variant === 'dm' || scope?.variant === 'pm'
           ? await this.resourcing.listRequests(viewerEmployeeId)
           : await this.resourcing.listAssigned(viewerEmployeeId);
       const filtered = filterResourcingRequestsByProject(

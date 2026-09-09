@@ -115,4 +115,73 @@ describe('ResourcingRequestsDashboardSummaryProvider', () => {
     });
     expect(resourcing.listRequests).not.toHaveBeenCalled();
   });
+
+  it('returns unavailable for a third variant (pp), proving the gate is dm/pm-only', async () => {
+    const result = await provider.getSummary('pp-viewer', {
+      subjectIds: ['sub-1'],
+      variant: 'pp',
+    });
+
+    expect(result).toEqual({
+      providerId: 'resourcing-requests',
+      status: 'unavailable',
+    });
+    expect(resourcing.listRequests).not.toHaveBeenCalled();
+  });
+
+  it('returns PM-authored requests for the dashboard block', async () => {
+    resourcing.listRequests.mockResolvedValue([
+      {
+        id: 'req-1',
+        vacancyDetails: 'Backend engineer',
+        status: 'open',
+        projectId: 'proj-a',
+        author: { id: 'pm-1', displayName: 'PM Viewer' },
+        createdAt: '2026-01-02T00:00:00.000Z',
+      },
+      {
+        id: 'req-2',
+        vacancyDetails: 'Closed role',
+        status: 'fulfilled',
+        projectId: 'proj-a',
+        author: { id: 'pm-1', displayName: 'PM Viewer' },
+        createdAt: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    const result = await provider.getSummary('pm-viewer', {
+      subjectIds: [],
+      variant: 'pm',
+    });
+
+    expect(resourcing.listRequests).toHaveBeenCalledWith('pm-viewer');
+    expect(result).toEqual({
+      providerId: 'resourcing-requests',
+      status: 'available',
+      requests: [
+        {
+          id: 'req-1',
+          vacancyDetails: 'Backend engineer',
+          status: 'open',
+          projectId: 'proj-a',
+          authorDisplayName: 'PM Viewer',
+          createdAt: '2026-01-02T00:00:00.000Z',
+        },
+      ],
+    });
+  });
+
+  it('returns unavailable when listRequests throws for a PM viewer', async () => {
+    resourcing.listRequests.mockRejectedValue(new Error('service down'));
+
+    const result = await provider.getSummary('pm-viewer', {
+      subjectIds: [],
+      variant: 'pm',
+    });
+
+    expect(result).toEqual({
+      providerId: 'resourcing-requests',
+      status: 'unavailable',
+    });
+  });
 });

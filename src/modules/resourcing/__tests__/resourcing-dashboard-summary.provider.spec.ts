@@ -73,10 +73,44 @@ describe('ResourcingDashboardSummaryProvider', () => {
     });
   });
 
+  it('counts open PM-authored requests via listRequests, not listAssigned', async () => {
+    resourcing.listRequests.mockResolvedValue([
+      { id: 'req-1', status: 'open', projectId: 'proj-a' },
+      { id: 'req-2', status: 'pending_dm_review', projectId: 'proj-a' },
+    ]);
+
+    const result = await provider.getSummary('pm-viewer', {
+      subjectIds: [],
+      variant: 'pm',
+    });
+
+    expect(resourcing.listRequests).toHaveBeenCalledWith('pm-viewer');
+    expect(resourcing.listAssigned).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      providerId: 'resourcing',
+      status: 'available',
+      openCount: 1,
+    });
+  });
+
   it('returns unavailable when listAssigned throws', async () => {
     resourcing.listAssigned.mockRejectedValue(new Error('service down'));
 
     const result = await provider.getSummary('um-viewer');
+
+    expect(result).toEqual({
+      providerId: 'resourcing',
+      status: 'unavailable',
+    });
+  });
+
+  it('returns unavailable when listRequests throws for a PM viewer', async () => {
+    resourcing.listRequests.mockRejectedValue(new Error('service down'));
+
+    const result = await provider.getSummary('pm-viewer', {
+      subjectIds: [],
+      variant: 'pm',
+    });
 
     expect(result).toEqual({
       providerId: 'resourcing',

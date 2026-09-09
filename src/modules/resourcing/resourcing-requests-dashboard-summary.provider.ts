@@ -15,7 +15,7 @@ export class ResourcingRequestsDashboardSummaryProvider extends DashboardSummary
   }
 
   async getSummary(viewerEmployeeId: string, scope?: DashboardSummaryScope) {
-    if (scope?.variant !== 'dm') {
+    if (scope?.variant !== 'dm' && scope?.variant !== 'pm') {
       return {
         providerId: 'resourcing-requests',
         status: 'unavailable' as const,
