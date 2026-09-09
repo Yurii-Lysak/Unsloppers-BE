@@ -1234,7 +1234,10 @@ describe('Employee profile assembly (e2e)', () => {
   });
 
   it('CREATE_DENIED: unrelated manager cannot write assessments', async () => {
-    const unrelatedEmail = profileEmail('unrelated-manager', `-${randomUUID()}`);
+    const unrelatedEmail = profileEmail(
+      'unrelated-manager',
+      `-${randomUUID()}`,
+    );
     const unrelatedUser = await testApp.prisma.user.create({
       data: {
         email: unrelatedEmail,
@@ -1576,7 +1579,6 @@ describe('Employee profile assembly (e2e)', () => {
       .send({ conclusion: '   ' })
       .expect(400);
   });
-
 });
 
 const loginAgent = async (testApp: TestApp, email: string) => {
