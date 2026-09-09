@@ -12,9 +12,10 @@ export class ResourcingCandidatePoolEntryEntity {
 
 /**
  * `GET /:id` and `POST /:id/submit` response — the 6.1 read shape plus
- * fulfilment-only data. `candidatePool` and `reviewingDmId` are populated
- * only for the routed UM (the only viewer who can reach these routes in
- * 6.2 — see `assertCanFulfilResourcing` + the NOT_ROUTED guard).
+ * fulfilment/review data. Story 6.3 widened `GET /:id` to the reviewing DM
+ * too; `candidatePool` stays UM-only (omitted when the viewer is the
+ * reviewing DM), while `reviewingDmId`, `approvedCount`, and
+ * `viewerIsReviewingDm` are always present on the detail read.
  */
 export class ResourcingRequestDetailEntity extends ResourcingRequestReadEntity {
   @ApiProperty({ type: [ResourcingProposalEntity] })
@@ -32,4 +33,17 @@ export class ResourcingRequestDetailEntity extends ResourcingRequestReadEntity {
       "Employees in the viewer's managed department tree, eligible as an internal candidate.",
   })
   candidatePool?: ResourcingCandidatePoolEntryEntity[];
+
+  @ApiProperty({
+    description: "Live count of this request's currently `approved` proposals.",
+  })
+  approvedCount!: number;
+
+  @ApiProperty({
+    description:
+      'Server-computed viewerEmployeeId === request.reviewingDmId — the ' +
+      'frontend has no other way to know its own viewerEmployeeId to ' +
+      'perform that comparison itself.',
+  })
+  viewerIsReviewingDm!: boolean;
 }

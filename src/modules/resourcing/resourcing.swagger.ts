@@ -20,6 +20,12 @@ const VIEWER_LACKS_FULFIL_RESOURCING_REQUESTS =
 const VIEWER_NOT_ROUTED_UM =
   'Viewer is not the current routed Unit Manager for this request';
 
+const VIEWER_LACKS_APPROVE_REJECT_CANDIDATES =
+  'Viewer lacks approve_reject_candidates permission';
+
+const VIEWER_NOT_REVIEWING_DM =
+  'Viewer is not the resolved reviewing Delivery Manager for this request';
+
 const AUTHENTICATED_USER_HAS_NO_EMPLOYEE_RECORD =
   'Authenticated user has no employee record';
 
@@ -50,13 +56,50 @@ export const SwaggerListAssignedResourcingRequests = () =>
     }),
   );
 
+export const SwaggerListPendingReviewResourcingRequests = () =>
+  applyDecorators(
+    ApiOkResponse({ type: [ResourcingRequestReadEntity] }),
+    ApiForbiddenResponse({
+      description: `${VIEWER_LACKS_APPROVE_REJECT_CANDIDATES} or ${AUTHENTICATED_USER_HAS_NO_EMPLOYEE_RECORD}`,
+    }),
+  );
+
 export const SwaggerGetResourcingRequestDetail = () =>
   applyDecorators(
     ApiOkResponse({ type: ResourcingRequestDetailEntity }),
     ApiForbiddenResponse({
-      description: `${VIEWER_LACKS_FULFIL_RESOURCING_REQUESTS}, ${AUTHENTICATED_USER_HAS_NO_EMPLOYEE_RECORD}, or ${VIEWER_NOT_ROUTED_UM}`,
+      description:
+        `${VIEWER_LACKS_FULFIL_RESOURCING_REQUESTS} and ` +
+        `${VIEWER_LACKS_APPROVE_REJECT_CANDIDATES} (widened in Story 6.3 to ` +
+        'admit either the routed UM or the reviewing DM), or ' +
+        `${AUTHENTICATED_USER_HAS_NO_EMPLOYEE_RECORD}, or ${VIEWER_NOT_ROUTED_UM}`,
     }),
     ApiNotFoundResponse({ description: 'Resourcing request not found' }),
+  );
+
+export const SwaggerDecideResourcingProposal = () =>
+  applyDecorators(
+    ApiOkResponse({ type: ResourcingProposalEntity }),
+    ApiBadRequestResponse({
+      description:
+        'Invalid decision payload — decision must be exactly "approved" or ' +
+        '"rejected", a reason is required to reject a proposed candidate or ' +
+        'reverse an approved one, and approving an already-decided proposal ' +
+        'is rejected',
+    }),
+    ApiForbiddenResponse({
+      description: `${VIEWER_LACKS_APPROVE_REJECT_CANDIDATES}, ${AUTHENTICATED_USER_HAS_NO_EMPLOYEE_RECORD}, or ${VIEWER_NOT_REVIEWING_DM}`,
+    }),
+    ApiNotFoundResponse({
+      description:
+        'Resourcing request not found, or the proposal does not belong to it',
+    }),
+    ApiConflictResponse({
+      description:
+        'Request is not pending DM review, its proposal decision is already ' +
+        'final (rejected), headcount is already fully approved, or the ' +
+        'proposal was concurrently decided',
+    }),
   );
 
 export const SwaggerCreateResourcingProposal = () =>

@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  NotFoundException,
 } from '@nestjs/common';
 import { Clock } from '../../../clock/clock.service';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -27,6 +28,12 @@ describe('ResourcingService', () => {
       create: jest.fn(),
       count: jest.fn(),
       findMany: jest.fn(),
+      findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
+      updateMany: jest.fn(),
+    },
+    sharedLink: {
+      findFirst: jest.fn(),
     },
     projectAssignment: {
       findMany: jest.fn(),
@@ -45,6 +52,7 @@ describe('ResourcingService', () => {
     functionalRoleAssignment: {
       count: jest.fn(),
     },
+    $transaction: jest.fn(),
   };
 
   const departmentDirectory: DepartmentDirectory = {
@@ -91,16 +99,56 @@ describe('ResourcingService', () => {
     ...overrides,
   });
 
+  // `decide()`'s inner `prisma.$transaction(async (tx) => ...)` callback runs
+  // against this fake transaction client — tests configure `tx.*` directly.
+  let tx: {
+    $queryRaw: jest.Mock;
+    resourcingProposal: {
+      findUnique: jest.Mock;
+      count: jest.Mock;
+      updateMany: jest.Mock;
+      findUniqueOrThrow: jest.Mock;
+    };
+  };
+
+  const proposalRow = (overrides: Partial<Record<string, unknown>> = {}) => ({
+    id: 'proposal-1',
+    requestId: 'request-1',
+    proposedById: 'um-1',
+    candidateEmployeeId: null,
+    peopleForceCandidateId: null,
+    peopleForceCandidateUrl: 'https://peopleforce.example.com/candidates/1',
+    status: 'proposed',
+    decisionReason: null,
+    createdAt: new Date('2026-09-05T00:00:00.000Z'),
+    candidateEmployee: null,
+    ...overrides,
+  });
+
   beforeEach(async () => {
     jest.clearAllMocks();
     prisma.projectAssignment.findMany.mockResolvedValue([]);
     prisma.projectAssignment.findFirst.mockResolvedValue(null);
+    prisma.sharedLink.findFirst.mockResolvedValue(null);
     (departmentDirectory.getDepartmentByName as jest.Mock).mockResolvedValue(
       null,
     );
     (
       departmentDirectory.getManagedDepartmentIds as jest.Mock
     ).mockResolvedValue([]);
+
+    tx = {
+      $queryRaw: jest.fn().mockResolvedValue(undefined),
+      resourcingProposal: {
+        findUnique: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUniqueOrThrow: jest.fn(),
+      },
+    };
+    prisma.$transaction.mockImplementation(
+      (callback: (tx: typeof tx) => unknown) => callback(tx),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -218,6 +266,31 @@ describe('ResourcingService', () => {
     });
   });
 
+  describe('listPendingReview', () => {
+    it('returns only pending_dm_review requests assigned to the viewer as reviewing DM', async () => {
+      prisma.resourcingRequest.findMany.mockResolvedValue([
+        requestRow({
+          id: 'pending-1',
+          status: 'pending_dm_review',
+          reviewingDmId: 'dm-1',
+        }),
+      ]);
+
+      const result = await service.listPendingReview('dm-1');
+
+      expect(prisma.resourcingRequest.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            status: 'pending_dm_review',
+            reviewingDmId: 'dm-1',
+          },
+        }),
+      );
+      expect(result).toHaveLength(1);
+      expect(result[0]?.id).toBe('pending-1');
+    });
+  });
+
   describe('listAssigned', () => {
     it('returns only open requests routed to the viewer as current Unit Manager', async () => {
       prisma.resourcingRequest.findMany.mockResolvedValue([
@@ -315,6 +388,337 @@ describe('ResourcingService', () => {
         { id: 'candidate-1', displayName: 'Candidate One' },
       ]);
       expect(result.reviewingDmId).toBeNull();
+      expect(result.approvedCount).toBe(0);
+      expect(result.viewerIsReviewingDm).toBe(false);
+    });
+
+    it('Story 6.3 — admits the resolved reviewing DM even when they are not the routed UM', async () => {
+      prisma.resourcingRequest.findUnique.mockResolvedValue(
+        requestRow({ reviewingDmId: 'dm-1' }),
+      );
+      // Viewer is not the department's live UM.
+      (departmentDirectory.getDepartmentByName as jest.Mock).mockResolvedValue({
+        id: 'dept-1',
+        name: 'Engineering',
+        parentId: null,
+        managerId: 'um-1',
+      });
+      prisma.resourcingProposal.findMany.mockResolvedValue([
+        {
+          id: 'proposal-1',
+          requestId: 'request-1',
+          proposedById: 'um-1',
+          candidateEmployeeId: 'candidate-1',
+          peopleForceCandidateId: null,
+          peopleForceCandidateUrl: null,
+          status: 'approved',
+          decisionReason: null,
+          createdAt: new Date('2026-09-05T00:00:00.000Z'),
+          candidateEmployee: {
+            user: { name: 'Candidate One', email: 'c1@example.com' },
+          },
+        },
+      ]);
+      prisma.sharedLink.findFirst.mockResolvedValue({
+        token: 'shared-token-1',
+      });
+
+      const result = await service.getDetail('dm-1', 'request-1');
+
+      expect(result.viewerIsReviewingDm).toBe(true);
+      expect(result.approvedCount).toBe(1);
+      // Reviewing-DM view never gets a candidate pool — that's UM-only.
+      expect(result.candidatePool).toBeUndefined();
+      expect(result.proposals[0]?.sharedLinkToken).toBe('shared-token-1');
+      const sharedLinkFindFirst = prisma.sharedLink.findFirst as jest.Mock<
+        unknown,
+        [{ where: { subjectEmployeeId: string; recipientEmployeeId: string } }]
+      >;
+      expect(sharedLinkFindFirst).toHaveBeenCalledTimes(1);
+      const [{ where: sharedLinkWhere }] = sharedLinkFindFirst.mock.calls[0];
+      expect(sharedLinkWhere.subjectEmployeeId).toBe('candidate-1');
+      expect(sharedLinkWhere.recipientEmployeeId).toBe('dm-1');
+    });
+
+    it('omits candidatePool when the viewer is both the routed UM and the reviewing DM', async () => {
+      prisma.resourcingRequest.findUnique.mockResolvedValue(
+        requestRow({ reviewingDmId: 'um-1' }),
+      );
+      (departmentDirectory.getDepartmentByName as jest.Mock).mockResolvedValue({
+        id: 'dept-1',
+        name: 'Engineering',
+        parentId: null,
+        managerId: 'um-1',
+      });
+      prisma.resourcingProposal.findMany.mockResolvedValue([]);
+
+      const result = await service.getDetail('um-1', 'request-1');
+
+      expect(result.viewerIsReviewingDm).toBe(true);
+      expect(result.candidatePool).toBeUndefined();
+    });
+
+    it('throws Forbidden when the viewer is neither the routed UM nor the reviewing DM', async () => {
+      prisma.resourcingRequest.findUnique.mockResolvedValue(
+        requestRow({ reviewingDmId: 'dm-1' }),
+      );
+      (departmentDirectory.getDepartmentByName as jest.Mock).mockResolvedValue({
+        id: 'dept-1',
+        name: 'Engineering',
+        parentId: null,
+        managerId: 'um-1',
+      });
+
+      await expect(
+        service.getDetail('someone-else', 'request-1'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('never treats a null reviewingDmId as matching any viewer (REVIEWING_DM_UNRESOLVED gap)', async () => {
+      prisma.resourcingRequest.findUnique.mockResolvedValue(
+        requestRow({ reviewingDmId: null }),
+      );
+      (departmentDirectory.getDepartmentByName as jest.Mock).mockResolvedValue({
+        id: 'dept-1',
+        name: 'Engineering',
+        parentId: null,
+        managerId: 'um-1',
+      });
+
+      await expect(
+        service.getDetail('not-a-um', 'request-1'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+  });
+
+  describe('decide', () => {
+    const pendingRequestRow = (
+      overrides: Partial<Record<string, unknown>> = {},
+    ) =>
+      requestRow({
+        status: 'pending_dm_review',
+        reviewingDmId: 'dm-1',
+        headcount: 1,
+        ...overrides,
+      });
+
+    it('NOT_REVIEWING_DM: rejects (403) when the viewer is not the resolved reviewing DM', async () => {
+      prisma.resourcingRequest.findUnique.mockResolvedValue(
+        pendingRequestRow(),
+      );
+
+      await expect(
+        service.decide('someone-else', 'request-1', 'proposal-1', {
+          decision: 'approved',
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('REQUEST_NOT_PENDING: rejects (409) when the request is still open', async () => {
+      prisma.resourcingRequest.findUnique.mockResolvedValue(
+        requestRow({ status: 'open', reviewingDmId: 'dm-1' }),
+      );
+
+      await expect(
+        service.decide('dm-1', 'request-1', 'proposal-1', {
+          decision: 'approved',
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('DECIDE_WRONG_REQUEST: rejects (404) when the proposal belongs to a different request', async () => {
+      prisma.resourcingRequest.findUnique.mockResolvedValue(
+        pendingRequestRow(),
+      );
+      prisma.resourcingProposal.findUnique.mockResolvedValue(
+        proposalRow({ requestId: 'other-request' }),
+      );
+
+      await expect(
+        service.decide('dm-1', 'request-1', 'proposal-1', {
+          decision: 'approved',
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('REJECT_NO_REASON: rejects (400) an empty-reason rejection', async () => {
+      prisma.resourcingRequest.findUnique.mockResolvedValue(
+        pendingRequestRow(),
+      );
+      prisma.resourcingProposal.findUnique.mockResolvedValue(proposalRow());
+
+      await expect(
+        service.decide('dm-1', 'request-1', 'proposal-1', {
+          decision: 'rejected',
+          reason: '   ',
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('REJECT_NO_REASON: rejects (400) reversing an approved proposal without a reason', async () => {
+      prisma.resourcingRequest.findUnique.mockResolvedValue(
+        pendingRequestRow(),
+      );
+      prisma.resourcingProposal.findUnique.mockResolvedValue(
+        proposalRow({ status: 'approved' }),
+      );
+
+      await expect(
+        service.decide('dm-1', 'request-1', 'proposal-1', {
+          decision: 'rejected',
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('REJECT_HAPPY: rejects a proposed candidate with a reason and stores it', async () => {
+      prisma.resourcingRequest.findUnique.mockResolvedValue(
+        pendingRequestRow(),
+      );
+      prisma.resourcingProposal.findUnique.mockResolvedValue(proposalRow());
+      tx.resourcingProposal.findUnique.mockResolvedValue(proposalRow());
+      tx.resourcingProposal.findUniqueOrThrow.mockResolvedValue(
+        proposalRow({ status: 'rejected', decisionReason: 'Not a fit' }),
+      );
+
+      const result = await service.decide('dm-1', 'request-1', 'proposal-1', {
+        decision: 'rejected',
+        reason: '  Not a fit  ',
+      });
+
+      expect(tx.resourcingProposal.updateMany).toHaveBeenCalledWith({
+        where: { id: 'proposal-1', status: 'proposed' },
+        data: { status: 'rejected', decisionReason: 'Not a fit' },
+      });
+      expect(result.status).toBe('rejected');
+      expect(result.decisionReason).toBe('Not a fit');
+    });
+
+    it('APPROVE_HAPPY: approves a proposed candidate under headcount', async () => {
+      prisma.resourcingRequest.findUnique.mockResolvedValue(
+        pendingRequestRow({ headcount: 2 }),
+      );
+      prisma.resourcingProposal.findUnique.mockResolvedValue(proposalRow());
+      tx.resourcingProposal.findUnique.mockResolvedValue(proposalRow());
+      tx.resourcingProposal.count.mockResolvedValue(0);
+      tx.resourcingProposal.findUniqueOrThrow.mockResolvedValue(
+        proposalRow({ status: 'approved' }),
+      );
+
+      const result = await service.decide('dm-1', 'request-1', 'proposal-1', {
+        decision: 'approved',
+      });
+
+      expect(tx.resourcingProposal.updateMany).toHaveBeenCalledWith({
+        where: { id: 'proposal-1', status: 'proposed' },
+        data: { status: 'approved', decisionReason: null },
+      });
+      expect(result.status).toBe('approved');
+    });
+
+    it('APPROVE_HEADCOUNT_FULL: rejects (409) approval once approvedCount reaches headcount', async () => {
+      prisma.resourcingRequest.findUnique.mockResolvedValue(
+        pendingRequestRow({ headcount: 1 }),
+      );
+      prisma.resourcingProposal.findUnique.mockResolvedValue(proposalRow());
+      tx.resourcingProposal.findUnique.mockResolvedValue(proposalRow());
+      tx.resourcingProposal.count.mockResolvedValue(1);
+
+      await expect(
+        service.decide('dm-1', 'request-1', 'proposal-1', {
+          decision: 'approved',
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(tx.resourcingProposal.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('APPROVE_ALREADY_DECIDED: rejects (400) approving a proposal already approved', async () => {
+      prisma.resourcingRequest.findUnique.mockResolvedValue(
+        pendingRequestRow(),
+      );
+      prisma.resourcingProposal.findUnique.mockResolvedValue(
+        proposalRow({ status: 'approved' }),
+      );
+      tx.resourcingProposal.findUnique.mockResolvedValue(
+        proposalRow({ status: 'approved' }),
+      );
+
+      await expect(
+        service.decide('dm-1', 'request-1', 'proposal-1', {
+          decision: 'approved',
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('REVERSE_APPROVAL: reverses an approved proposal to rejected with a reason, freeing the slot', async () => {
+      prisma.resourcingRequest.findUnique.mockResolvedValue(
+        pendingRequestRow({ headcount: 1 }),
+      );
+      prisma.resourcingProposal.findUnique.mockResolvedValue(
+        proposalRow({ status: 'approved' }),
+      );
+      tx.resourcingProposal.findUnique.mockResolvedValue(
+        proposalRow({ status: 'approved' }),
+      );
+      tx.resourcingProposal.findUniqueOrThrow.mockResolvedValue(
+        proposalRow({ status: 'rejected', decisionReason: 'Ineligible' }),
+      );
+
+      const result = await service.decide('dm-1', 'request-1', 'proposal-1', {
+        decision: 'rejected',
+        reason: 'Ineligible',
+      });
+
+      expect(tx.resourcingProposal.updateMany).toHaveBeenCalledWith({
+        where: { id: 'proposal-1', status: 'approved' },
+        data: { status: 'rejected', decisionReason: 'Ineligible' },
+      });
+      expect(result.status).toBe('rejected');
+    });
+
+    it('REVIEWING_DM_UNRESOLVED: never treats a null reviewingDmId as matching any viewer (403, accepted gap)', async () => {
+      prisma.resourcingRequest.findUnique.mockResolvedValue(
+        pendingRequestRow({ reviewingDmId: null }),
+      );
+
+      await expect(
+        service.decide('anyone', 'request-1', 'proposal-1', {
+          decision: 'approved',
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('DECIDE_ON_REJECTED: rejects (409) any further decision on a rejected proposal', async () => {
+      prisma.resourcingRequest.findUnique.mockResolvedValue(
+        pendingRequestRow(),
+      );
+      prisma.resourcingProposal.findUnique.mockResolvedValue(
+        proposalRow({ status: 'rejected' }),
+      );
+      tx.resourcingProposal.findUnique.mockResolvedValue(
+        proposalRow({ status: 'rejected' }),
+      );
+
+      await expect(
+        service.decide('dm-1', 'request-1', 'proposal-1', {
+          decision: 'approved',
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(tx.resourcingProposal.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('rejects (409) when a concurrent decide already changed the proposal status (conditional update, rows-affected)', async () => {
+      prisma.resourcingRequest.findUnique.mockResolvedValue(
+        pendingRequestRow(),
+      );
+      prisma.resourcingProposal.findUnique.mockResolvedValue(proposalRow());
+      tx.resourcingProposal.findUnique.mockResolvedValue(proposalRow());
+      tx.resourcingProposal.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.decide('dm-1', 'request-1', 'proposal-1', {
+          decision: 'approved',
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
     });
   });
 
