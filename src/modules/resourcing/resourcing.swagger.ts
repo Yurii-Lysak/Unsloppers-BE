@@ -10,6 +10,12 @@ import {
 import { ResourcingRequestReadEntity } from './entities/resourcing-request.entity';
 import { ResourcingRequestDetailEntity } from './entities/resourcing-request-detail.entity';
 import { ResourcingProposalEntity } from './entities/resourcing-proposal.entity';
+import {
+  RequestHistoryEntryEntity,
+  RequestHistorySectionEntity,
+} from './entities/request-history-section.entity';
+
+export { RequestHistoryEntryEntity, RequestHistorySectionEntity };
 
 const VIEWER_LACKS_CREATE_RESOURCING_REQUESTS =
   'Viewer lacks create_resourcing_requests permission';

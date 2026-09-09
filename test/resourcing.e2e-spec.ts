@@ -40,8 +40,22 @@ interface ResourcingProposalReadDto {
   peopleForceCandidateUrl?: string | null;
   status: 'proposed' | 'approved' | 'rejected';
   decisionReason?: string | null;
+  decidedAt?: string | null;
   sharedLinkToken?: string | null;
   createdAt: string;
+}
+
+interface RequestHistoryEntryDto {
+  id: string;
+  requestId: string;
+  status: 'proposed' | 'approved' | 'rejected';
+  decisionReason?: string | null;
+  proposedAt: string;
+  decidedAt?: string | null;
+  vacancyDetails: string;
+  department: string;
+  requestStatus?: 'open' | 'pending_dm_review';
+  projectName?: string | null;
 }
 
 interface ResourcingRequestDetailDto extends ResourcingRequestReadDto {
@@ -1165,5 +1179,562 @@ describe('Resourcing DM decide (e2e, Story 6.3)', () => {
       )
       .send({ decision: 'approved' })
       .expect(409);
+  });
+});
+
+describe('Request history (e2e, Story 6.4)', () => {
+  let testApp: TestApp;
+
+  beforeAll(async () => {
+    testApp = await createTestApp({
+      clock: new FixedClock(DEFAULT_TEST_INSTANT),
+    });
+  });
+
+  afterAll(async () => {
+    await testApp.close();
+  });
+
+  beforeEach(async () => {
+    await testApp.resetDatabase();
+  });
+
+  async function setupDecidedInternalCandidate(): Promise<{
+    internalCandidateId: string;
+    internalCandidateAgent: Awaited<ReturnType<typeof loginAsEmployee>>;
+    managerAgent: Awaited<ReturnType<typeof loginAsEmployee>>;
+    ppAgent: Awaited<ReturnType<typeof loginAsEmployee>>;
+    projectLineAgent: Awaited<ReturnType<typeof loginAsEmployee>>;
+    authorAgent: Awaited<ReturnType<typeof loginAsEmployee>>;
+    colleagueAgent: Awaited<ReturnType<typeof loginAsEmployee>>;
+    projectId: string;
+    vacancyDetails: string;
+    department: string;
+    proposedAt: string;
+  }> {
+    const author = await createEmployeeUser(
+      testApp,
+      `history-author-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    await grantCreateResourcingRequestsPermission(testApp, author.employeeId);
+    const authorAgent = await loginAsEmployee(testApp, author.email, PASSWORD);
+
+    const dm = await createEmployeeUser(
+      testApp,
+      `history-dm-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    await grantApproveRejectCandidatesPermission(testApp, dm.employeeId);
+    const dmAgent = await loginAsEmployee(testApp, dm.email, PASSWORD);
+
+    const um = await createEmployeeUser(
+      testApp,
+      `history-um-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    const department = `Engineering-${um.employeeId}`;
+    await createDepartment(testApp, department, um.employeeId);
+    await grantFulfilResourcingRequestsPermission(testApp, um.employeeId);
+    const umAgent = await loginAsEmployee(testApp, um.email, PASSWORD);
+
+    const manager = await createEmployeeUser(
+      testApp,
+      `history-manager-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    const pp = await createEmployeeUser(
+      testApp,
+      `history-pp-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    const colleague = await createEmployeeUser(
+      testApp,
+      `history-colleague-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+
+    const internalCandidate = await createEmployeeUser(
+      testApp,
+      `history-candidate-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    await testApp.prisma.employee.update({
+      where: { id: internalCandidate.employeeId },
+      data: {
+        managerId: manager.employeeId,
+        peoplePartnerId: pp.employeeId,
+      },
+    });
+    await setCurrentDepartment(
+      testApp,
+      internalCandidate.employeeId,
+      department,
+    );
+
+    const projectId = randomUUID();
+    await testApp.prisma.projectAssignment.create({
+      data: {
+        employeeId: internalCandidate.employeeId,
+        projectId,
+        pmId: author.employeeId,
+        dmId: dm.employeeId,
+        startDate: new Date('2026-01-01T00:00:00.000Z'),
+        endDate: null,
+        confirmed: true,
+        confirmedAt: new Date(DEFAULT_TEST_INSTANT),
+      },
+    });
+
+    const vacancyDetails = 'Need a senior backend engineer for API work';
+    const createRes = await authorAgent
+      .post('/api/v1/resourcing/requests')
+      .send({
+        ...validPayload,
+        vacancyDetails,
+        department,
+        headcount: 1,
+        projectId,
+      })
+      .expect(201);
+    const requestId = (createRes.body as ResourcingRequestReadDto).id;
+
+    const internalProposalRes = await umAgent
+      .post(`/api/v1/resourcing/requests/${requestId}/proposals`)
+      .send({ candidateEmployeeId: internalCandidate.employeeId })
+      .expect(201);
+    const internalProposalId = (
+      internalProposalRes.body as ResourcingProposalReadDto
+    ).id;
+    const proposedAt = (internalProposalRes.body as ResourcingProposalReadDto)
+      .createdAt;
+
+    await umAgent
+      .post(`/api/v1/resourcing/requests/${requestId}/submit`)
+      .expect(200);
+
+    const managerAgent = await loginAsEmployee(
+      testApp,
+      manager.email,
+      PASSWORD,
+    );
+    const s11Before = (
+      await managerAgent
+        .get(`/api/v1/employees/${internalCandidate.employeeId}/profile`)
+        .expect(200)
+    ).body as { sections: Record<string, unknown> };
+
+    const assignmentCountBefore = await testApp.prisma.projectAssignment.count({
+      where: { employeeId: internalCandidate.employeeId },
+    });
+
+    const approveRes = await dmAgent
+      .post(
+        `/api/v1/resourcing/requests/${requestId}/proposals/${internalProposalId}/decide`,
+      )
+      .send({ decision: 'approved' })
+      .expect(200);
+    const approved = approveRes.body as ResourcingProposalReadDto;
+    expect(approved.decidedAt).toBe(DEFAULT_TEST_INSTANT);
+
+    const assignmentCountAfter = await testApp.prisma.projectAssignment.count({
+      where: { employeeId: internalCandidate.employeeId },
+    });
+    expect(assignmentCountAfter).toBe(assignmentCountBefore);
+
+    const s11After = (
+      await managerAgent
+        .get(`/api/v1/employees/${internalCandidate.employeeId}/profile`)
+        .expect(200)
+    ).body as { sections: Record<string, unknown> };
+    expect(s11After.sections.S11).toEqual(s11Before.sections.S11);
+
+    return {
+      internalCandidateId: internalCandidate.employeeId,
+      internalCandidateAgent: await loginAsEmployee(
+        testApp,
+        internalCandidate.email,
+        PASSWORD,
+      ),
+      managerAgent,
+      ppAgent: await loginAsEmployee(testApp, pp.email, PASSWORD),
+      projectLineAgent: authorAgent,
+      authorAgent,
+      colleagueAgent: await loginAsEmployee(testApp, colleague.email, PASSWORD),
+      projectId,
+      vacancyDetails,
+      department,
+      proposedAt,
+    };
+  }
+
+  it('DECIDE_SETS_DECIDED_AT and surfaces S15 for ReportingLine/PP/ProjectLine viewers', async () => {
+    const {
+      internalCandidateId,
+      internalCandidateAgent,
+      managerAgent,
+      ppAgent,
+      projectLineAgent,
+      colleagueAgent,
+      projectId,
+      vacancyDetails,
+      department,
+      proposedAt,
+    } = await setupDecidedInternalCandidate();
+
+    const assertS15Entry = (sections: Record<string, unknown>) => {
+      const s15 = sections.S15 as {
+        accessLevel: string;
+        data: { entries: RequestHistoryEntryDto[] };
+      };
+      expect(s15.accessLevel).toBe('R');
+      expect(s15.data.entries).toHaveLength(1);
+      const entry = s15.data.entries[0];
+      expect(entry.status).toBe('approved');
+      expect(entry.proposedAt).toBe(proposedAt);
+      expect(entry.requestStatus).toBe('pending_dm_review');
+      expect(entry.decidedAt).toBe(DEFAULT_TEST_INSTANT);
+      expect(entry.vacancyDetails).toBe(vacancyDetails);
+      expect(entry.department).toBe(department);
+      expect(entry.projectName).toBe(projectId);
+      expect(JSON.stringify(s15)).not.toContain('expectedCompBand');
+    };
+
+    const managerProfile = await managerAgent
+      .get(`/api/v1/employees/${internalCandidateId}/profile`)
+      .expect(200);
+    assertS15Entry(
+      (managerProfile.body as { sections: Record<string, unknown> }).sections,
+    );
+
+    const ppProfile = await ppAgent
+      .get(`/api/v1/employees/${internalCandidateId}/profile`)
+      .expect(200);
+    assertS15Entry(
+      (ppProfile.body as { sections: Record<string, unknown> }).sections,
+    );
+
+    const projectLineProfile = await projectLineAgent
+      .get(`/api/v1/employees/${internalCandidateId}/profile`)
+      .expect(200);
+    expect(
+      (projectLineProfile.body as { audience: { role: string } }).audience.role,
+    ).toBe('ProjectLine');
+    assertS15Entry(
+      (projectLineProfile.body as { sections: Record<string, unknown> })
+        .sections,
+    );
+
+    const selfProfile = await internalCandidateAgent
+      .get(`/api/v1/employees/${internalCandidateId}/profile`)
+      .expect(200);
+    expect(
+      (selfProfile.body as { sections?: Record<string, unknown> }).sections ??
+        {},
+    ).not.toHaveProperty('S15');
+
+    const colleagueProfile = await colleagueAgent
+      .get(`/api/v1/employees/${internalCandidateId}/profile`)
+      .expect(200);
+    expect(
+      (colleagueProfile.body as { sections?: Record<string, unknown> })
+        .sections ?? {},
+    ).not.toHaveProperty('S15');
+  });
+
+  it('S15_EMPTY: authorized viewers receive an empty entries array when no proposals exist', async () => {
+    const employee = await createEmployeeUser(
+      testApp,
+      `history-empty-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    const manager = await createEmployeeUser(
+      testApp,
+      `history-empty-manager-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    await testApp.prisma.employee.update({
+      where: { id: employee.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+    const managerAgent = await loginAsEmployee(
+      testApp,
+      manager.email,
+      PASSWORD,
+    );
+
+    const res = await managerAgent
+      .get(`/api/v1/employees/${employee.employeeId}/profile`)
+      .expect(200);
+    const s15 = (res.body as { sections: Record<string, unknown> }).sections
+      .S15 as { accessLevel: string; data: { entries: unknown[] } };
+
+    expect(s15.accessLevel).toBe('R');
+    expect(s15.data.entries).toEqual([]);
+  });
+
+  it('S15_PROPOSED_VISIBLE: proposed entries appear with decidedAt null before DM decision', async () => {
+    const author = await createEmployeeUser(
+      testApp,
+      `history-proposed-author-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    await grantCreateResourcingRequestsPermission(testApp, author.employeeId);
+    const authorAgent = await loginAsEmployee(testApp, author.email, PASSWORD);
+
+    const um = await createEmployeeUser(
+      testApp,
+      `history-proposed-um-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    const department = `Engineering-${um.employeeId}`;
+    await createDepartment(testApp, department, um.employeeId);
+    await grantFulfilResourcingRequestsPermission(testApp, um.employeeId);
+    const umAgent = await loginAsEmployee(testApp, um.email, PASSWORD);
+
+    const manager = await createEmployeeUser(
+      testApp,
+      `history-proposed-manager-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    const internalCandidate = await createEmployeeUser(
+      testApp,
+      `history-proposed-candidate-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    await testApp.prisma.employee.update({
+      where: { id: internalCandidate.employeeId },
+      data: { managerId: manager.employeeId },
+    });
+    await setCurrentDepartment(
+      testApp,
+      internalCandidate.employeeId,
+      department,
+    );
+
+    const createRes = await authorAgent
+      .post('/api/v1/resourcing/requests')
+      .send({ ...validPayload, department, headcount: 1 })
+      .expect(201);
+    const requestId = (createRes.body as ResourcingRequestReadDto).id;
+
+    const proposalRes = await umAgent
+      .post(`/api/v1/resourcing/requests/${requestId}/proposals`)
+      .send({ candidateEmployeeId: internalCandidate.employeeId })
+      .expect(201);
+    const proposedAt = (proposalRes.body as ResourcingProposalReadDto)
+      .createdAt;
+
+    const managerAgent = await loginAsEmployee(
+      testApp,
+      manager.email,
+      PASSWORD,
+    );
+    const profileRes = await managerAgent
+      .get(`/api/v1/employees/${internalCandidate.employeeId}/profile`)
+      .expect(200);
+    const entry = (
+      (profileRes.body as { sections: Record<string, unknown> }).sections
+        .S15 as { data: { entries: RequestHistoryEntryDto[] } }
+    ).data.entries[0];
+
+    expect(entry.status).toBe('proposed');
+    expect(entry.decidedAt).toBeNull();
+    expect(entry.proposedAt).toBe(proposedAt);
+    expect(entry.requestStatus).toBe('open');
+  });
+
+  it('DECIDE_REVERSAL_UPDATES_DECIDED_AT and exposes rejection reason in S15', async () => {
+    const author = await createEmployeeUser(
+      testApp,
+      `history-reverse-author-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    await grantCreateResourcingRequestsPermission(testApp, author.employeeId);
+    const authorAgent = await loginAsEmployee(testApp, author.email, PASSWORD);
+
+    const dm = await createEmployeeUser(
+      testApp,
+      `history-reverse-dm-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    await grantApproveRejectCandidatesPermission(testApp, dm.employeeId);
+    const dmAgent = await loginAsEmployee(testApp, dm.email, PASSWORD);
+
+    const um = await createEmployeeUser(
+      testApp,
+      `history-reverse-um-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    const department = `Engineering-${um.employeeId}`;
+    await createDepartment(testApp, department, um.employeeId);
+    await grantFulfilResourcingRequestsPermission(testApp, um.employeeId);
+    const umAgent = await loginAsEmployee(testApp, um.email, PASSWORD);
+
+    const manager = await createEmployeeUser(
+      testApp,
+      `history-reverse-manager-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    const pp = await createEmployeeUser(
+      testApp,
+      `history-reverse-pp-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    const internalCandidate = await createEmployeeUser(
+      testApp,
+      `history-reverse-candidate-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    await testApp.prisma.employee.update({
+      where: { id: internalCandidate.employeeId },
+      data: {
+        managerId: manager.employeeId,
+        peoplePartnerId: pp.employeeId,
+      },
+    });
+    await setCurrentDepartment(
+      testApp,
+      internalCandidate.employeeId,
+      department,
+    );
+
+    const projectId = randomUUID();
+    await testApp.prisma.projectAssignment.create({
+      data: {
+        employeeId: internalCandidate.employeeId,
+        projectId,
+        pmId: author.employeeId,
+        dmId: dm.employeeId,
+        startDate: new Date('2026-01-01T00:00:00.000Z'),
+        endDate: null,
+        confirmed: false,
+      },
+    });
+
+    const createRes = await authorAgent
+      .post('/api/v1/resourcing/requests')
+      .send({
+        ...validPayload,
+        department,
+        headcount: 1,
+        projectId,
+      })
+      .expect(201);
+    const requestId = (createRes.body as ResourcingRequestReadDto).id;
+
+    const proposalRes = await umAgent
+      .post(`/api/v1/resourcing/requests/${requestId}/proposals`)
+      .send({ candidateEmployeeId: internalCandidate.employeeId })
+      .expect(201);
+    const proposalId = (proposalRes.body as ResourcingProposalReadDto).id;
+
+    await umAgent
+      .post(`/api/v1/resourcing/requests/${requestId}/submit`)
+      .expect(200);
+
+    await dmAgent
+      .post(
+        `/api/v1/resourcing/requests/${requestId}/proposals/${proposalId}/decide`,
+      )
+      .send({ decision: 'approved' })
+      .expect(200);
+
+    const reverseRes = await dmAgent
+      .post(
+        `/api/v1/resourcing/requests/${requestId}/proposals/${proposalId}/decide`,
+      )
+      .send({ decision: 'rejected', reason: 'Role no longer needed' })
+      .expect(200);
+    expect((reverseRes.body as ResourcingProposalReadDto).decidedAt).toBe(
+      DEFAULT_TEST_INSTANT,
+    );
+
+    const managerAgent = await loginAsEmployee(
+      testApp,
+      manager.email,
+      PASSWORD,
+    );
+    const profileRes = await managerAgent
+      .get(`/api/v1/employees/${internalCandidate.employeeId}/profile`)
+      .expect(200);
+    const entry = (
+      (profileRes.body as { sections: Record<string, unknown> }).sections
+        .S15 as { data: { entries: RequestHistoryEntryDto[] } }
+    ).data.entries[0];
+
+    expect(entry.status).toBe('rejected');
+    expect(entry.decisionReason).toBe('Role no longer needed');
+    expect(entry.decidedAt).toBe(DEFAULT_TEST_INSTANT);
+
+    const ppAgent = await loginAsEmployee(testApp, pp.email, PASSWORD);
+    const ppProfileRes = await ppAgent
+      .get(`/api/v1/employees/${internalCandidate.employeeId}/profile`)
+      .expect(200);
+    const ppEntry = (
+      (ppProfileRes.body as { sections: Record<string, unknown> }).sections
+        .S15 as { data: { entries: RequestHistoryEntryDto[] } }
+    ).data.entries[0];
+    expect(ppEntry.decisionReason).toBe('Role no longer needed');
+  });
+
+  it('S15_SHARED_LINK_CFG: shared-link consume returns S15 without expectedCompBand', async () => {
+    const {
+      internalCandidateId,
+      managerAgent,
+      vacancyDetails,
+      department,
+      projectId,
+    } = await setupDecidedInternalCandidate();
+
+    const recipient = await createEmployeeUser(
+      testApp,
+      `history-recipient-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    const createLinkRes = await managerAgent
+      .post(`/api/v1/employees/${internalCandidateId}/shared-links`)
+      .send({
+        recipientEmployeeId: recipient.employeeId,
+        sections: ['S15'],
+      })
+      .expect(201);
+    const token = (createLinkRes.body as { token: string }).token;
+
+    const recipientAgent = await loginAsEmployee(
+      testApp,
+      recipient.email,
+      PASSWORD,
+    );
+
+    const consumeRes = await recipientAgent
+      .get(`/api/v1/shared-links/${token}/profile`)
+      .expect(200);
+    const s15 = (consumeRes.body as { sections: Record<string, unknown> })
+      .sections.S15 as { data: { entries: RequestHistoryEntryDto[] } };
+
+    expect(s15.data.entries).toHaveLength(1);
+    expect(s15.data.entries[0].vacancyDetails).toBe(vacancyDetails);
+    expect(s15.data.entries[0].department).toBe(department);
+    expect(s15.data.entries[0].projectName).toBe(projectId);
+    expect(JSON.stringify(consumeRes.body)).not.toContain('expectedCompBand');
+  });
+
+  it('S15_SHARED_LINK_CFG: a Colleague creator cannot create a shared link with S15 (403)', async () => {
+    const { internalCandidateId, colleagueAgent } =
+      await setupDecidedInternalCandidate();
+    const recipient = await createEmployeeUser(
+      testApp,
+      `history-recipient-denied-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+
+    await colleagueAgent
+      .post(`/api/v1/employees/${internalCandidateId}/shared-links`)
+      .send({
+        recipientEmployeeId: recipient.employeeId,
+        sections: ['S15'],
+      })
+      .expect(403);
   });
 });

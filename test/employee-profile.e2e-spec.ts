@@ -238,6 +238,23 @@ describe('Employee profile assembly (e2e)', () => {
     expect(sections ?? {}).not.toHaveProperty('S15');
   });
 
+  it('includes empty S15 for ReportingLine viewers when no proposals exist', async () => {
+    const res = await managerAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s15 = (
+      res.body as {
+        sections: {
+          S15?: { accessLevel: string; data: { entries: unknown[] } };
+        };
+      }
+    ).sections.S15;
+
+    expect(s15?.accessLevel).toBe('R');
+    expect(s15?.data.entries).toEqual([]);
+  });
+
   it('includes mentor in S1 for ProjectLine viewers', async () => {
     const res = await dmAgent
       .get(`/api/v1/employees/${reportEmployeeId}/profile`)

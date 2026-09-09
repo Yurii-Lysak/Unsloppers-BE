@@ -45,6 +45,13 @@ export class ResourcingProposalEntity {
   })
   sharedLinkToken?: string | null;
 
+  @ApiPropertyOptional({
+    format: 'date-time',
+    description:
+      'Set when status becomes approved or rejected; null while proposed',
+  })
+  decidedAt?: string | null;
+
   @ApiProperty({ format: 'date-time' })
   createdAt!: string;
 }
