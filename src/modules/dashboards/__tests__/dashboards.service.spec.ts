@@ -18,6 +18,7 @@ describe('DashboardsService', () => {
   let leaveProvider: jest.Mocked<DashboardSummaryProvider>;
   let employmentProvider: jest.Mocked<DashboardSummaryProvider>;
   let resourcingProvider: jest.Mocked<DashboardSummaryProvider>;
+  let resourcingRequestsProvider: jest.Mocked<DashboardSummaryProvider>;
   let campaignsProvider: jest.Mocked<DashboardSummaryProvider>;
 
   beforeEach(async () => {
@@ -33,6 +34,7 @@ describe('DashboardsService', () => {
     leaveProvider = { getSummary: jest.fn() };
     employmentProvider = { getSummary: jest.fn() };
     resourcingProvider = { getSummary: jest.fn() };
+    resourcingRequestsProvider = { getSummary: jest.fn() };
     campaignsProvider = { getSummary: jest.fn() };
     registry = {
       get: jest.fn(),
@@ -72,6 +74,9 @@ describe('DashboardsService', () => {
       }
       if (providerId === 'resourcing') {
         return { status: 'available', provider: resourcingProvider };
+      }
+      if (providerId === 'resourcing-requests') {
+        return { status: 'available', provider: resourcingRequestsProvider };
       }
       if (providerId === 'campaigns') {
         return { status: 'available', provider: campaignsProvider };
@@ -306,11 +311,11 @@ describe('DashboardsService', () => {
     });
     expect(leaveProvider.getSummary.mock.calls[0]).toEqual([
       'um-viewer',
-      { subjectIds: subjectIds.slice(50, 60) },
+      { subjectIds: subjectIds.slice(50, 60), variant: 'um' },
     ]);
     expect(employmentProvider.getSummary.mock.calls[0]).toEqual([
       'um-viewer',
-      { subjectIds: subjectIds.slice(50, 60) },
+      { subjectIds: subjectIds.slice(50, 60), variant: 'um' },
     ]);
   });
 
@@ -529,6 +534,18 @@ describe('DashboardsService', () => {
       if (providerId === 'risks') {
         return { status: 'available', provider: risksProvider };
       }
+      if (providerId === 'resourcing') {
+        return { status: 'available', provider: resourcingProvider };
+      }
+      if (providerId === 'resourcing-requests') {
+        return { status: 'available', provider: resourcingRequestsProvider };
+      }
+      if (providerId === 'leave') {
+        return { status: 'available', provider: leaveProvider };
+      }
+      if (providerId === 'employment') {
+        return { status: 'available', provider: employmentProvider };
+      }
       return { status: 'unavailable' };
     });
     risksProvider.getSummary.mockResolvedValue({
@@ -542,6 +559,25 @@ describe('DashboardsService', () => {
         totalActive: 0,
       },
       rows: [],
+    });
+    resourcingProvider.getSummary.mockResolvedValue({
+      providerId: 'resourcing',
+      status: 'available',
+      openCount: 2,
+    });
+    resourcingRequestsProvider.getSummary.mockResolvedValue({
+      providerId: 'resourcing-requests',
+      status: 'available',
+      requests: [
+        {
+          id: 'req-1',
+          vacancyDetails: 'Backend engineer',
+          status: 'open',
+          projectId: 'proj-a',
+          authorDisplayName: 'DM Viewer',
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+      ],
     });
     leaveProvider.getSummary.mockResolvedValue({
       providerId: 'leave',
@@ -562,12 +598,261 @@ describe('DashboardsService', () => {
 
     const summary = await service.getSummary('dm-viewer');
 
-    expect(audience.listProjectGroups.mock.calls).toEqual([
-      ['dm-viewer', 'dm'],
-      ['dm-viewer', 'dm'],
-    ]);
     expect(summary.grouping).toBe('project');
     expect(summary.groups).toHaveLength(2);
     expect(summary.pagination).toBeUndefined();
+    expect(summary.counters.openResourcingRequests).toEqual({
+      status: 'available',
+      value: 2,
+    });
+    expect(summary.resourcingRequests).toHaveLength(1);
+    expect(summary.selectorProjects).toEqual([
+      { projectId: 'proj-a', projectName: 'proj-a' },
+      { projectId: 'proj-b', projectName: 'proj-b' },
+    ]);
+  });
+
+  it('deduplicates DM headcount across projects in the all-projects view', async () => {
+    variantResolver.resolveVariant.mockResolvedValue({
+      variant: 'dm',
+      resolvedBy: 'functional-role',
+    });
+    audience.listProjectGroups.mockResolvedValue([
+      {
+        projectId: 'proj-a',
+        projectName: 'proj-a',
+        subjectIds: ['emp-1'],
+      },
+      {
+        projectId: 'proj-b',
+        projectName: 'proj-b',
+        subjectIds: ['emp-1'],
+      },
+    ]);
+    registry.get.mockImplementation((_kind, providerId) => {
+      if (providerId === 'risks') {
+        return { status: 'available', provider: risksProvider };
+      }
+      if (providerId === 'resourcing') {
+        return { status: 'available', provider: resourcingProvider };
+      }
+      if (providerId === 'resourcing-requests') {
+        return { status: 'available', provider: resourcingRequestsProvider };
+      }
+      if (providerId === 'leave') {
+        return { status: 'available', provider: leaveProvider };
+      }
+      if (providerId === 'employment') {
+        return { status: 'available', provider: employmentProvider };
+      }
+      return { status: 'unavailable' };
+    });
+    risksProvider.getSummary.mockResolvedValue({
+      providerId: 'risks',
+      status: 'available',
+      counts: {
+        need_attention: 0,
+        medium: 0,
+        high: 0,
+        leaver: 0,
+        totalActive: 0,
+      },
+      rows: [],
+    });
+    resourcingProvider.getSummary.mockResolvedValue({
+      providerId: 'resourcing',
+      status: 'available',
+      openCount: 0,
+    });
+    resourcingRequestsProvider.getSummary.mockResolvedValue({
+      providerId: 'resourcing-requests',
+      status: 'available',
+      requests: [],
+    });
+    leaveProvider.getSummary.mockResolvedValue({
+      providerId: 'leave',
+      status: 'available',
+      cells: {},
+    });
+    employmentProvider.getSummary.mockResolvedValue({
+      providerId: 'employment',
+      status: 'available',
+      cells: {},
+    });
+    prisma.employee.findMany.mockResolvedValue([
+      {
+        id: 'emp-1',
+        user: { name: 'Emp One', email: 'emp1@example.com' },
+      },
+    ]);
+
+    const summary = await service.getSummary('dm-viewer');
+
+    expect(summary.counters.headcount).toEqual({
+      status: 'available',
+      value: 1,
+    });
+    expect(summary.groups?.flatMap((group) => group.rows)).toHaveLength(2);
+  });
+
+  it('filters DM summary to a single project when projectId is provided', async () => {
+    variantResolver.resolveVariant.mockResolvedValue({
+      variant: 'dm',
+      resolvedBy: 'functional-role',
+    });
+    audience.listProjectGroups.mockResolvedValue([
+      {
+        projectId: 'proj-a',
+        projectName: 'proj-a',
+        subjectIds: ['emp-1'],
+      },
+      {
+        projectId: 'proj-b',
+        projectName: 'proj-b',
+        subjectIds: ['emp-2'],
+      },
+    ]);
+    registry.get.mockImplementation((_kind, providerId) => {
+      if (providerId === 'risks') {
+        return { status: 'available', provider: risksProvider };
+      }
+      if (providerId === 'resourcing') {
+        return { status: 'available', provider: resourcingProvider };
+      }
+      if (providerId === 'resourcing-requests') {
+        return { status: 'available', provider: resourcingRequestsProvider };
+      }
+      if (providerId === 'leave') {
+        return { status: 'available', provider: leaveProvider };
+      }
+      if (providerId === 'employment') {
+        return { status: 'available', provider: employmentProvider };
+      }
+      return { status: 'unavailable' };
+    });
+    risksProvider.getSummary.mockResolvedValue({
+      providerId: 'risks',
+      status: 'available',
+      counts: {
+        need_attention: 0,
+        medium: 0,
+        high: 0,
+        leaver: 0,
+        totalActive: 0,
+      },
+      rows: [],
+    });
+    resourcingProvider.getSummary.mockResolvedValue({
+      providerId: 'resourcing',
+      status: 'available',
+      openCount: 1,
+    });
+    resourcingRequestsProvider.getSummary.mockResolvedValue({
+      providerId: 'resourcing-requests',
+      status: 'available',
+      requests: [],
+    });
+    leaveProvider.getSummary.mockResolvedValue({
+      providerId: 'leave',
+      status: 'available',
+      cells: {},
+    });
+    employmentProvider.getSummary.mockResolvedValue({
+      providerId: 'employment',
+      status: 'available',
+      cells: {},
+    });
+    prisma.employee.findMany.mockResolvedValue([
+      {
+        id: 'emp-1',
+        user: { name: 'Emp One', email: 'emp1@example.com' },
+      },
+    ]);
+
+    const summary = await service.getSummary('dm-viewer', {
+      projectId: 'proj-a',
+    });
+
+    expect(summary.groups).toHaveLength(1);
+    expect(summary.groups?.[0].projectId).toBe('proj-a');
+    expect(summary.counters.headcount).toEqual({
+      status: 'available',
+      value: 1,
+    });
+    expect(risksProvider.getSummary).toHaveBeenCalledWith('dm-viewer', {
+      subjectIds: ['emp-1'],
+      projectId: 'proj-a',
+      variant: 'dm',
+    });
+  });
+
+  it('returns zero people counters for DM unassigned project filter', async () => {
+    variantResolver.resolveVariant.mockResolvedValue({
+      variant: 'dm',
+      resolvedBy: 'functional-role',
+    });
+    audience.listProjectGroups.mockResolvedValue([
+      {
+        projectId: 'proj-a',
+        projectName: 'proj-a',
+        subjectIds: ['emp-1'],
+      },
+    ]);
+    registry.get.mockImplementation((_kind, providerId) => {
+      if (providerId === 'risks') {
+        return { status: 'available', provider: risksProvider };
+      }
+      if (providerId === 'resourcing') {
+        return { status: 'available', provider: resourcingProvider };
+      }
+      if (providerId === 'resourcing-requests') {
+        return { status: 'available', provider: resourcingRequestsProvider };
+      }
+      return { status: 'unavailable' };
+    });
+    risksProvider.getSummary.mockResolvedValue({
+      providerId: 'risks',
+      status: 'available',
+      counts: {
+        need_attention: 0,
+        medium: 0,
+        high: 0,
+        leaver: 0,
+        totalActive: 0,
+      },
+      rows: [],
+    });
+    resourcingProvider.getSummary.mockResolvedValue({
+      providerId: 'resourcing',
+      status: 'available',
+      openCount: 1,
+    });
+    resourcingRequestsProvider.getSummary.mockResolvedValue({
+      providerId: 'resourcing-requests',
+      status: 'available',
+      requests: [],
+    });
+
+    const summary = await service.getSummary('dm-viewer', {
+      projectId: 'unassigned',
+    });
+
+    expect(summary.groups).toEqual([]);
+    expect(summary.counters.headcount).toEqual({
+      status: 'available',
+      value: 0,
+    });
+  });
+
+  it('rejects blank projectId for DM summary', async () => {
+    variantResolver.resolveVariant.mockResolvedValue({
+      variant: 'dm',
+      resolvedBy: 'functional-role',
+    });
+    audience.listProjectGroups.mockResolvedValue([]);
+
+    await expect(
+      service.getSummary('dm-viewer', { projectId: '   ' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

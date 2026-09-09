@@ -76,9 +76,29 @@ const DM_COUNTERS: DashboardCounterSpecEntity[] = [
     labelKey: 'dashboard.counters.headcount',
   },
   {
-    id: 'totalActive',
+    id: 'need_attention',
     providerId: 'risks',
-    labelKey: 'dashboard.counters.activeRisk',
+    labelKey: 'dashboard.counters.needAttention',
+  },
+  {
+    id: 'medium',
+    providerId: 'risks',
+    labelKey: 'dashboard.counters.medium',
+  },
+  {
+    id: 'high',
+    providerId: 'risks',
+    labelKey: 'dashboard.counters.high',
+  },
+  {
+    id: 'leaver',
+    providerId: 'risks',
+    labelKey: 'dashboard.counters.leaver',
+  },
+  {
+    id: 'openResourcingRequests',
+    providerId: 'resourcing',
+    labelKey: 'dashboard.counters.openResourcingRequests',
   },
 ];
 
@@ -104,7 +124,13 @@ export const DASHBOARD_VARIANT_DEFINITIONS: Record<
   dm: {
     variant: 'dm',
     grouping: 'project',
-    blocks: ['counters', 'table', 'ownActionItems', 'quickNav'],
+    blocks: [
+      'counters',
+      'table',
+      'resourcingRequests',
+      'ownActionItems',
+      'quickNav',
+    ],
     counters: DM_COUNTERS,
     quickNav: DM_QUICK_NAV_LINKS,
   },

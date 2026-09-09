@@ -6,6 +6,7 @@ describe('ResourcingDashboardSummaryProvider', () => {
   let provider: ResourcingDashboardSummaryProvider;
   const resourcing = {
     listAssigned: jest.fn(),
+    listRequests: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -48,6 +49,27 @@ describe('ResourcingDashboardSummaryProvider', () => {
       providerId: 'resourcing',
       status: 'available',
       openCount: 0,
+    });
+  });
+
+  it('counts open DM-visible requests via listRequests', async () => {
+    resourcing.listRequests.mockResolvedValue([
+      { id: 'req-1', status: 'open', projectId: 'proj-a' },
+      { id: 'req-2', status: 'pending_dm_review', projectId: 'proj-a' },
+      { id: 'req-3', status: 'open', projectId: 'proj-b' },
+    ]);
+
+    const result = await provider.getSummary('dm-viewer', {
+      subjectIds: [],
+      variant: 'dm',
+      projectId: 'proj-a',
+    });
+
+    expect(resourcing.listRequests).toHaveBeenCalledWith('dm-viewer');
+    expect(result).toEqual({
+      providerId: 'resourcing',
+      status: 'available',
+      openCount: 1,
     });
   });
 

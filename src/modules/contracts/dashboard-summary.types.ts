@@ -1,5 +1,11 @@
+export type DashboardSummaryVariant = 'um' | 'dm' | 'pm' | 'pp';
+
+export const DASHBOARD_UNASSIGNED_PROJECT_ID = 'unassigned';
+
 export interface DashboardSummaryScope {
   subjectIds: string[];
+  projectId?: string;
+  variant?: DashboardSummaryVariant;
 }
 
 export type DashboardRiskLevel =
@@ -19,6 +25,15 @@ export interface DashboardRiskCountsFragment {
   high: number;
   leaver: number;
   totalActive: number;
+}
+
+export interface DashboardResourcingRequestRowFragment {
+  id: string;
+  vacancyDetails: string;
+  status: 'open' | 'pending_dm_review';
+  projectId?: string | null;
+  authorDisplayName: string;
+  createdAt: string;
 }
 
 export interface DashboardTableCellFragment {
@@ -44,6 +59,11 @@ export type DashboardSummaryFragment =
       providerId: 'resourcing';
       status: 'available';
       openCount: number;
+    }
+  | {
+      providerId: 'resourcing-requests';
+      status: 'available';
+      requests: DashboardResourcingRequestRowFragment[];
     }
   | {
       providerId: 'campaigns';

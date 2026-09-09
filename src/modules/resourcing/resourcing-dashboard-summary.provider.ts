@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DashboardSummaryProvider } from '../contracts/dashboard-summary-provider.contract';
 import type { DashboardSummaryScope } from '../contracts/dashboard-summary.types';
 import { RegisterProvider } from '../registry/register-provider.decorator';
+import { filterResourcingRequestsByProject } from './resourcing-dashboard-scope.util';
 import { ResourcingService } from './resourcing.service';
 
 @Injectable()
@@ -12,11 +13,16 @@ export class ResourcingDashboardSummaryProvider extends DashboardSummaryProvider
   }
 
   async getSummary(viewerEmployeeId: string, scope?: DashboardSummaryScope) {
-    void scope;
-
     try {
-      const requests = await this.resourcing.listAssigned(viewerEmployeeId);
-      const openCount = requests.filter(
+      const requests =
+        scope?.variant === 'dm'
+          ? await this.resourcing.listRequests(viewerEmployeeId)
+          : await this.resourcing.listAssigned(viewerEmployeeId);
+      const filtered = filterResourcingRequestsByProject(
+        requests,
+        scope?.projectId,
+      );
+      const openCount = filtered.filter(
         (request) => request.status === 'open',
       ).length;
 
