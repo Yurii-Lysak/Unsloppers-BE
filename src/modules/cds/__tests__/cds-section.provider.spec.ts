@@ -67,7 +67,11 @@ describe('CdsSectionProvider', () => {
       role: 'ReportingLine',
       sections: { S12: 'RW' },
     } as never;
-    cds.buildSection.mockResolvedValue({ matrixLink: null, assessments: [] });
+    cds.buildSection.mockResolvedValue({
+      matrixLink: null,
+      assessments: [],
+      idpRecords: [],
+    });
 
     await provider.getSection('viewer', 'subject', audience);
 
@@ -79,7 +83,11 @@ describe('CdsSectionProvider', () => {
       role: 'Self',
       sections: { S12: 'R' },
     } as never;
-    cds.buildSection.mockResolvedValue({ matrixLink: null, assessments: [] });
+    cds.buildSection.mockResolvedValue({
+      matrixLink: null,
+      assessments: [],
+      idpRecords: [],
+    });
 
     await provider.getSection('viewer', 'subject', audience);
 
@@ -91,7 +99,11 @@ describe('CdsSectionProvider', () => {
       role: 'PP',
       sections: { S12: 'RW' },
     } as never;
-    cds.buildSection.mockResolvedValue({ matrixLink: null, assessments: [] });
+    cds.buildSection.mockResolvedValue({
+      matrixLink: null,
+      assessments: [],
+      idpRecords: [],
+    });
 
     await provider.getSection('viewer', 'subject', audience);
 
