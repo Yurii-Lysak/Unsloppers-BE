@@ -57,6 +57,7 @@ export class EmployeeListLeavesService extends EmployeeListLeavesReader {
     return {
       value: formatLeaveRanges(currentLeaves),
       unavailable: false,
+      stale: result.stale ?? false,
     };
   }
 }

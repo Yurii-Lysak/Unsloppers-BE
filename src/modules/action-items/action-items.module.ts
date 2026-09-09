@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { ActionItemCreation } from '../contracts/action-item-creation.contract';
 import { ActionItemsController } from './action-items.controller';
+import { ActionItemsDashboardSummaryProvider } from './action-items-dashboard-summary.provider';
 import { ActionItemsSectionProvider } from './action-items-section.provider';
 import { ActionItemsService } from './action-items.service';
 
@@ -14,6 +15,7 @@ import { ActionItemsService } from './action-items.service';
   controllers: [ActionItemsController],
   providers: [
     ActionItemsService,
+    ActionItemsDashboardSummaryProvider,
     ActionItemsSectionProvider,
     { provide: ActionItemCreation, useExisting: ActionItemsService },
   ],

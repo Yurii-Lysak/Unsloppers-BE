@@ -3,6 +3,7 @@ import { ExternalIdentityMapping } from '../contracts/external-identity-mapping.
 import { EmployeeListLeavesReader } from '../contracts/employee-list-leaves.contract';
 import { ExternalIdentityMappingService } from './external-identity-mapping.service';
 import { EmployeeListLeavesService } from './employee-list-leaves.service';
+import { LeaveDashboardSummaryProvider } from './leave-dashboard-summary.provider';
 import { LeavesController } from './leaves.controller';
 import { LeavesSectionProvider } from './leaves-section.provider';
 import { LeavesSyncService } from './leaves-sync.service';
@@ -26,6 +27,7 @@ import { ProjectsSyncService } from './projects-sync.service';
     LeavesSyncService,
     LeavesSectionProvider,
     EmployeeListLeavesService,
+    LeaveDashboardSummaryProvider,
     {
       provide: EmployeeListLeavesReader,
       useExisting: EmployeeListLeavesService,

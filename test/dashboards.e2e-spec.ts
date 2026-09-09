@@ -85,6 +85,8 @@ async function seedBuiltInRoles(testApp: TestApp): Promise<void> {
 
 interface DashboardConfigResponse {
   variant: string;
+  counters: Array<{ id: string }>;
+  quickNav: Array<{ labelKey: string; path: string }>;
 }
 
 interface DashboardSummaryResponse {
@@ -93,6 +95,11 @@ interface DashboardSummaryResponse {
     headcount: { value: number };
   };
   rows: Array<{ employeeId: string }>;
+  pagination?: {
+    page: number;
+    pageSize: number;
+    totalRows: number;
+  };
   groups?: Array<{
     projectId: string;
     rows: Array<{ employeeId: string }>;
@@ -157,6 +164,57 @@ describe('Dashboards (e2e)', () => {
     expect(summary.counters.headcount.value).toBe(1);
     expect(summary.rows).toHaveLength(1);
     expect(summary.rows[0].employeeId).toBe(subordinate.employeeId);
+    expect(config.counters).toHaveLength(9);
+    expect(config.quickNav).toHaveLength(6);
+    expect(summary.pagination).toEqual({
+      page: 1,
+      pageSize: 50,
+      totalRows: 1,
+    });
+  });
+
+  it('returns empty rows when UM pagination page is beyond the last page', async () => {
+    const um = await createEmployeeUser(
+      testApp,
+      'dash-um-page@example.com',
+      'UM',
+    );
+    const subordinates = await Promise.all(
+      Array.from({ length: 3 }, (_, index) =>
+        createEmployeeUser(
+          testApp,
+          `dash-sub-page-${index}@example.com`,
+          `Sub ${index}`,
+        ),
+      ),
+    );
+
+    for (const subordinate of subordinates) {
+      await testApp.prisma.employee.update({
+        where: { id: subordinate.employeeId },
+        data: { managerId: um.employeeId },
+      });
+    }
+
+    await assignBuiltInRole(
+      testApp,
+      um.employeeId,
+      BUILT_IN_ROLE_NAMES.UNIT_MANAGER,
+    );
+
+    const agent = await loginAs(testApp, um.email);
+    const summaryRes = await agent
+      .get('/api/v1/dashboards/summary?page=2&pageSize=2')
+      .expect(200);
+    const summary = summaryRes.body as DashboardSummaryResponse;
+
+    expect(summary.counters.headcount.value).toBe(3);
+    expect(summary.rows).toHaveLength(1);
+    expect(summary.pagination).toEqual({
+      page: 2,
+      pageSize: 2,
+      totalRows: 3,
+    });
   });
 
   it('returns project grouping metadata for DM viewers', async () => {

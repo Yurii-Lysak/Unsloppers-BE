@@ -80,6 +80,8 @@ export class EmployeesService extends EmployeeDirectory {
       visibleFieldIds,
     );
 
+    this.assertViewerSortAndFilterAccess(query, visibleFields);
+
     const result = await this.fieldRegistryService.queryEmployees({
       page: query.page,
       pageSize: query.pageSize,
@@ -243,18 +245,37 @@ export class EmployeesService extends EmployeeDirectory {
         knownFieldIds.has(filter.fieldId) &&
         !visibleFieldIds.includes(filter.fieldId),
     );
-    const visibleFilters = filters.filter((filter) =>
-      visibleFieldIds.includes(filter.fieldId),
-    );
-    if (hiddenFieldFilters.length > 0 && visibleFilters.length === 0) {
-      throw new BadRequestException(
-        `Field "${hiddenFieldFilters[0].fieldId}" is not filterable for this viewer`,
-      );
-    }
     if (hiddenFieldFilters.length > 0) {
       return { filters: [], filtersHidden: true };
     }
     return { filters, filtersHidden: false };
+  }
+
+  private assertViewerSortAndFilterAccess(
+    query: EmployeeListQueryOptions,
+    visibleFields: FieldSpec[],
+  ): void {
+    const visibleFieldById = new Map(
+      visibleFields.map((field) => [field.id, field]),
+    );
+
+    if (query.sort) {
+      const sortField = visibleFieldById.get(query.sort);
+      if (!sortField?.sortable) {
+        throw new BadRequestException(
+          `Field "${query.sort}" is not sortable for this viewer`,
+        );
+      }
+    }
+
+    for (const filter of query.filters ?? []) {
+      const field = visibleFieldById.get(filter.fieldId);
+      if (field && !field.filterable) {
+        throw new BadRequestException(
+          `Field "${filter.fieldId}" is not filterable for this viewer`,
+        );
+      }
+    }
   }
 
   async updateEmployeeField(
@@ -396,7 +417,9 @@ export class EmployeesService extends EmployeeDirectory {
       }
 
       if (!elevated && field.sectionId === 'S4') {
-        visible.push({ ...field, filterable: false, sortable: false });
+        if (field.id === BUILTIN_FIELD_IDS.employment_type) {
+          visible.push({ ...field, filterable: false, sortable: false });
+        }
         continue;
       }
 

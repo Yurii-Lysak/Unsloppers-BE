@@ -2,7 +2,7 @@ import {
   BUILTIN_FIELD_IDS,
   FieldSpec,
 } from '../contracts/field-registry.contract';
-import { MENTOR_STATUS_VALUES } from '../mentorship/mentor-status.util';
+import { MENTOR_STATUS_VALUES } from '../contracts/mentor-status.contract';
 
 export const BUILTIN_FIELD_SPECS: FieldSpec[] = [
   {

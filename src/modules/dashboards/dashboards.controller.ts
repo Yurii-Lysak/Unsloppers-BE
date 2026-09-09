@@ -1,9 +1,16 @@
-import { Controller, ForbiddenException, Get, Req } from '@nestjs/common';
+import {
+  Controller,
+  ForbiddenException,
+  Get,
+  Query,
+  Req,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { CurrentUserProvider } from '../contracts/current-user-provider.contract';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DashboardsService } from './dashboards.service';
+import { GetDashboardSummaryQueryDto } from './dto/get-dashboard-summary-query.dto';
 import {
   SwaggerGetDashboardConfig,
   SwaggerGetDashboardSummary,
@@ -27,9 +34,12 @@ export class DashboardsController {
 
   @Get('summary')
   @SwaggerGetDashboardSummary()
-  async getSummary(@Req() request: Request) {
+  async getSummary(
+    @Req() request: Request,
+    @Query() query: GetDashboardSummaryQueryDto,
+  ) {
     const viewerEmployeeId = await this.resolveViewerEmployeeId(request);
-    return this.dashboards.getSummary(viewerEmployeeId);
+    return this.dashboards.getSummary(viewerEmployeeId, query);
   }
 
   private async resolveViewerEmployeeId(request: Request): Promise<string> {

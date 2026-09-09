@@ -840,9 +840,9 @@ describe('Mentorship (e2e)', () => {
     expect(endedIds).toContain(endedPair.id);
     expect(endedIds).not.toContain(activePair.id);
     expect(endedIds).not.toContain(outOfScopePair.id);
-    expect(
-      endedRows.every((row) => row.closureFeedback === undefined),
-    ).toBe(true);
+    expect(endedRows.every((row) => row.closureFeedback === undefined)).toBe(
+      true,
+    );
 
     const allRes = await managerAgent
       .get('/api/v1/mentorship/pairs?status=all')

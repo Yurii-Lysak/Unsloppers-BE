@@ -269,9 +269,8 @@ describe('MentorshipAssignmentService', () => {
       },
     ]);
 
-    const activeFindManyArg = prisma.mentorshipPair.findMany.mock.calls[0]?.[0] as {
-      where: { endedAt: unknown };
-    };
+    const [[activeFindManyArg]] = jest.mocked(prisma.mentorshipPair.findMany)
+      .mock.calls as unknown as [[{ where: { endedAt: unknown } }]];
     expect(activeFindManyArg.where.endedAt).toBeNull();
   });
 
@@ -306,9 +305,8 @@ describe('MentorshipAssignmentService', () => {
       },
     ]);
 
-    const endedFindManyArg = prisma.mentorshipPair.findMany.mock.calls[0]?.[0] as {
-      where: { endedAt: { not: null } };
-    };
+    const [[endedFindManyArg]] = jest.mocked(prisma.mentorshipPair.findMany)
+      .mock.calls as unknown as [[{ where: { endedAt: { not: null } } }]];
     expect(endedFindManyArg.where.endedAt).toEqual({ not: null });
   });
 
@@ -318,10 +316,9 @@ describe('MentorshipAssignmentService', () => {
 
     await expect(service.listPairs('viewer-1', 'all')).resolves.toEqual([]);
 
-    const allFindManyArg = prisma.mentorshipPair.findMany.mock.calls[0]?.[0] as {
-      where: Record<string, unknown>;
-    };
-    expect(allFindManyArg.where.endedAt).toBeUndefined();
+    const [[firstArg]] = jest.mocked(prisma.mentorshipPair.findMany).mock
+      .calls as unknown as [[{ where: Record<string, unknown> }]];
+    expect(firstArg.where.endedAt).toBeUndefined();
   });
 
   it('rejects ending a pair without feedback', async () => {

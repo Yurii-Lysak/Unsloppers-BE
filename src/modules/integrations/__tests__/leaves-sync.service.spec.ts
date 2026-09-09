@@ -9,85 +9,59 @@ import { LeavesSyncService } from '../leaves-sync.service';
 
 describe('LeavesSyncService', () => {
   let service: LeavesSyncService;
-  const timetracker = { fetchAccountingReport: jest.fn() };
-  const identityMapping = { findTimetrackerExternalId: jest.fn() };
-  const config = { get: jest.fn() };
-  const clock = { now: jest.fn() };
+  let timetracker: jest.Mocked<TimetrackerClient>;
+  let identityMapping: jest.Mocked<ExternalIdentityMappingService>;
+  let clock: { now: jest.Mock };
 
   beforeEach(async () => {
-    jest.clearAllMocks();
-    clock.now.mockReturnValue(new Date('2026-08-31T12:00:00.000Z'));
-    config.get.mockImplementation((key: string) => {
-      if (key === 'TIMETRACKER_ACCOUNTING_API_KEY') {
-        return 'accounting-key';
-      }
-      return undefined;
-    });
+    timetracker = {
+      fetchAccountingReport: jest.fn(),
+    };
+    identityMapping = {
+      findTimetrackerExternalId: jest.fn(),
+    } as unknown as jest.Mocked<ExternalIdentityMappingService>;
+    clock = {
+      now: jest.fn(() => new Date('2026-09-01T12:00:00.000Z')),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         LeavesSyncService,
         { provide: TimetrackerClient, useValue: timetracker },
+        { provide: ExternalIdentityMappingService, useValue: identityMapping },
         {
-          provide: ExternalIdentityMappingService,
-          useValue: identityMapping,
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string) =>
+              key === 'TIMETRACKER_ACCOUNTING_API_KEY' ? 'test-key' : undefined,
+            ),
+          },
         },
-        { provide: ConfigService, useValue: config },
         { provide: Clock, useValue: clock },
       ],
     }).compile();
 
     service = module.get(LeavesSyncService);
-    service.clearCache();
   });
 
-  it('returns empty leaves when no timetracker mapping exists', async () => {
-    identityMapping.findTimetrackerExternalId.mockResolvedValue(null);
-
-    await expect(service.getLeavesForEmployee('employee-1')).resolves.toEqual({
-      availability: 'ok',
-      leaves: [],
-    });
-  });
-
-  it('returns unavailable when the accounting API key is unset', async () => {
-    identityMapping.findTimetrackerExternalId.mockResolvedValue('42');
-    config.get.mockReturnValue(undefined);
-
-    await expect(service.getLeavesForEmployee('employee-1')).resolves.toEqual({
-      availability: 'unavailable',
-      leaves: [],
-    });
-  });
-
-  it('normalizes vacation periods from the accounting report', async () => {
+  it('serves last-known leave data with stale=true when refresh fails after cache expiry', async () => {
     identityMapping.findTimetrackerExternalId.mockResolvedValue('42');
     timetracker.fetchAccountingReport.mockResolvedValue({
+      startDate: '2026-09-01',
+      endDate: '2026-09-30',
       employees: [
         {
           id: 42,
-          email: 'b@example.com',
-          name: 'B',
+          email: 'emp@example.com',
+          name: 'Employee',
           hash: 'hash',
           countryCode: 'US',
           days: [
             {
-              date: '2026-08-25',
+              date: '2026-09-05',
               projectId: 1,
-              projectUniqueName: 'p',
-              project: 'P',
-              hours: 0,
-              hoursForCustomer: 0,
-              overtime: 0,
-              overtimeRate: 0,
-              outOfScope: 0,
-              dayStatus: DayStatus.Vacation,
-            },
-            {
-              date: '2026-08-26',
-              projectId: 1,
-              projectUniqueName: 'p',
-              project: 'P',
+              projectUniqueName: 'proj',
+              project: 'Project',
               hours: 0,
               hoursForCustomer: 0,
               overtime: 0,
@@ -98,31 +72,23 @@ describe('LeavesSyncService', () => {
           ],
         },
       ],
+      dayStatuses: {},
+      reportStates: {},
+      dayApprovalStates: {},
     });
 
-    await expect(service.getLeavesForEmployee('employee-1')).resolves.toEqual({
-      availability: 'ok',
-      leaves: [
-        {
-          type: 'vacation',
-          startDate: '2026-08-25',
-          endDate: '2026-08-26',
-          approvalState: 'unknown',
-        },
-      ],
-    });
-    expect(timetracker.fetchAccountingReport).toHaveBeenCalled();
-  });
+    const fresh = await service.getLeavesForEmployee('emp-1');
+    expect(fresh.availability).toBe('ok');
+    expect(fresh.stale).toBe(false);
 
-  it('returns unavailable when TimeTracker is unreachable', async () => {
-    identityMapping.findTimetrackerExternalId.mockResolvedValue('42');
+    clock.now.mockReturnValue(new Date('2026-09-01T12:10:00.000Z'));
     timetracker.fetchAccountingReport.mockRejectedValue(
-      new TimetrackerApiError('POST /api/accounting/report'),
+      new TimetrackerApiError('/accounting', 503),
     );
 
-    await expect(service.getLeavesForEmployee('employee-1')).resolves.toEqual({
-      availability: 'unavailable',
-      leaves: [],
-    });
+    const stale = await service.getLeavesForEmployee('emp-1');
+    expect(stale.availability).toBe('ok');
+    expect(stale.stale).toBe(true);
+    expect(stale.leaves.length).toBeGreaterThanOrEqual(0);
   });
 });

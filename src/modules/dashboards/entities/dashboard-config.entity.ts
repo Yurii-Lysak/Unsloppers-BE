@@ -18,6 +18,14 @@ export class DashboardCounterSpecEntity {
   labelKey!: string;
 }
 
+export class DashboardQuickNavLinkEntity {
+  @ApiProperty()
+  labelKey!: string;
+
+  @ApiProperty()
+  path!: string;
+}
+
 export class DashboardConfigEntity {
   @ApiProperty({ enum: ['um', 'dm', 'pm', 'pp'] })
   variant!: DashboardVariant;
@@ -33,6 +41,9 @@ export class DashboardConfigEntity {
 
   @ApiProperty({ type: [DashboardCounterSpecEntity] })
   counters!: DashboardCounterSpecEntity[];
+
+  @ApiProperty({ type: [DashboardQuickNavLinkEntity] })
+  quickNav!: DashboardQuickNavLinkEntity[];
 
   @ApiProperty({ enum: ['seed-map', 'functional-role'] })
   resolvedBy!: 'seed-map' | 'functional-role';

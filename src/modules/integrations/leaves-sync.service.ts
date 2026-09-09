@@ -13,7 +13,7 @@ import {
 const LEAVES_CACHE_TTL_MS = 5 * 60 * 1000;
 
 export type LeavesFetchResult =
-  | { availability: 'ok'; leaves: NormalizedLeavePeriod[] }
+  | { availability: 'ok'; leaves: NormalizedLeavePeriod[]; stale?: boolean }
   | { availability: 'unavailable'; leaves: [] };
 
 interface MonthCacheEntry {
@@ -61,19 +61,26 @@ export class LeavesSyncService {
     try {
       const now = this.clock.now();
       const allDays: WorkingDay[] = [];
+      let stale = false;
 
       for (const { month, year } of monthsToQuery(now)) {
-        const daysByEmployeeId = await this.loadMonthDays(
+        const monthResult = await this.loadMonthDays(
           month,
           year,
           timetrackerEmployeeId,
         );
-        allDays.push(...(daysByEmployeeId.get(timetrackerEmployeeId) ?? []));
+        if (monthResult.stale) {
+          stale = true;
+        }
+        allDays.push(
+          ...(monthResult.daysByEmployeeId.get(timetrackerEmployeeId) ?? []),
+        );
       }
 
       return {
         availability: 'ok',
         leaves: groupLeavePeriods(dedupeWorkingDaysByDate(allDays)),
+        stale,
       };
     } catch (error) {
       if (error instanceof TimetrackerApiError) {
@@ -100,31 +107,41 @@ export class LeavesSyncService {
     month: number,
     year: number,
     timetrackerEmployeeId: number,
-  ): Promise<Map<number, WorkingDay[]>> {
+  ): Promise<{
+    daysByEmployeeId: Map<number, WorkingDay[]>;
+    stale: boolean;
+  }> {
     const cacheKey = `${year}-${month}:${timetrackerEmployeeId}`;
     const cached = this.monthCache.get(cacheKey);
     const nowMs = this.clock.now().getTime();
 
     if (cached && nowMs - cached.fetchedAt < LEAVES_CACHE_TTL_MS) {
-      return cached.daysByEmployeeId;
+      return { daysByEmployeeId: cached.daysByEmployeeId, stale: false };
     }
 
-    const report = await this.timetracker.fetchAccountingReport({
-      month,
-      year,
-      employeeIds: [timetrackerEmployeeId],
-    });
-    const daysByEmployeeId = new Map<number, WorkingDay[]>();
-    for (const employee of report.employees) {
-      daysByEmployeeId.set(employee.id, employee.days ?? []);
+    try {
+      const report = await this.timetracker.fetchAccountingReport({
+        month,
+        year,
+        employeeIds: [timetrackerEmployeeId],
+      });
+      const daysByEmployeeId = new Map<number, WorkingDay[]>();
+      for (const employee of report.employees) {
+        daysByEmployeeId.set(employee.id, employee.days ?? []);
+      }
+
+      this.monthCache.set(cacheKey, {
+        fetchedAt: nowMs,
+        daysByEmployeeId,
+      });
+
+      return { daysByEmployeeId, stale: false };
+    } catch (error) {
+      if (error instanceof TimetrackerApiError && cached) {
+        return { daysByEmployeeId: cached.daysByEmployeeId, stale: true };
+      }
+      throw error;
     }
-
-    this.monthCache.set(cacheKey, {
-      fetchedAt: nowMs,
-      daysByEmployeeId,
-    });
-
-    return daysByEmployeeId;
   }
 }
 
