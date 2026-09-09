@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ResourcingController } from './resourcing.controller';
 import { ResourcingDashboardSummaryProvider } from './resourcing-dashboard-summary.provider';
+import { RequestHistorySectionProvider } from './request-history-section.provider';
 import { ResourcingRequestsDashboardSummaryProvider } from './resourcing-requests-dashboard-summary.provider';
 import { ResourcingService } from './resourcing.service';
 
@@ -19,6 +20,7 @@ import { ResourcingService } from './resourcing.service';
     ResourcingService,
     ResourcingDashboardSummaryProvider,
     ResourcingRequestsDashboardSummaryProvider,
+    RequestHistorySectionProvider,
   ],
   exports: [ResourcingService],
 })

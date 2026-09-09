@@ -120,6 +120,7 @@ describe('ResourcingService', () => {
     peopleForceCandidateUrl: 'https://peopleforce.example.com/candidates/1',
     status: 'proposed',
     decisionReason: null,
+    decidedAt: null,
     createdAt: new Date('2026-09-05T00:00:00.000Z'),
     candidateEmployee: null,
     ...overrides,
@@ -587,7 +588,11 @@ describe('ResourcingService', () => {
 
       expect(tx.resourcingProposal.updateMany).toHaveBeenCalledWith({
         where: { id: 'proposal-1', status: 'proposed' },
-        data: { status: 'rejected', decisionReason: 'Not a fit' },
+        data: {
+          status: 'rejected',
+          decisionReason: 'Not a fit',
+          decidedAt: clock.now(),
+        },
       });
       expect(result.status).toBe('rejected');
       expect(result.decisionReason).toBe('Not a fit');
@@ -610,7 +615,11 @@ describe('ResourcingService', () => {
 
       expect(tx.resourcingProposal.updateMany).toHaveBeenCalledWith({
         where: { id: 'proposal-1', status: 'proposed' },
-        data: { status: 'approved', decisionReason: null },
+        data: {
+          status: 'approved',
+          decisionReason: null,
+          decidedAt: clock.now(),
+        },
       });
       expect(result.status).toBe('approved');
     });
@@ -670,7 +679,11 @@ describe('ResourcingService', () => {
 
       expect(tx.resourcingProposal.updateMany).toHaveBeenCalledWith({
         where: { id: 'proposal-1', status: 'approved' },
-        data: { status: 'rejected', decisionReason: 'Ineligible' },
+        data: {
+          status: 'rejected',
+          decisionReason: 'Ineligible',
+          decidedAt: clock.now(),
+        },
       });
       expect(result.status).toBe('rejected');
     });
@@ -719,6 +732,132 @@ describe('ResourcingService', () => {
           decision: 'approved',
         }),
       ).rejects.toBeInstanceOf(ConflictException);
+    });
+  });
+
+  describe('buildRequestHistorySection', () => {
+    it('maps internal proposals without expectedCompBand', async () => {
+      prisma.resourcingProposal.findMany.mockResolvedValue([
+        {
+          id: 'proposal-1',
+          requestId: 'request-1',
+          status: 'rejected',
+          decisionReason: 'Not a fit',
+          createdAt: new Date('2026-09-05T00:00:00.000Z'),
+          decidedAt: new Date('2026-09-08T12:00:00.000Z'),
+          request: {
+            vacancyDetails: 'Backend engineer',
+            department: 'Engineering',
+            projectId: 'project-alpha',
+            status: 'pending_dm_review',
+          },
+        },
+      ]);
+
+      const section = await service.buildRequestHistorySection('candidate-1');
+
+      expect(section.entries).toEqual([
+        {
+          id: 'proposal-1',
+          requestId: 'request-1',
+          status: 'rejected',
+          decisionReason: 'Not a fit',
+          proposedAt: '2026-09-05T00:00:00.000Z',
+          decidedAt: '2026-09-08T12:00:00.000Z',
+          vacancyDetails: 'Backend engineer',
+          department: 'Engineering',
+          requestStatus: 'pending_dm_review',
+          projectName: 'project-alpha',
+        },
+      ]);
+      expect(JSON.stringify(section)).not.toContain('expectedCompBand');
+    });
+
+    it('returns an empty entries array when the subject has no proposals', async () => {
+      prisma.resourcingProposal.findMany.mockResolvedValue([]);
+
+      const section = await service.buildRequestHistorySection('candidate-1');
+
+      expect(section).toEqual({ entries: [] });
+    });
+
+    it('maps proposed entries with null decidedAt and decisionReason', async () => {
+      prisma.resourcingProposal.findMany.mockResolvedValue([
+        {
+          id: 'proposal-2',
+          requestId: 'request-2',
+          status: 'proposed',
+          decisionReason: null,
+          createdAt: new Date('2026-09-06T00:00:00.000Z'),
+          decidedAt: null,
+          request: {
+            vacancyDetails: 'Frontend engineer',
+            department: 'Engineering',
+            projectId: null,
+            status: 'open',
+          },
+        },
+      ]);
+
+      const section = await service.buildRequestHistorySection('candidate-1');
+
+      expect(section.entries[0]).toEqual({
+        id: 'proposal-2',
+        requestId: 'request-2',
+        status: 'proposed',
+        decisionReason: null,
+        proposedAt: '2026-09-06T00:00:00.000Z',
+        decidedAt: null,
+        vacancyDetails: 'Frontend engineer',
+        department: 'Engineering',
+        requestStatus: 'open',
+        projectName: undefined,
+      });
+    });
+
+    it('orders entries newest proposedAt first', async () => {
+      prisma.resourcingProposal.findMany.mockResolvedValue([
+        {
+          id: 'newer',
+          requestId: 'request-new',
+          status: 'proposed',
+          decisionReason: null,
+          createdAt: new Date('2026-09-08T00:00:00.000Z'),
+          decidedAt: null,
+          request: {
+            vacancyDetails: 'Newer',
+            department: 'Engineering',
+            projectId: null,
+            status: 'open',
+          },
+        },
+        {
+          id: 'older',
+          requestId: 'request-old',
+          status: 'approved',
+          decisionReason: null,
+          createdAt: new Date('2026-09-01T00:00:00.000Z'),
+          decidedAt: new Date('2026-09-02T00:00:00.000Z'),
+          request: {
+            vacancyDetails: 'Older',
+            department: 'Engineering',
+            projectId: null,
+            status: 'pending_dm_review',
+          },
+        },
+      ]);
+
+      const section = await service.buildRequestHistorySection('candidate-1');
+
+      expect(prisma.resourcingProposal.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: { createdAt: 'desc' },
+        }),
+      );
+      expect(section.entries.map((entry) => entry.id)).toEqual([
+        'newer',
+        'older',
+      ]);
     });
   });
 

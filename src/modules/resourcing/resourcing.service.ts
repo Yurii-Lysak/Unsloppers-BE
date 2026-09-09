@@ -23,6 +23,7 @@ import {
   ResourcingRequestDetailEntity,
 } from './entities/resourcing-request-detail.entity';
 import { ResourcingProposalEntity } from './entities/resourcing-proposal.entity';
+import { RequestHistorySectionEntity } from './entities/request-history-section.entity';
 import { normalizeCreateResourcingRequestFields } from './resourcing-input';
 import { normalizeCreateResourcingProposalInput } from './resourcing-proposal-input';
 
@@ -336,6 +337,7 @@ export class ResourcingService {
         data: {
           status: dto.decision,
           decisionReason: dto.decision === 'rejected' ? reason : null,
+          decidedAt: this.clock.now(),
         },
       });
       if (result.count === 0) {
@@ -352,6 +354,52 @@ export class ResourcingService {
       viewerEmployeeId,
       isReviewingDm: true,
     });
+  }
+
+  /**
+   * Story 6.4 — profile section S15: internal-candidate proposal history.
+   * Uses an explicit `select` so `expectedCompBand` cannot leak via Prisma
+   * `include`.
+   */
+  async buildRequestHistorySection(
+    subjectEmployeeId: string,
+  ): Promise<RequestHistorySectionEntity> {
+    const proposals = await this.prisma.resourcingProposal.findMany({
+      where: { candidateEmployeeId: subjectEmployeeId },
+      select: {
+        id: true,
+        requestId: true,
+        status: true,
+        decisionReason: true,
+        createdAt: true,
+        decidedAt: true,
+        request: {
+          select: {
+            vacancyDetails: true,
+            department: true,
+            projectId: true,
+            status: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return {
+      entries: proposals.map((proposal) => ({
+        id: proposal.id,
+        requestId: proposal.requestId,
+        status: proposal.status,
+        decisionReason:
+          proposal.status === 'rejected' ? proposal.decisionReason : null,
+        proposedAt: proposal.createdAt.toISOString(),
+        decidedAt: proposal.decidedAt?.toISOString() ?? null,
+        vacancyDetails: proposal.request.vacancyDetails,
+        department: proposal.request.department,
+        requestStatus: proposal.request.status,
+        projectName: proposal.request.projectId ?? undefined,
+      })),
+    };
   }
 
   /**
@@ -737,6 +785,7 @@ export class ResourcingService {
       peopleForceCandidateUrl: proposal.peopleForceCandidateUrl,
       status: proposal.status,
       decisionReason: proposal.decisionReason,
+      decidedAt: proposal.decidedAt?.toISOString() ?? null,
       createdAt: proposal.createdAt.toISOString(),
     };
     if (proposal.candidateEmployee) {

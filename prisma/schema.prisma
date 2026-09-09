@@ -582,6 +582,9 @@ model ResourcingProposal {
   // Story 6.3 — required when rejecting a `proposed` row or reversing an
   // `approved` row to `rejected`; null while still `proposed`/`approved`.
   decisionReason          String?                  @db.VarChar(2000)
+  // Story 6.4 — set when status becomes `approved` or `rejected` (including
+  // reversal); null while `proposed` or for pre-6.4 decided rows.
+  decidedAt               DateTime?
   createdAt               DateTime                 @default(now())
 
   request           ResourcingRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
