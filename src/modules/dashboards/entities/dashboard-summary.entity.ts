@@ -1,6 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { RiskLevel } from '../../../generated/prisma/client';
-import type { DashboardVariant } from './dashboard-config.entity';
+import {
+  DashboardSelectorProjectEntity,
+  type DashboardVariant,
+} from './dashboard-config.entity';
 
 export class DashboardCounterValueEntity {
   @ApiProperty({ enum: ['available', 'unavailable'] })
@@ -61,6 +64,26 @@ export class DashboardProjectGroupEntity {
   rows!: DashboardTableRowEntity[];
 }
 
+export class DashboardResourcingRequestEntity {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  vacancyDetails!: string;
+
+  @ApiProperty({ enum: ['open', 'pending_dm_review'] })
+  status!: 'open' | 'pending_dm_review';
+
+  @ApiPropertyOptional()
+  projectId?: string | null;
+
+  @ApiProperty()
+  authorDisplayName!: string;
+
+  @ApiProperty({ format: 'date-time' })
+  createdAt!: string;
+}
+
 export class DashboardPaginationEntity {
   @ApiProperty()
   page!: number;
@@ -90,4 +113,10 @@ export class DashboardSummaryEntity {
 
   @ApiPropertyOptional({ type: DashboardPaginationEntity })
   pagination?: DashboardPaginationEntity;
+
+  @ApiPropertyOptional({ type: [DashboardSelectorProjectEntity] })
+  selectorProjects?: DashboardSelectorProjectEntity[];
+
+  @ApiPropertyOptional({ type: [DashboardResourcingRequestEntity] })
+  resourcingRequests?: DashboardResourcingRequestEntity[];
 }

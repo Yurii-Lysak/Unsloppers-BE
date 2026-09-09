@@ -1,7 +1,7 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export type DashboardBlockId =
-  'counters' | 'table' | 'ownActionItems' | 'quickNav';
+  'counters' | 'table' | 'ownActionItems' | 'quickNav' | 'resourcingRequests';
 
 export type DashboardGrouping = 'people' | 'project';
 
@@ -26,6 +26,14 @@ export class DashboardQuickNavLinkEntity {
   path!: string;
 }
 
+export class DashboardSelectorProjectEntity {
+  @ApiProperty()
+  projectId!: string;
+
+  @ApiProperty()
+  projectName!: string;
+}
+
 export class DashboardConfigEntity {
   @ApiProperty({ enum: ['um', 'dm', 'pm', 'pp'] })
   variant!: DashboardVariant;
@@ -35,7 +43,13 @@ export class DashboardConfigEntity {
 
   @ApiProperty({
     type: [String],
-    enum: ['counters', 'table', 'ownActionItems', 'quickNav'],
+    enum: [
+      'counters',
+      'table',
+      'ownActionItems',
+      'quickNav',
+      'resourcingRequests',
+    ],
   })
   blocks!: DashboardBlockId[];
 
@@ -47,4 +61,7 @@ export class DashboardConfigEntity {
 
   @ApiProperty({ enum: ['seed-map', 'functional-role'] })
   resolvedBy!: 'seed-map' | 'functional-role';
+
+  @ApiPropertyOptional({ type: [DashboardSelectorProjectEntity] })
+  selectorProjects?: DashboardSelectorProjectEntity[];
 }

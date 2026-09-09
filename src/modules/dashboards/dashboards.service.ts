@@ -10,16 +10,22 @@ import { DashboardSummaryProvider } from '../contracts/dashboard-summary-provide
 import type {
   DashboardRiskCountsFragment,
   DashboardSummaryFragment,
+  DashboardSummaryScope,
 } from '../contracts/dashboard-summary.types';
+import { DASHBOARD_UNASSIGNED_PROJECT_ID } from '../contracts/dashboard-summary.types';
 import { DashboardVariantResolver } from '../contracts/dashboard-variant-resolver.contract';
 import { ProviderRegistryService } from '../registry/provider-registry.service';
 import { DASHBOARD_VARIANT_DEFINITIONS } from './dashboard-variant-config';
 import type { GetDashboardSummaryQueryDto } from './dto/get-dashboard-summary-query.dto';
-import type { DashboardConfigEntity } from './entities/dashboard-config.entity';
+import type {
+  DashboardConfigEntity,
+  DashboardSelectorProjectEntity,
+} from './entities/dashboard-config.entity';
 import type {
   DashboardCounterValueEntity,
   DashboardPaginationEntity,
   DashboardProjectGroupEntity,
+  DashboardResourcingRequestEntity,
   DashboardSummaryEntity,
   DashboardTableRowEntity,
 } from './entities/dashboard-summary.entity';
@@ -47,6 +53,11 @@ export class DashboardsService {
     }
 
     const definition = DASHBOARD_VARIANT_DEFINITIONS[resolution.variant];
+    const selectorProjects =
+      resolution.variant === 'dm'
+        ? await this.loadSelectorProjects(viewerEmployeeId, 'dm')
+        : undefined;
+
     return {
       variant: definition.variant,
       grouping: definition.grouping,
@@ -54,6 +65,7 @@ export class DashboardsService {
       counters: definition.counters,
       quickNav: definition.quickNav,
       resolvedBy: resolution.resolvedBy,
+      selectorProjects,
     };
   }
 
@@ -62,14 +74,32 @@ export class DashboardsService {
     query: GetDashboardSummaryQueryDto = {},
   ): Promise<DashboardSummaryEntity> {
     const config = await this.getConfig(viewerEmployeeId);
+    const scopeBase: DashboardSummaryScope = {
+      subjectIds: [],
+      variant: config.variant,
+    };
+
+    if (config.grouping === 'project') {
+      return this.buildProjectSummary(
+        viewerEmployeeId,
+        config,
+        query,
+        scopeBase,
+      );
+    }
+
     const subjectIds = await this.resolveSubjectIds(
       viewerEmployeeId,
       config.variant,
     );
+    const scope: DashboardSummaryScope = {
+      ...scopeBase,
+      subjectIds,
+    };
     const counterProviderIds = this.collectProviderIds(config.counters);
     const counterFragments = await this.loadProviderFragments(
       viewerEmployeeId,
-      subjectIds,
+      scope,
       counterProviderIds,
     );
 
@@ -79,27 +109,6 @@ export class DashboardsService {
       counterFragments,
     );
 
-    if (config.grouping === 'project') {
-      const tableFragments = await this.ensureTableFragments(
-        viewerEmployeeId,
-        subjectIds,
-        counterFragments,
-        config.blocks.includes('table'),
-      );
-      const allRows = await this.buildTableRows(subjectIds, tableFragments);
-      const groups = await this.buildProjectGroups(
-        viewerEmployeeId,
-        config.variant,
-        allRows,
-      );
-      return {
-        variant: config.variant,
-        grouping: config.grouping,
-        counters,
-        groups,
-      };
-    }
-
     const pagination = this.resolvePeopleTablePagination(
       subjectIds,
       query,
@@ -107,7 +116,7 @@ export class DashboardsService {
     );
     const tableFragments = await this.ensureTableFragments(
       viewerEmployeeId,
-      pagination.pageSubjectIds,
+      { ...scope, subjectIds: pagination.pageSubjectIds },
       counterFragments,
       config.blocks.includes('table'),
     );
@@ -123,6 +132,170 @@ export class DashboardsService {
       rows,
       pagination: pagination.meta,
     };
+  }
+
+  private async buildProjectSummary(
+    viewerEmployeeId: string,
+    config: DashboardConfigEntity,
+    query: GetDashboardSummaryQueryDto,
+    scopeBase: DashboardSummaryScope,
+  ): Promise<DashboardSummaryEntity> {
+    const parsedProjectId = this.parseProjectId(query.projectId);
+    const responsibility = config.variant === 'pm' ? 'pm' : 'dm';
+    const audienceGroups = await this.audience.listProjectGroups(
+      viewerEmployeeId,
+      responsibility,
+    );
+    const selectorProjects = this.mapSelectorProjects(audienceGroups);
+    this.validateProjectFilter(parsedProjectId, audienceGroups);
+
+    const visibleAudienceGroups =
+      parsedProjectId === DASHBOARD_UNASSIGNED_PROJECT_ID
+        ? []
+        : parsedProjectId
+          ? audienceGroups.filter(
+              (group) => group.projectId === parsedProjectId,
+            )
+          : audienceGroups;
+
+    const counterSubjectIds =
+      parsedProjectId === DASHBOARD_UNASSIGNED_PROJECT_ID
+        ? []
+        : parsedProjectId
+          ? (visibleAudienceGroups[0]?.subjectIds ?? [])
+          : [...new Set(audienceGroups.flatMap((group) => group.subjectIds))];
+
+    const tableSubjectIds = [
+      ...new Set(visibleAudienceGroups.flatMap((group) => group.subjectIds)),
+    ];
+
+    const scope: DashboardSummaryScope = {
+      ...scopeBase,
+      subjectIds: counterSubjectIds,
+      projectId: parsedProjectId,
+    };
+
+    const counterProviderIds = this.collectProviderIds(config.counters);
+    const counterFragments = await this.loadProviderFragments(
+      viewerEmployeeId,
+      scope,
+      counterProviderIds,
+    );
+    const counters = this.buildCounters(
+      config.counters,
+      counterSubjectIds,
+      counterFragments,
+    );
+
+    let resourcingRequests: DashboardResourcingRequestEntity[] | undefined;
+    if (config.blocks.includes('resourcingRequests')) {
+      const blockFragment = await this.loadProviderFragment(
+        viewerEmployeeId,
+        'resourcing-requests',
+        scope,
+      );
+      resourcingRequests = this.mapResourcingRequests(blockFragment);
+    }
+
+    const tableFragments = await this.ensureTableFragments(
+      viewerEmployeeId,
+      { ...scope, subjectIds: tableSubjectIds },
+      counterFragments,
+      config.blocks.includes('table'),
+    );
+    const rows = await this.buildTableRows(tableSubjectIds, tableFragments);
+    const groups = this.mapProjectGroups(visibleAudienceGroups, rows);
+
+    return {
+      variant: config.variant,
+      grouping: config.grouping,
+      counters,
+      groups,
+      selectorProjects,
+      resourcingRequests,
+    };
+  }
+
+  private parseProjectId(raw?: string): string | undefined {
+    if (raw === undefined) {
+      return undefined;
+    }
+
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) {
+      throw new BadRequestException('Invalid projectId for dashboard summary');
+    }
+
+    if (trimmed === 'all') {
+      return undefined;
+    }
+
+    return trimmed;
+  }
+
+  private validateProjectFilter(
+    projectId: string | undefined,
+    groups: Array<{ projectId: string }>,
+  ): void {
+    if (!projectId || projectId === DASHBOARD_UNASSIGNED_PROJECT_ID) {
+      return;
+    }
+
+    if (!groups.some((group) => group.projectId === projectId)) {
+      throw new BadRequestException('Invalid projectId for dashboard summary');
+    }
+  }
+
+  private async loadSelectorProjects(
+    viewerEmployeeId: string,
+    responsibility: 'dm' | 'pm',
+  ): Promise<DashboardSelectorProjectEntity[]> {
+    const groups = await this.audience.listProjectGroups(
+      viewerEmployeeId,
+      responsibility,
+    );
+    return this.mapSelectorProjects(groups);
+  }
+
+  private mapSelectorProjects(
+    groups: Array<{ projectId: string; projectName: string }>,
+  ): DashboardSelectorProjectEntity[] {
+    return groups.map((group) => ({
+      projectId: group.projectId,
+      projectName: group.projectName,
+    }));
+  }
+
+  private mapProjectGroups(
+    audienceGroups: Array<{
+      projectId: string;
+      projectName: string;
+      subjectIds: string[];
+    }>,
+    rows: DashboardTableRowEntity[],
+  ): DashboardProjectGroupEntity[] {
+    const rowByEmployee = new Map(rows.map((row) => [row.employeeId, row]));
+
+    return audienceGroups.map((group) => ({
+      projectId: group.projectId,
+      projectName: group.projectName,
+      rows: group.subjectIds
+        .map((subjectId) => rowByEmployee.get(subjectId))
+        .filter((row): row is DashboardTableRowEntity => row !== undefined),
+    }));
+  }
+
+  private mapResourcingRequests(
+    fragment: DashboardSummaryFragment,
+  ): DashboardResourcingRequestEntity[] | undefined {
+    if (
+      fragment.status !== 'available' ||
+      fragment.providerId !== 'resourcing-requests'
+    ) {
+      return undefined;
+    }
+
+    return fragment.requests;
   }
 
   private collectProviderIds(
@@ -339,7 +512,7 @@ export class DashboardsService {
 
   private async ensureTableFragments(
     viewerEmployeeId: string,
-    rowSubjectIds: string[],
+    scope: DashboardSummaryScope,
     existingFragments: Map<string, DashboardSummaryFragment>,
     includeTable: boolean,
   ): Promise<Map<string, DashboardSummaryFragment>> {
@@ -357,7 +530,7 @@ export class DashboardsService {
 
     const loaded = await this.loadProviderFragments(
       viewerEmployeeId,
-      rowSubjectIds,
+      scope,
       toLoad,
     );
 
@@ -375,42 +548,17 @@ export class DashboardsService {
     return merged;
   }
 
-  private async buildProjectGroups(
-    viewerEmployeeId: string,
-    variant: DashboardConfigEntity['variant'],
-    rows: DashboardTableRowEntity[],
-  ): Promise<DashboardProjectGroupEntity[]> {
-    const rowByEmployee = new Map(rows.map((row) => [row.employeeId, row]));
-    const responsibility = variant === 'pm' ? 'pm' : 'dm';
-    const groups = await this.audience.listProjectGroups(
-      viewerEmployeeId,
-      responsibility,
-    );
-
-    return groups.map((group) => ({
-      projectId: group.projectId,
-      projectName: group.projectName,
-      rows: group.subjectIds
-        .map((subjectId) => rowByEmployee.get(subjectId))
-        .filter((row): row is DashboardTableRowEntity => row !== undefined),
-    }));
-  }
-
   private async loadProviderFragments(
     viewerEmployeeId: string,
-    subjectIds: string[],
-    providerIds: Set<string>,
+    scope: DashboardSummaryScope,
+    providerIds: Set<string> | Iterable<string>,
   ): Promise<Map<string, DashboardSummaryFragment>> {
     const fragments = new Map<string, DashboardSummaryFragment>();
     await Promise.all(
       [...providerIds].map(async (providerId) => {
         fragments.set(
           providerId,
-          await this.loadProviderFragment(
-            viewerEmployeeId,
-            providerId,
-            subjectIds,
-          ),
+          await this.loadProviderFragment(viewerEmployeeId, providerId, scope),
         );
       }),
     );
@@ -420,7 +568,7 @@ export class DashboardsService {
   private async loadProviderFragment(
     viewerEmployeeId: string,
     providerId: string,
-    subjectIds: string[],
+    scope: DashboardSummaryScope,
   ): Promise<DashboardSummaryFragment> {
     const lookup = this.registry.get<DashboardSummaryProvider>(
       'dashboard-summary',
@@ -431,7 +579,7 @@ export class DashboardsService {
     }
 
     try {
-      return await lookup.provider.getSummary(viewerEmployeeId, { subjectIds });
+      return await lookup.provider.getSummary(viewerEmployeeId, scope);
     } catch {
       return { providerId, status: 'unavailable' };
     }

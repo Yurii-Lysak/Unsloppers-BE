@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ResourcingController } from './resourcing.controller';
 import { ResourcingDashboardSummaryProvider } from './resourcing-dashboard-summary.provider';
+import { ResourcingRequestsDashboardSummaryProvider } from './resourcing-requests-dashboard-summary.provider';
 import { ResourcingService } from './resourcing.service';
 
 /**
@@ -14,7 +15,11 @@ import { ResourcingService } from './resourcing.service';
  */
 @Module({
   controllers: [ResourcingController],
-  providers: [ResourcingService, ResourcingDashboardSummaryProvider],
+  providers: [
+    ResourcingService,
+    ResourcingDashboardSummaryProvider,
+    ResourcingRequestsDashboardSummaryProvider,
+  ],
   exports: [ResourcingService],
 })
 export class ResourcingModule {}
