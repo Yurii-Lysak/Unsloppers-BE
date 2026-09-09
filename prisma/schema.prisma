@@ -558,14 +558,17 @@ model Department {
 }
 
 // Story 6.2 — a UM's attached candidate (internal or external-link) against a
-// routed request. Only `proposed` is reachable until 6.3 adds
-// approve/reject. Exactly one of `candidateEmployeeId` (internal) or
+// routed request. Exactly one of `candidateEmployeeId` (internal) or
 // `peopleForceCandidateUrl` (external, required) is populated per row —
 // enforced in `ResourcingService`, not the schema (Prisma has no partial
 // XOR check constraint here without hand-editing migration SQL, and this
 // isn't a concurrency-sensitive invariant like the temporal-history ones).
+// Story 6.3 — `approved`/`rejected` added; `rejected` is terminal, `approved`
+// is reversible back to `rejected` with a reason (see `decisionReason`).
 enum ResourcingProposalStatus {
   proposed
+  approved
+  rejected
 }
 
 model ResourcingProposal {
@@ -576,6 +579,9 @@ model ResourcingProposal {
   peopleForceCandidateId  String?                  @db.VarChar(128)
   peopleForceCandidateUrl String?                  @db.VarChar(2000)
   status                  ResourcingProposalStatus @default(proposed)
+  // Story 6.3 — required when rejecting a `proposed` row or reversing an
+  // `approved` row to `rejected`; null while still `proposed`/`approved`.
+  decisionReason          String?                  @db.VarChar(2000)
   createdAt               DateTime                 @default(now())
 
   request           ResourcingRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)

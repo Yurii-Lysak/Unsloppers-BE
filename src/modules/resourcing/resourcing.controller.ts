@@ -17,12 +17,15 @@ import { PermissionChecker } from '../contracts/permission-checker.contract';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateResourcingRequestDto } from './dto/create-resourcing-request.dto';
 import { CreateResourcingProposalDto } from './dto/create-resourcing-proposal.dto';
+import { DecideResourcingProposalDto } from './dto/decide-resourcing-proposal.dto';
 import { ResourcingService } from './resourcing.service';
 import {
   SwaggerCreateResourcingProposal,
   SwaggerCreateResourcingRequest,
+  SwaggerDecideResourcingProposal,
   SwaggerGetResourcingRequestDetail,
   SwaggerListAssignedResourcingRequests,
+  SwaggerListPendingReviewResourcingRequests,
   SwaggerListResourcingRequests,
   SwaggerSubmitResourcingRequest,
 } from './resourcing.swagger';
@@ -75,11 +78,31 @@ export class ResourcingController {
     return this.resourcing.listAssigned(viewerEmployeeId);
   }
 
+  /**
+   * Story 6.3 — declared before `:id` so `pending-review` is not captured as
+   * a request id. Reviewing-DM inbox for `/resourcing`.
+   */
+  @Get('pending-review')
+  @SwaggerListPendingReviewResourcingRequests()
+  async listPendingReview(@Req() request: Request) {
+    const { userId } = await this.currentUser.getCurrentUser(request);
+    await this.assertCanApproveRejectCandidates(userId);
+    const viewerEmployeeId = await this.resolveViewerEmployeeId(userId);
+    return this.resourcing.listPendingReview(viewerEmployeeId);
+  }
+
+  /**
+   * Story 6.3 — widened to accept either fulfilment (`FULFIL_RESOURCING_REQUESTS`,
+   * the routed UM) or approve/reject (`APPROVE_REJECT_CANDIDATES`, the
+   * reviewing DM) — a permission-only gate the DM otherwise never holds,
+   * which would 403 them before the service's own routed-UM-OR-reviewing-DM
+   * check is ever reached.
+   */
   @Get(':id')
   @SwaggerGetResourcingRequestDetail()
   async getDetail(@Req() request: Request, @Param('id') id: string) {
     const { userId } = await this.currentUser.getCurrentUser(request);
-    await this.assertCanFulfilResourcing(userId);
+    await this.assertCanFulfilOrApproveResourcing(userId);
     const viewerEmployeeId = await this.resolveViewerEmployeeId(userId);
     return this.resourcing.getDetail(viewerEmployeeId, id);
   }
@@ -95,6 +118,27 @@ export class ResourcingController {
     await this.assertCanFulfilResourcing(userId);
     const viewerEmployeeId = await this.resolveViewerEmployeeId(userId);
     return this.resourcing.createProposal(viewerEmployeeId, id, dto);
+  }
+
+  /**
+   * Story 6.3 — own gate, distinct from fulfilment: only
+   * `APPROVE_REJECT_CANDIDATES` (seeded on Delivery Manager) reaches this
+   * route. The reviewing-DM identity check (`NOT_REVIEWING_DM`) lives in
+   * `ResourcingService.decide`, per-request.
+   */
+  @Post(':id/proposals/:proposalId/decide')
+  @HttpCode(HttpStatus.OK)
+  @SwaggerDecideResourcingProposal()
+  async decide(
+    @Req() request: Request,
+    @Param('id') id: string,
+    @Param('proposalId') proposalId: string,
+    @Body() dto: DecideResourcingProposalDto,
+  ) {
+    const { userId } = await this.currentUser.getCurrentUser(request);
+    await this.assertCanApproveRejectCandidates(userId);
+    const viewerEmployeeId = await this.resolveViewerEmployeeId(userId);
+    return this.resourcing.decide(viewerEmployeeId, id, proposalId, dto);
   }
 
   @Post(':id/submit')
@@ -137,6 +181,49 @@ export class ResourcingController {
     if (!hasPermission) {
       throw new ForbiddenException(
         'Viewer lacks fulfil_resourcing_requests permission',
+      );
+    }
+  }
+
+  /**
+   * Story 6.3 — `GET /:id`'s widened gate: either fulfilment (routed UM) or
+   * approve/reject (reviewing DM) permission suffices; the service layer
+   * decides which role the viewer actually is.
+   */
+  private async assertCanFulfilOrApproveResourcing(
+    userId: string,
+  ): Promise<void> {
+    const [canFulfil, canApprove] = await Promise.all([
+      this.permissionChecker.hasPermission(
+        userId,
+        PERMISSION_KEYS.FULFIL_RESOURCING_REQUESTS,
+      ),
+      this.permissionChecker.hasPermission(
+        userId,
+        PERMISSION_KEYS.APPROVE_REJECT_CANDIDATES,
+      ),
+    ]);
+    if (!canFulfil && !canApprove) {
+      throw new ForbiddenException(
+        'Viewer lacks fulfil_resourcing_requests or approve_reject_candidates permission',
+      );
+    }
+  }
+
+  /**
+   * Story 6.3 — `POST .../decide`'s own gate: `APPROVE_REJECT_CANDIDATES`
+   * only (seeded on Delivery Manager).
+   */
+  private async assertCanApproveRejectCandidates(
+    userId: string,
+  ): Promise<void> {
+    const hasPermission = await this.permissionChecker.hasPermission(
+      userId,
+      PERMISSION_KEYS.APPROVE_REJECT_CANDIDATES,
+    );
+    if (!hasPermission) {
+      throw new ForbiddenException(
+        'Viewer lacks approve_reject_candidates permission',
       );
     }
   }

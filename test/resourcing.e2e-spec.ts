@@ -38,7 +38,9 @@ interface ResourcingProposalReadDto {
   candidateDisplayName?: string;
   peopleForceCandidateId?: string | null;
   peopleForceCandidateUrl?: string | null;
-  status: 'proposed';
+  status: 'proposed' | 'approved' | 'rejected';
+  decisionReason?: string | null;
+  sharedLinkToken?: string | null;
   createdAt: string;
 }
 
@@ -46,6 +48,25 @@ interface ResourcingRequestDetailDto extends ResourcingRequestReadDto {
   proposals: ResourcingProposalReadDto[];
   reviewingDmId?: string | null;
   candidatePool?: { id: string; displayName: string }[];
+  approvedCount: number;
+  viewerIsReviewingDm: boolean;
+}
+
+async function grantApproveRejectCandidatesPermission(
+  testApp: TestApp,
+  employeeId: string,
+): Promise<void> {
+  const role = await testApp.prisma.functionalRole.create({
+    data: {
+      name: `Resourcing Approver ${employeeId}`,
+      permissions: {
+        create: [{ permissionKey: PERMISSION_KEYS.APPROVE_REJECT_CANDIDATES }],
+      },
+    },
+  });
+  await testApp.prisma.functionalRoleAssignment.create({
+    data: { employeeId, roleId: role.id },
+  });
 }
 
 async function grantCreateResourcingRequestsPermission(
@@ -748,5 +769,401 @@ describe('Resourcing fulfilment (e2e, Story 6.2)', () => {
     expect(
       (detailRes.body as ResourcingRequestDetailDto).expectedCompBand,
     ).toBe(validPayload.expectedCompBand);
+  });
+});
+
+describe('Resourcing DM decide (e2e, Story 6.3)', () => {
+  let testApp: TestApp;
+
+  beforeAll(async () => {
+    testApp = await createTestApp({
+      clock: new FixedClock(DEFAULT_TEST_INSTANT),
+    });
+  });
+
+  afterAll(async () => {
+    await testApp.close();
+  });
+
+  beforeEach(async () => {
+    await testApp.resetDatabase();
+  });
+
+  /**
+   * Builds a `pending_dm_review` request with headcount 1, routed to `um`
+   * and resolved to `dm` as reviewing DM (via the project-assignment branch
+   * of `resolveReviewingDmId` — the only reliably steerable path in a bootcamp
+   * seed-free e2e). Attaches one internal candidate (with a live shared link
+   * naming `dm` as recipient, mirroring 6.2's submit-time auto-generation)
+   * and one external candidate. Returns everything a `decide` test needs.
+   */
+  async function setupPendingReviewRequest(headcount = 1): Promise<{
+    requestId: string;
+    dmAgent: Awaited<ReturnType<typeof loginAsEmployee>>;
+    dmEmployeeId: string;
+    internalProposalId: string;
+    internalCandidateId: string;
+    externalProposalId: string;
+  }> {
+    const author = await createEmployeeUser(
+      testApp,
+      `decide-author-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    await grantCreateResourcingRequestsPermission(testApp, author.employeeId);
+    const authorAgent = await loginAsEmployee(testApp, author.email, PASSWORD);
+
+    const dm = await createEmployeeUser(
+      testApp,
+      `decide-dm-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    await grantApproveRejectCandidatesPermission(testApp, dm.employeeId);
+    const dmAgent = await loginAsEmployee(testApp, dm.email, PASSWORD);
+
+    const um = await createEmployeeUser(
+      testApp,
+      `decide-um-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    await createDepartment(
+      testApp,
+      `Engineering-${um.employeeId}`,
+      um.employeeId,
+    );
+    await grantFulfilResourcingRequestsPermission(testApp, um.employeeId);
+    const umAgent = await loginAsEmployee(testApp, um.email, PASSWORD);
+
+    const assignee = await createEmployeeUser(
+      testApp,
+      `decide-assignee-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    const projectId = randomUUID();
+    await testApp.prisma.projectAssignment.create({
+      data: {
+        employeeId: assignee.employeeId,
+        projectId,
+        pmId: author.employeeId,
+        dmId: dm.employeeId,
+        startDate: new Date('2026-01-01T00:00:00.000Z'),
+        endDate: null,
+        confirmed: false,
+      },
+    });
+
+    const createRes = await authorAgent
+      .post('/api/v1/resourcing/requests')
+      .send({
+        ...validPayload,
+        department: `Engineering-${um.employeeId}`,
+        headcount,
+        projectId,
+      })
+      .expect(201);
+    const requestId = (createRes.body as ResourcingRequestReadDto).id;
+
+    const internalCandidate = await createEmployeeUser(
+      testApp,
+      `decide-internal-${randomUUID()}@example.com`,
+      PASSWORD,
+    );
+    await setCurrentDepartment(
+      testApp,
+      internalCandidate.employeeId,
+      `Engineering-${um.employeeId}`,
+    );
+    const internalProposalRes = await umAgent
+      .post(`/api/v1/resourcing/requests/${requestId}/proposals`)
+      .send({ candidateEmployeeId: internalCandidate.employeeId })
+      .expect(201);
+    const internalProposalId = (
+      internalProposalRes.body as ResourcingProposalReadDto
+    ).id;
+
+    const externalProposalRes = await umAgent
+      .post(`/api/v1/resourcing/requests/${requestId}/proposals`)
+      .send({
+        peopleForceCandidateUrl: `https://peopleforce.example.com/c/${randomUUID()}`,
+      })
+      .expect(201);
+    const externalProposalId = (
+      externalProposalRes.body as ResourcingProposalReadDto
+    ).id;
+
+    await umAgent
+      .post(`/api/v1/resourcing/requests/${requestId}/submit`)
+      .expect(200);
+
+    // Mirrors 6.2's submit-time shared link, naming the reviewing DM as
+    // recipient — created directly via Prisma since this suite tests
+    // resourcing's *consumption* of the link, not its 6.2 creation path.
+    await testApp.prisma.sharedLink.create({
+      data: {
+        token: `shared-link-${randomUUID()}`,
+        subjectEmployeeId: internalCandidate.employeeId,
+        creatorEmployeeId: um.employeeId,
+        recipientEmployeeId: dm.employeeId,
+        expiresAt: new Date('2026-12-01T00:00:00.000Z'),
+      },
+    });
+
+    return {
+      requestId,
+      dmAgent,
+      dmEmployeeId: dm.employeeId,
+      internalProposalId,
+      internalCandidateId: internalCandidate.employeeId,
+      externalProposalId,
+    };
+  }
+
+  it('widens GET /:id to the reviewing DM and surfaces sharedLinkToken, approvedCount, viewerIsReviewingDm', async () => {
+    const { requestId, dmAgent } = await setupPendingReviewRequest();
+
+    const detailRes = await dmAgent
+      .get(`/api/v1/resourcing/requests/${requestId}`)
+      .expect(200);
+    const detail = detailRes.body as ResourcingRequestDetailDto;
+
+    expect(detail.viewerIsReviewingDm).toBe(true);
+    expect(detail.approvedCount).toBe(0);
+    expect(detail.candidatePool).toBeUndefined();
+    const internalRow = detail.proposals.find((p) => p.candidateEmployeeId);
+    expect(internalRow?.sharedLinkToken).toEqual(expect.any(String));
+  });
+
+  it('APPROVE_HAPPY + REJECT_HAPPY: the reviewing DM approves one candidate and rejects another with a reason', async () => {
+    const { requestId, dmAgent, internalProposalId, externalProposalId } =
+      await setupPendingReviewRequest(2);
+
+    const approveRes = await dmAgent
+      .post(
+        `/api/v1/resourcing/requests/${requestId}/proposals/${internalProposalId}/decide`,
+      )
+      .send({ decision: 'approved' })
+      .expect(200);
+    expect((approveRes.body as ResourcingProposalReadDto).status).toBe(
+      'approved',
+    );
+
+    // REJECT_NO_REASON — blocked first.
+    await dmAgent
+      .post(
+        `/api/v1/resourcing/requests/${requestId}/proposals/${externalProposalId}/decide`,
+      )
+      .send({ decision: 'rejected' })
+      .expect(400);
+
+    const rejectRes = await dmAgent
+      .post(
+        `/api/v1/resourcing/requests/${requestId}/proposals/${externalProposalId}/decide`,
+      )
+      .send({ decision: 'rejected', reason: 'Not aligned with the role' })
+      .expect(200);
+    const rejected = rejectRes.body as ResourcingProposalReadDto;
+    expect(rejected.status).toBe('rejected');
+    expect(rejected.decisionReason).toBe('Not aligned with the role');
+
+    // DECIDE_ON_REJECTED — terminal.
+    await dmAgent
+      .post(
+        `/api/v1/resourcing/requests/${requestId}/proposals/${externalProposalId}/decide`,
+      )
+      .send({ decision: 'approved' })
+      .expect(409);
+
+    // APPROVE_ALREADY_DECIDED.
+    await dmAgent
+      .post(
+        `/api/v1/resourcing/requests/${requestId}/proposals/${internalProposalId}/decide`,
+      )
+      .send({ decision: 'approved' })
+      .expect(400);
+  });
+
+  it('APPROVE_HEADCOUNT_FULL then REVERSE_APPROVAL frees the slot for a new approval', async () => {
+    const { requestId, dmAgent, internalProposalId, externalProposalId } =
+      await setupPendingReviewRequest(1);
+
+    await dmAgent
+      .post(
+        `/api/v1/resourcing/requests/${requestId}/proposals/${internalProposalId}/decide`,
+      )
+      .send({ decision: 'approved' })
+      .expect(200);
+
+    // Headcount is 1 and already fully approved.
+    await dmAgent
+      .post(
+        `/api/v1/resourcing/requests/${requestId}/proposals/${externalProposalId}/decide`,
+      )
+      .send({ decision: 'approved' })
+      .expect(409);
+
+    const detailBefore = await dmAgent
+      .get(`/api/v1/resourcing/requests/${requestId}`)
+      .expect(200);
+    expect(
+      (detailBefore.body as ResourcingRequestDetailDto).approvedCount,
+    ).toBe(1);
+
+    // Reverse the approval — frees the slot.
+    const reverseRes = await dmAgent
+      .post(
+        `/api/v1/resourcing/requests/${requestId}/proposals/${internalProposalId}/decide`,
+      )
+      .send({ decision: 'rejected', reason: 'Reconsidered' })
+      .expect(200);
+    expect((reverseRes.body as ResourcingProposalReadDto).status).toBe(
+      'rejected',
+    );
+
+    const detailAfter = await dmAgent
+      .get(`/api/v1/resourcing/requests/${requestId}`)
+      .expect(200);
+    expect((detailAfter.body as ResourcingRequestDetailDto).approvedCount).toBe(
+      0,
+    );
+
+    // The freed slot allows a new approval.
+    await dmAgent
+      .post(
+        `/api/v1/resourcing/requests/${requestId}/proposals/${externalProposalId}/decide`,
+      )
+      .send({ decision: 'approved' })
+      .expect(200);
+  });
+
+  it('NOT_REVIEWING_DM: a viewer with approve_reject_candidates who is not the resolved reviewing DM is 403', async () => {
+    const { requestId, internalProposalId } = await setupPendingReviewRequest();
+
+    const otherDm = await createEmployeeUser(
+      testApp,
+      'decide-other-dm@example.com',
+      PASSWORD,
+    );
+    await grantApproveRejectCandidatesPermission(testApp, otherDm.employeeId);
+    const otherDmAgent = await loginAsEmployee(
+      testApp,
+      otherDm.email,
+      PASSWORD,
+    );
+
+    await otherDmAgent
+      .get(`/api/v1/resourcing/requests/${requestId}`)
+      .expect(403);
+    await otherDmAgent
+      .post(
+        `/api/v1/resourcing/requests/${requestId}/proposals/${internalProposalId}/decide`,
+      )
+      .send({ decision: 'approved' })
+      .expect(403);
+  });
+
+  it('a viewer lacking approve_reject_candidates cannot reach decide even with fulfil_resourcing_requests', async () => {
+    const { requestId, internalProposalId } = await setupPendingReviewRequest();
+
+    const um = await createEmployeeUser(
+      testApp,
+      'decide-fulfil-only@example.com',
+      PASSWORD,
+    );
+    await grantFulfilResourcingRequestsPermission(testApp, um.employeeId);
+    const umAgent = await loginAsEmployee(testApp, um.email, PASSWORD);
+
+    await umAgent
+      .post(
+        `/api/v1/resourcing/requests/${requestId}/proposals/${internalProposalId}/decide`,
+      )
+      .send({ decision: 'approved' })
+      .expect(403);
+  });
+
+  it('DECIDE_WRONG_REQUEST: a proposal from a different request resolves 404, not leaking cross-request decide (IDOR)', async () => {
+    const first = await setupPendingReviewRequest();
+    const second = await setupPendingReviewRequest();
+
+    await first.dmAgent
+      .post(
+        `/api/v1/resourcing/requests/${first.requestId}/proposals/${second.internalProposalId}/decide`,
+      )
+      .send({ decision: 'approved' })
+      .expect(404);
+  });
+
+  it('INVALID_DECISION_VALUE: an unrecognized decision value is rejected (400)', async () => {
+    const { requestId, dmAgent, internalProposalId } =
+      await setupPendingReviewRequest();
+
+    await dmAgent
+      .post(
+        `/api/v1/resourcing/requests/${requestId}/proposals/${internalProposalId}/decide`,
+      )
+      .send({ decision: 'maybe' })
+      .expect(400);
+  });
+
+  it('REJECT_NO_REASON: reversing an approved proposal without a reason is rejected (400)', async () => {
+    const { requestId, dmAgent, internalProposalId } =
+      await setupPendingReviewRequest();
+
+    await dmAgent
+      .post(
+        `/api/v1/resourcing/requests/${requestId}/proposals/${internalProposalId}/decide`,
+      )
+      .send({ decision: 'approved' })
+      .expect(200);
+
+    await dmAgent
+      .post(
+        `/api/v1/resourcing/requests/${requestId}/proposals/${internalProposalId}/decide`,
+      )
+      .send({ decision: 'rejected' })
+      .expect(400);
+  });
+
+  it('rejects a reason longer than 2000 characters (400)', async () => {
+    const { requestId, dmAgent, externalProposalId } =
+      await setupPendingReviewRequest();
+
+    await dmAgent
+      .post(
+        `/api/v1/resourcing/requests/${requestId}/proposals/${externalProposalId}/decide`,
+      )
+      .send({ decision: 'rejected', reason: 'x'.repeat(2001) })
+      .expect(400);
+  });
+
+  it('lists pending_dm_review requests for the reviewing DM at GET /pending-review', async () => {
+    const { requestId, dmAgent } = await setupPendingReviewRequest();
+
+    const listRes = await dmAgent
+      .get('/api/v1/resourcing/requests/pending-review')
+      .expect(200);
+    const ids = (listRes.body as ResourcingRequestReadDto[]).map(
+      (request) => request.id,
+    );
+    expect(ids).toContain(requestId);
+  });
+
+  it('REQUEST_NOT_PENDING: deciding while the request is not pending_dm_review is rejected (409)', async () => {
+    const { requestId, dmAgent, dmEmployeeId, internalProposalId } =
+      await setupPendingReviewRequest();
+
+    // Force the request back to `open` directly — reviewingDmId stays set,
+    // isolating this test to the status gate rather than NOT_REVIEWING_DM.
+    await testApp.prisma.resourcingRequest.update({
+      where: { id: requestId },
+      data: { status: 'open' },
+    });
+    expect(dmEmployeeId).toEqual(expect.any(String));
+
+    await dmAgent
+      .post(
+        `/api/v1/resourcing/requests/${requestId}/proposals/${internalProposalId}/decide`,
+      )
+      .send({ decision: 'approved' })
+      .expect(409);
   });
 });

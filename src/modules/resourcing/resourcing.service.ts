@@ -16,6 +16,7 @@ import { DepartmentDirectory } from '../contracts/department-directory.contract'
 import { BUILT_IN_ROLE_NAMES } from '../contracts/permission-keys';
 import { CreateResourcingRequestDto } from './dto/create-resourcing-request.dto';
 import { CreateResourcingProposalDto } from './dto/create-resourcing-proposal.dto';
+import { DecideResourcingProposalDto } from './dto/decide-resourcing-proposal.dto';
 import { ResourcingRequestReadEntity } from './entities/resourcing-request.entity';
 import {
   ResourcingCandidatePoolEntryEntity,
@@ -117,6 +118,47 @@ export class ResourcingService {
   }
 
   /**
+   * Story 6.3 — `GET /resourcing/requests/pending-review`: requests in
+   * `pending_dm_review` where `reviewingDmId` matches the viewer. Gives the
+   * reviewing DM an inbox on `/resourcing` without widening the author/DM
+   * create list.
+   */
+  async listPendingReview(
+    viewerEmployeeId: string,
+  ): Promise<ResourcingRequestReadEntity[]> {
+    const requests = await this.prisma.resourcingRequest.findMany({
+      where: {
+        status: 'pending_dm_review',
+        reviewingDmId: viewerEmployeeId,
+      },
+      include: this.authorInclude,
+      orderBy: { createdAt: 'desc' },
+    });
+    const projectIds = [
+      ...new Set(
+        requests
+          .map((request) => request.projectId)
+          .filter((projectId): projectId is string => Boolean(projectId)),
+      ),
+    ];
+    const dmProjectIds = await this.loadDmProjectIdsForViewer(
+      viewerEmployeeId,
+      projectIds,
+    );
+    const departmentManagers = await this.loadDepartmentManagersByName(
+      requests.map((request) => request.department),
+    );
+    return requests.map((request) =>
+      this.toReadDto(
+        request,
+        viewerEmployeeId,
+        dmProjectIds,
+        departmentManagers,
+      ),
+    );
+  }
+
+  /**
    * Story 6.2 — `GET /resourcing/requests/assigned`: open requests live-routed
    * to `viewerEmployeeId` as Unit Manager (re-resolved on every call, never
    * pinned — spec's Routing boundary).
@@ -154,15 +196,30 @@ export class ResourcingService {
   }
 
   /**
-   * Story 6.2 — `GET /resourcing/requests/:id`: detail + proposals, gated to
-   * the live routed UM (NOT_ROUTED — 403 otherwise, matrix row).
+   * Story 6.2 — `GET /resourcing/requests/:id`: detail + proposals.
+   * Story 6.3 widens the gate: reachable by the live routed UM (NOT_ROUTED —
+   * 403 otherwise) **or** the request's resolved reviewing DM. This is the
+   * service-level half of the widening — the controller's permission gate
+   * must accept `FULFIL_RESOURCING_REQUESTS` OR `APPROVE_REJECT_CANDIDATES`
+   * too, or a DM never reaches this code path at all.
    */
   async getDetail(
     viewerEmployeeId: string,
     requestId: string,
   ): Promise<ResourcingRequestDetailEntity> {
     const request = await this.findRequestOrThrow(requestId);
-    await this.assertRouted(viewerEmployeeId, request.department);
+    const isReviewingDm =
+      request.reviewingDmId !== null &&
+      viewerEmployeeId === request.reviewingDmId;
+    const isRoutedUm = await this.isRoutedUm(
+      viewerEmployeeId,
+      request.department,
+    );
+    if (!isReviewingDm && !isRoutedUm) {
+      throw new ForbiddenException(
+        'You are not authorized to view this resourcing request',
+      );
+    }
 
     const dmProjectIds = await this.loadDmProjectIdsForViewer(
       viewerEmployeeId,
@@ -176,7 +233,13 @@ export class ResourcingService {
       include: this.proposalInclude,
       orderBy: { createdAt: 'asc' },
     });
-    const candidatePool = await this.loadCandidatePool(viewerEmployeeId);
+    const candidatePool =
+      isRoutedUm && !isReviewingDm
+        ? await this.loadCandidatePool(viewerEmployeeId)
+        : undefined;
+    const approvedCount = proposals.filter(
+      (proposal) => proposal.status === 'approved',
+    ).length;
 
     return {
       ...this.toReadDto(
@@ -185,10 +248,110 @@ export class ResourcingService {
         dmProjectIds,
         departmentManagers,
       ),
-      proposals: proposals.map((proposal) => this.toProposalEntity(proposal)),
+      proposals: await Promise.all(
+        proposals.map((proposal) =>
+          this.toProposalEntity(proposal, { viewerEmployeeId, isReviewingDm }),
+        ),
+      ),
       reviewingDmId: request.reviewingDmId,
       candidatePool,
+      approvedCount,
+      viewerIsReviewingDm: isReviewingDm,
     };
+  }
+
+  /**
+   * Story 6.3 — `POST /resourcing/requests/:id/proposals/:proposalId/decide`:
+   * transitions a `proposed` proposal to `approved`/`rejected`, or reverses
+   * an `approved` proposal to `rejected`. Gated to the request's resolved
+   * reviewing DM (NOT_REVIEWING_DM — 403 otherwise, matrix row) with the
+   * request `pending_dm_review` (REQUEST_NOT_PENDING — 409 otherwise).
+   */
+  async decide(
+    viewerEmployeeId: string,
+    requestId: string,
+    proposalId: string,
+    dto: DecideResourcingProposalDto,
+  ): Promise<ResourcingProposalEntity> {
+    const request = await this.findRequestOrThrow(requestId);
+    if (viewerEmployeeId !== request.reviewingDmId) {
+      throw new ForbiddenException(
+        'You are not the reviewing Delivery Manager for this request',
+      );
+    }
+    if (request.status !== 'pending_dm_review') {
+      throw new ConflictException(
+        'Resourcing request is not pending DM review',
+      );
+    }
+
+    const proposal = await this.prisma.resourcingProposal.findUnique({
+      where: { id: proposalId },
+    });
+    if (!proposal || proposal.requestId !== requestId) {
+      throw new NotFoundException('Resourcing proposal not found');
+    }
+
+    const reason = dto.reason?.trim() || null;
+    if (dto.decision === 'rejected' && !reason) {
+      throw new BadRequestException(
+        'A reason is required to reject or reverse a proposal decision',
+      );
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      // Serializes concurrent `decide` calls on the same request — a naive
+      // read-then-write here lets two concurrent approvals (or an
+      // approve/reject race on the same row) each pass their pre-write
+      // check before either commits, over-filling headcount or silently
+      // discarding one decision (spec's concurrency boundary).
+      await tx.$queryRaw`SELECT id FROM resourcing_requests WHERE id = ${requestId} FOR UPDATE`;
+
+      const current = await tx.resourcingProposal.findUnique({
+        where: { id: proposalId },
+      });
+      if (!current || current.requestId !== requestId) {
+        throw new NotFoundException('Resourcing proposal not found');
+      }
+      if (current.status === 'rejected') {
+        throw new ConflictException('Proposal decision is already final');
+      }
+
+      if (dto.decision === 'approved') {
+        if (current.status !== 'proposed') {
+          throw new BadRequestException('Proposal has already been decided');
+        }
+        const approvedCount = await tx.resourcingProposal.count({
+          where: { requestId, status: 'approved' },
+        });
+        if (approvedCount >= request.headcount) {
+          throw new ConflictException(
+            'Request headcount is already fully approved',
+          );
+        }
+      }
+
+      const result = await tx.resourcingProposal.updateMany({
+        where: { id: proposalId, status: current.status },
+        data: {
+          status: dto.decision,
+          decisionReason: dto.decision === 'rejected' ? reason : null,
+        },
+      });
+      if (result.count === 0) {
+        throw new ConflictException('Proposal decision has already changed');
+      }
+
+      return tx.resourcingProposal.findUniqueOrThrow({
+        where: { id: proposalId },
+        include: this.proposalInclude,
+      });
+    });
+
+    return this.toProposalEntity(updated, {
+      viewerEmployeeId,
+      isReviewingDm: true,
+    });
   }
 
   /**
@@ -339,13 +502,25 @@ export class ResourcingService {
     viewerEmployeeId: string,
     departmentName: string,
   ): Promise<void> {
-    const department =
-      await this.departmentDirectory.getDepartmentByName(departmentName);
-    if (!department || department.managerId !== viewerEmployeeId) {
+    if (!(await this.isRoutedUm(viewerEmployeeId, departmentName))) {
       throw new ForbiddenException(
         'You are not the current Unit Manager routed to this request',
       );
     }
+  }
+
+  /**
+   * Story 6.3 — non-throwing routing check, used by `getDetail` to widen its
+   * gate with an OR (reviewing DM) rather than short-circuiting on the UM
+   * check alone.
+   */
+  private async isRoutedUm(
+    viewerEmployeeId: string,
+    departmentName: string,
+  ): Promise<boolean> {
+    const department =
+      await this.departmentDirectory.getDepartmentByName(departmentName);
+    return department?.managerId === viewerEmployeeId;
   }
 
   private async findRequestOrThrow(
@@ -543,9 +718,16 @@ export class ResourcingService {
     return dto;
   }
 
-  private toProposalEntity(
+  /**
+   * `options` is omitted for viewers who can never be the reviewing DM (e.g.
+   * the UM's own `createProposal` response) — `sharedLinkToken` only
+   * resolves `options.isReviewingDm` is true (spec Boundaries: "for internal
+   * candidates only when the viewer is the reviewing DM").
+   */
+  private async toProposalEntity(
     proposal: ResourcingProposalWithCandidate,
-  ): ResourcingProposalEntity {
+    options?: { viewerEmployeeId: string; isReviewingDm: boolean },
+  ): Promise<ResourcingProposalEntity> {
     const entity: ResourcingProposalEntity = {
       id: proposal.id,
       requestId: proposal.requestId,
@@ -554,6 +736,7 @@ export class ResourcingService {
       peopleForceCandidateId: proposal.peopleForceCandidateId,
       peopleForceCandidateUrl: proposal.peopleForceCandidateUrl,
       status: proposal.status,
+      decisionReason: proposal.decisionReason,
       createdAt: proposal.createdAt.toISOString(),
     };
     if (proposal.candidateEmployee) {
@@ -561,7 +744,38 @@ export class ResourcingService {
         proposal.candidateEmployee.user,
       );
     }
+    if (options?.isReviewingDm && proposal.candidateEmployeeId) {
+      entity.sharedLinkToken = await this.resolveSharedLinkToken(
+        proposal.candidateEmployeeId,
+        options.viewerEmployeeId,
+      );
+    }
     return entity;
+  }
+
+  /**
+   * Story 6.3 — reuses the shared link 6.2's submit flow already created
+   * (naming the reviewing DM as recipient); no new write path. Known
+   * limitation, accepted per spec: `SharedLink` carries no linkage back to a
+   * specific resourcing proposal/request, so if the same internal candidate
+   * is proposed on two different requests reviewed by the same DM, this
+   * returns whichever link is most recently created for *either* request.
+   */
+  private async resolveSharedLinkToken(
+    candidateEmployeeId: string,
+    viewerEmployeeId: string,
+  ): Promise<string | null> {
+    const link = await this.prisma.sharedLink.findFirst({
+      where: {
+        subjectEmployeeId: candidateEmployeeId,
+        recipientEmployeeId: viewerEmployeeId,
+        revokedAt: null,
+        expiresAt: { gt: this.clock.now() },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { token: true },
+    });
+    return link?.token ?? null;
   }
 
   private canViewExpectedCompBand(
