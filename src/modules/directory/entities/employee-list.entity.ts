@@ -47,4 +47,7 @@ export class EmployeeListEntity {
   // sees their own entitled slice of the list.
   @ApiPropertyOptional()
   filtersHidden?: boolean;
+
+  @ApiPropertyOptional({ type: String, isArray: true })
+  fieldsUnavailable?: string[];
 }

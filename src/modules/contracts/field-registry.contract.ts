@@ -19,7 +19,16 @@ export type FieldSource = 'builtin' | 'derived' | 'custom';
 export type SortOrder = 'asc' | 'desc';
 
 export type FilterOperator =
-  'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains' | 'in';
+  | 'eq'
+  | 'neq'
+  | 'gt'
+  | 'gte'
+  | 'lt'
+  | 'lte'
+  | 'contains'
+  | 'in'
+  | 'between'
+  | 'is_empty';
 
 export interface FieldDefinitionDto {
   id: string;
@@ -70,6 +79,10 @@ export interface EmployeeListQueryOptions {
   order?: SortOrder;
   filters?: FieldFilter[];
   visibleFieldIds?: string[];
+  /** Narrows the roster before filter/sort/pagination (e.g. S12-visible employees). */
+  employeeIds?: string[];
+  /** Nulls provider-backed values before filter/sort without excluding rows (S12 masking). */
+  suppressProviderValuesForEmployeeIds?: string[];
 }
 
 export interface EmployeeRowDto {
@@ -82,6 +95,8 @@ export interface EmployeeListQueryResultDto {
   total: number;
   page: number;
   pageSize: number;
+  /** Field ids whose provider is temporarily unavailable (display/sort only). */
+  fieldsUnavailable?: string[];
 }
 
 export const BUILTIN_FIELD_IDS = {
@@ -94,12 +109,20 @@ export const BUILTIN_FIELD_IDS = {
   mentor_status: 'mentor_status',
   current_leave_dates: 'current_leave_dates',
   project_names: 'project_names',
+  last_assessment_date: 'last_assessment_date',
+  has_open_idp: 'has_open_idp',
 } as const;
 
 /** Display-only integration-backed list columns (Story 3.6 v1). */
 export const INTEGRATED_LIST_FIELD_IDS: ReadonlySet<string> = new Set([
   BUILTIN_FIELD_IDS.current_leave_dates,
   BUILTIN_FIELD_IDS.project_names,
+]);
+
+/** Built-in fields whose values come from a registered FieldProvider. */
+export const PROVIDER_BACKED_FIELD_IDS: ReadonlySet<string> = new Set([
+  BUILTIN_FIELD_IDS.last_assessment_date,
+  BUILTIN_FIELD_IDS.has_open_idp,
 ]);
 
 export type BuiltinFieldId =

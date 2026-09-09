@@ -4,6 +4,7 @@ import {
   FieldSpec,
   FieldValue,
   FilterOperator,
+  PROVIDER_BACKED_FIELD_IDS,
   SortOrder,
 } from '../contracts/field-registry.contract';
 import { computeMentorStatus } from '../contracts/mentor-status.contract';
@@ -52,8 +53,9 @@ export function getCellValue(
   asOf: Date,
   customValueMap?: Map<string, FieldValue>,
 ): FieldValue {
-  if (customValueMap && !isBuiltinFieldId(fieldId)) {
-    return customValueMap.get(`${snapshot.employeeId}:${fieldId}`) ?? null;
+  const mapKey = `${snapshot.employeeId}:${fieldId}`;
+  if (customValueMap?.has(mapKey)) {
+    return customValueMap.get(mapKey) ?? null;
   }
 
   switch (fieldId) {
@@ -220,6 +222,71 @@ function matchesBooleanFilter(
     : cellValue !== filterBoolean;
 }
 
+function isIsoDateString(value: FieldValue | string): boolean {
+  return (
+    typeof value === 'string' &&
+    /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`))
+  );
+}
+
+export function matchesDateFilter(
+  cellValue: FieldValue,
+  operator: FilterOperator,
+  rawFilterValue: FieldValue | string[],
+): boolean {
+  switch (operator) {
+    case 'is_empty':
+      return cellValue === null;
+    case 'between': {
+      if (!Array.isArray(rawFilterValue) || rawFilterValue.length !== 2) {
+        return false;
+      }
+      if (!isIsoDateString(cellValue)) {
+        return false;
+      }
+      const [from, to] = rawFilterValue;
+      if (!isIsoDateString(from) || !isIsoDateString(to)) {
+        return false;
+      }
+      return cellValue >= from && cellValue <= to;
+    }
+    case 'eq':
+    case 'neq':
+    case 'gt':
+    case 'gte':
+    case 'lt':
+    case 'lte': {
+      if (!isIsoDateString(cellValue) || Array.isArray(rawFilterValue)) {
+        return operator === 'neq';
+      }
+      const filterDate =
+        typeof rawFilterValue === 'string' ? rawFilterValue : null;
+      if (!filterDate || !isIsoDateString(filterDate)) {
+        return false;
+      }
+      switch (operator) {
+        case 'eq':
+          return cellValue === filterDate;
+        case 'neq':
+          return cellValue !== filterDate;
+        case 'gt':
+          return cellValue > filterDate;
+        case 'gte':
+          return cellValue >= filterDate;
+        case 'lt':
+          return cellValue < filterDate;
+        case 'lte':
+          return cellValue <= filterDate;
+        default:
+          return false;
+      }
+    }
+    default:
+      return false;
+  }
+}
+
 function matchesSelectFilter(
   cellValue: FieldValue,
   operator: FilterOperator,
@@ -251,8 +318,9 @@ export function matchesFilter(
     case 'select':
     case 'multi_select':
       return matchesSelectFilter(cellValue, filter.operator, filter.value);
-    case 'text':
     case 'date':
+      return matchesDateFilter(cellValue, filter.operator, filter.value);
+    case 'text':
       return matchesTextFilter(cellValue, filter.operator, filter.value);
     default: {
       const _exhaustive: never = field.type;
@@ -309,6 +377,17 @@ export const SELECT_FILTER_OPERATORS: FilterOperator[] = ['eq', 'neq', 'in'];
 
 export const BOOLEAN_FILTER_OPERATORS: FilterOperator[] = ['eq', 'neq'];
 
+export const DATE_FILTER_OPERATORS: FilterOperator[] = [
+  'eq',
+  'neq',
+  'gt',
+  'gte',
+  'lt',
+  'lte',
+  'between',
+  'is_empty',
+];
+
 export function allowedOperatorsForField(field: FieldSpec): FilterOperator[] {
   switch (field.type) {
     case 'number':
@@ -318,8 +397,9 @@ export function allowedOperatorsForField(field: FieldSpec): FilterOperator[] {
     case 'select':
     case 'multi_select':
       return SELECT_FILTER_OPERATORS;
-    case 'text':
     case 'date':
+      return DATE_FILTER_OPERATORS;
+    case 'text':
       return TEXT_FILTER_OPERATORS;
     default: {
       const _exhaustive: never = field.type;
@@ -333,4 +413,8 @@ export function isBuiltinFieldId(fieldId: string): boolean {
   return Object.values(BUILTIN_FIELD_IDS).includes(
     fieldId as (typeof BUILTIN_FIELD_IDS)[keyof typeof BUILTIN_FIELD_IDS],
   );
+}
+
+export function isProviderBackedFieldId(fieldId: string): boolean {
+  return PROVIDER_BACKED_FIELD_IDS.has(fieldId);
 }

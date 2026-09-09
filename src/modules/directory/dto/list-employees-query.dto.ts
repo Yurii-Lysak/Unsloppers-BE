@@ -28,6 +28,8 @@ const FILTER_OPERATORS: FilterOperator[] = [
   'lte',
   'contains',
   'in',
+  'between',
+  'is_empty',
 ];
 
 export class EmployeeFieldFilterDto {

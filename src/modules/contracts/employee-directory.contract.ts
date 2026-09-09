@@ -25,6 +25,8 @@ export interface EmployeeDirectoryListResultDto {
   pageSize: number;
   /** Story 3.4 — true when shared-view filters referenced fields outside viewer visibility. */
   filtersHidden?: boolean;
+  /** Field ids whose provider is temporarily unavailable (display/sort only). */
+  fieldsUnavailable?: string[];
 }
 
 export abstract class EmployeeDirectory {

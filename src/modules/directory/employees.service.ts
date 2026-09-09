@@ -5,7 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AccessResolver } from '../contracts/access-resolver.contract';
+import {
+  AccessResolver,
+  ResolvedAudience,
+} from '../contracts/access-resolver.contract';
 import {
   EmployeeDirectory,
   EmployeeDirectoryListResultDto,
@@ -15,6 +18,7 @@ import {
   BUILTIN_EDITABLE_FIELD_IDS,
   BUILTIN_FIELD_IDS,
   INTEGRATED_LIST_FIELD_IDS,
+  PROVIDER_BACKED_FIELD_IDS,
   EmployeeListQueryOptions,
   FieldFilter,
   FieldSpec,
@@ -33,13 +37,27 @@ import { ListCatalogAccessService } from './list-catalog-access.service';
 import { EmployeeListLeavesReader } from '../contracts/employee-list-leaves.contract';
 import { ProjectAssignment } from '../contracts/project-assignment.contract';
 import { ExportEmployeesQueryDto } from './dto/export-employees-query.dto';
-import { MAX_PAGE_SIZE, MIN_PAGE } from '../contracts/employee-list.constants';
+import {
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGE_SIZE,
+  MIN_PAGE,
+} from '../contracts/employee-list.constants';
 import {
   buildExportFilename,
   dedupeColumnIds,
   formatExportCellValue,
 } from './employee-export.helpers';
 import * as ExcelJS from 'exceljs';
+
+type CdsAudienceContext = {
+  audienceCache: Map<string, ResolvedAudience>;
+  s12VisibleEmployeeIds?: string[];
+  suppressProviderValuesForEmployeeIds?: string[];
+};
+
+type ListEmployeesRequest = EmployeeListQueryOptions & {
+  audienceCache?: Map<string, ResolvedAudience>;
+};
 
 /**
  * Employee directory reads (Story 3.1) and inline field writes (Story 3.3).
@@ -63,7 +81,7 @@ export class EmployeesService extends EmployeeDirectory {
 
   async listEmployees(
     viewerId: string,
-    query: EmployeeListQueryOptions,
+    query: ListEmployeesRequest,
   ): Promise<EmployeeDirectoryListResultDto> {
     const viewerEmployeeId = await this.resolveViewerEmployeeId(viewerId);
     const allFields = await this.fieldRegistryService.listFields();
@@ -73,14 +91,47 @@ export class EmployeesService extends EmployeeDirectory {
       allFields,
     );
     const visibleFieldIds = visibleFields.map((field) => field.id);
+    const requestedFilters = query.filters ?? [];
 
     const { filters, filtersHidden } = this.resolveEffectiveFilters(
-      query.filters,
+      requestedFilters,
       allFields,
       visibleFieldIds,
     );
 
-    this.assertViewerSortAndFilterAccess(query, visibleFields);
+    const effectiveFilterIds = new Set(
+      (filters ?? []).map((filter) => filter.fieldId),
+    );
+    const strippedCdsFilters = requestedFilters.filter(
+      (filter) =>
+        PROVIDER_BACKED_FIELD_IDS.has(filter.fieldId) &&
+        !effectiveFilterIds.has(filter.fieldId),
+    );
+    if (strippedCdsFilters.length > 0) {
+      const page = query.page ?? MIN_PAGE;
+      const pageSize = query.pageSize ?? DEFAULT_PAGE_SIZE;
+      return {
+        fields: visibleFields,
+        rows: [],
+        total: 0,
+        page,
+        pageSize,
+        filtersHidden,
+      };
+    }
+
+    this.assertViewerSortAndFilterAccess({ ...query, filters }, visibleFields);
+
+    const cdsAudience = await this.resolveCdsAudienceContext(viewerEmployeeId, {
+      filters: filters ?? [],
+      sort: query.sort,
+      visibleFieldIds,
+      audienceCache: query.audienceCache,
+    });
+    const audienceCache = cdsAudience?.audienceCache;
+    const s12VisibleEmployeeIds = cdsAudience?.s12VisibleEmployeeIds;
+    const suppressProviderValuesForEmployeeIds =
+      cdsAudience?.suppressProviderValuesForEmployeeIds;
 
     const result = await this.fieldRegistryService.queryEmployees({
       page: query.page,
@@ -89,6 +140,8 @@ export class EmployeesService extends EmployeeDirectory {
       order: query.order,
       filters,
       visibleFieldIds,
+      employeeIds: s12VisibleEmployeeIds,
+      suppressProviderValuesForEmployeeIds,
     });
 
     const maskedRows = await this.maskRowCells(
@@ -96,6 +149,7 @@ export class EmployeesService extends EmployeeDirectory {
       viewerId,
       result.rows,
       visibleFields,
+      audienceCache,
     );
 
     const enrichedRows = await this.enrichIntegratedFields(
@@ -122,6 +176,9 @@ export class EmployeesService extends EmployeeDirectory {
       page: result.page,
       pageSize: result.pageSize,
       filtersHidden,
+      ...(result.fieldsUnavailable?.length
+        ? { fieldsUnavailable: result.fieldsUnavailable }
+        : {}),
     };
   }
 
@@ -153,7 +210,7 @@ export class EmployeesService extends EmployeeDirectory {
     }
     const fieldById = new Map(allFields.map((field) => [field.id, field]));
 
-    const { rows } = await this.listAllEmployees(viewerId, {
+    const { rows, fieldsUnavailable } = await this.listAllEmployees(viewerId, {
       sort: query.sort,
       order: query.order,
       filters: query.filters,
@@ -170,7 +227,11 @@ export class EmployeesService extends EmployeeDirectory {
     for (const row of rows) {
       worksheet.addRow(
         exportColumnIds.map((columnId) =>
-          formatExportCellValue(row.cells[columnId]),
+          formatExportCellValue(
+            row.cells[columnId],
+            columnId,
+            fieldsUnavailable,
+          ),
         ),
       );
     }
@@ -190,22 +251,53 @@ export class EmployeesService extends EmployeeDirectory {
     rows: EmployeeDirectoryRowDto[];
     fields: FieldSpec[];
     filtersHidden: boolean;
+    fieldsUnavailable?: string[];
   }> {
+    const viewerEmployeeId = await this.resolveViewerEmployeeId(viewerId);
+    const allFields = await this.fieldRegistryService.listFields();
+    const visibleFields = await this.filterVisibleFields(
+      viewerEmployeeId,
+      viewerId,
+      allFields,
+    );
+    const visibleFieldIds = visibleFields.map((field) => field.id);
+    const requestedFilters = query.filters ?? [];
+    const { filters, filtersHidden: initialFiltersHidden } =
+      this.resolveEffectiveFilters(
+        requestedFilters,
+        allFields,
+        visibleFieldIds,
+      );
+    let filtersHidden = initialFiltersHidden;
+    const cdsAudience = await this.resolveCdsAudienceContext(viewerEmployeeId, {
+      filters: filters ?? [],
+      sort: query.sort,
+      visibleFieldIds,
+    });
+
     const allRows: EmployeeDirectoryRowDto[] = [];
     let page = MIN_PAGE;
     let total = 0;
-    let fields: FieldSpec[] = [];
-    let filtersHidden = false;
+    let fields: FieldSpec[] = visibleFields;
+    let fieldsUnavailable: string[] | undefined;
 
     while (true) {
       const result = await this.listEmployees(viewerId, {
         ...query,
+        filters,
         page,
         pageSize: MAX_PAGE_SIZE,
+        audienceCache: cdsAudience?.audienceCache,
+        employeeIds: cdsAudience?.s12VisibleEmployeeIds,
+        suppressProviderValuesForEmployeeIds:
+          cdsAudience?.suppressProviderValuesForEmployeeIds,
       });
       fields = result.fields;
-      filtersHidden = result.filtersHidden ?? false;
+      filtersHidden = result.filtersHidden ?? filtersHidden;
       total = result.total;
+      if (result.fieldsUnavailable?.length) {
+        fieldsUnavailable = result.fieldsUnavailable;
+      }
       allRows.push(
         ...result.rows.map((row) => ({
           employeeId: row.employeeId,
@@ -218,7 +310,68 @@ export class EmployeesService extends EmployeeDirectory {
       page += 1;
     }
 
-    return { rows: allRows, fields, filtersHidden };
+    return {
+      rows: allRows,
+      fields,
+      filtersHidden,
+      ...(fieldsUnavailable?.length ? { fieldsUnavailable } : {}),
+    };
+  }
+
+  private async resolveCdsAudienceContext(
+    viewerEmployeeId: string,
+    options: {
+      filters: FieldFilter[];
+      sort?: string;
+      visibleFieldIds: string[];
+      audienceCache?: Map<string, ResolvedAudience>;
+    },
+  ): Promise<CdsAudienceContext | undefined> {
+    const hasCdsFilter = options.filters.some((filter) =>
+      PROVIDER_BACKED_FIELD_IDS.has(filter.fieldId),
+    );
+    const hasCdsSort =
+      options.sort !== undefined && PROVIDER_BACKED_FIELD_IDS.has(options.sort);
+    const hasCdsColumns = options.visibleFieldIds.some((fieldId) =>
+      PROVIDER_BACKED_FIELD_IDS.has(fieldId),
+    );
+    if (!hasCdsFilter && !hasCdsSort && !hasCdsColumns) {
+      return undefined;
+    }
+
+    let audienceCache = options.audienceCache;
+    if (!audienceCache) {
+      const roster = await this.prisma.employee.findMany({
+        select: { id: true },
+        orderBy: { id: 'asc' },
+      });
+      audienceCache = new Map();
+      for (const employee of roster) {
+        const audience = await this.accessResolver.resolveAudience(
+          viewerEmployeeId,
+          employee.id,
+        );
+        audienceCache.set(employee.id, audience);
+      }
+    }
+
+    const s12VisibleEmployeeIds = hasCdsFilter
+      ? [...audienceCache.entries()]
+          .filter(([, audience]) => audience.sections.S12 !== 'none')
+          .map(([employeeId]) => employeeId)
+      : undefined;
+    const suppressProviderValuesForEmployeeIds =
+      hasCdsSort && !hasCdsFilter
+        ? [...audienceCache.entries()]
+            .filter(([, audience]) => audience.sections.S12 === 'none')
+            .map(([employeeId]) => employeeId)
+        : undefined;
+
+    return {
+      audienceCache,
+      s12VisibleEmployeeIds,
+      suppressProviderValuesForEmployeeIds,
+    };
   }
 
   /**
@@ -433,6 +586,7 @@ export class EmployeesService extends EmployeeDirectory {
     viewerId: string,
     rows: EmployeeDirectoryRowDto[],
     visibleFields: FieldSpec[],
+    audienceCache?: Map<string, ResolvedAudience>,
   ): Promise<EmployeeDirectoryRowDto[]> {
     const canManage = await this.permissionChecker.hasPermission(
       viewerId,
@@ -441,10 +595,12 @@ export class EmployeesService extends EmployeeDirectory {
 
     const maskedRows: EmployeeDirectoryRowDto[] = [];
     for (const row of rows) {
-      const audience = await this.accessResolver.resolveAudience(
-        viewerEmployeeId,
-        row.employeeId,
-      );
+      const audience =
+        audienceCache?.get(row.employeeId) ??
+        (await this.accessResolver.resolveAudience(
+          viewerEmployeeId,
+          row.employeeId,
+        ));
       const cells = { ...row.cells };
 
       for (const field of visibleFields) {

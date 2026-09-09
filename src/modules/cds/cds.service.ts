@@ -147,6 +147,45 @@ export class CdsService {
     return this.toIdpRecordDto(updated);
   }
 
+  async getLastAssessmentDates(
+    employeeIds: string[],
+  ): Promise<Map<string, string>> {
+    if (employeeIds.length === 0) {
+      return new Map();
+    }
+
+    const rows = await this.prisma.cDSAssessment.groupBy({
+      by: ['employeeId'],
+      where: { employeeId: { in: employeeIds } },
+      _max: { date: true },
+    });
+
+    const dates = new Map<string, string>();
+    for (const row of rows) {
+      if (row._max.date) {
+        dates.set(row.employeeId, formatCdsCalendarDate(row._max.date));
+      }
+    }
+    return dates;
+  }
+
+  async getOpenIdpEmployeeIds(employeeIds: string[]): Promise<string[]> {
+    if (employeeIds.length === 0) {
+      return [];
+    }
+
+    const rows = await this.prisma.iDPRecord.findMany({
+      where: {
+        employeeId: { in: employeeIds },
+        completedAt: null,
+      },
+      select: { employeeId: true },
+      distinct: ['employeeId'],
+    });
+
+    return rows.map((row) => row.employeeId);
+  }
+
   async completeIdpRecord(
     subjectEmployeeId: string,
     idpId: string,
