@@ -222,7 +222,7 @@ function matchesBooleanFilter(
     : cellValue !== filterBoolean;
 }
 
-function isIsoDateString(value: FieldValue | string): boolean {
+function isIsoDateString(value: FieldValue | string): value is string {
   return (
     typeof value === 'string' &&
     /^\d{4}-\d{2}-\d{2}$/.test(value) &&
