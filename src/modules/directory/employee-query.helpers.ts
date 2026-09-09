@@ -6,7 +6,7 @@ import {
   FilterOperator,
   SortOrder,
 } from '../contracts/field-registry.contract';
-import { computeMentorStatus } from '../mentorship/mentor-status.util';
+import { computeMentorStatus } from '../contracts/mentor-status.contract';
 
 const MS_PER_YEAR = 365.25 * 24 * 60 * 60 * 1000;
 

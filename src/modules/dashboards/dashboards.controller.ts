@@ -1,4 +1,10 @@
-import { Controller, ForbiddenException, Get, Query, Req } from '@nestjs/common';
+import {
+  Controller,
+  ForbiddenException,
+  Get,
+  Query,
+  Req,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { CurrentUserProvider } from '../contracts/current-user-provider.contract';

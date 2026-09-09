@@ -174,7 +174,11 @@ describe('Dashboards (e2e)', () => {
   });
 
   it('returns empty rows when UM pagination page is beyond the last page', async () => {
-    const um = await createEmployeeUser(testApp, 'dash-um-page@example.com', 'UM');
+    const um = await createEmployeeUser(
+      testApp,
+      'dash-um-page@example.com',
+      'UM',
+    );
     const subordinates = await Promise.all(
       Array.from({ length: 3 }, (_, index) =>
         createEmployeeUser(

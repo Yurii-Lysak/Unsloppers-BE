@@ -47,8 +47,16 @@ describe('LeaveDashboardSummaryProvider', () => {
       subjectIds: ['emp-1', 'emp-2'],
     });
 
-    expect(leavesReader.formatListCell).toHaveBeenNthCalledWith(1, 'emp-1', false);
-    expect(leavesReader.formatListCell).toHaveBeenNthCalledWith(2, 'emp-2', false);
+    expect(leavesReader.formatListCell).toHaveBeenNthCalledWith(
+      1,
+      'emp-1',
+      false,
+    );
+    expect(leavesReader.formatListCell).toHaveBeenNthCalledWith(
+      2,
+      'emp-2',
+      false,
+    );
     expect(result).toEqual({
       providerId: 'leave',
       status: 'available',

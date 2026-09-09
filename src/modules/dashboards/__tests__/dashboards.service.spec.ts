@@ -304,12 +304,14 @@ describe('DashboardsService', () => {
       pageSize: 50,
       totalRows: 60,
     });
-    expect(leaveProvider.getSummary).toHaveBeenCalledWith('um-viewer', {
-      subjectIds: subjectIds.slice(50, 60),
-    });
-    expect(employmentProvider.getSummary).toHaveBeenCalledWith('um-viewer', {
-      subjectIds: subjectIds.slice(50, 60),
-    });
+    expect(leaveProvider.getSummary.mock.calls[0]).toEqual([
+      'um-viewer',
+      { subjectIds: subjectIds.slice(50, 60) },
+    ]);
+    expect(employmentProvider.getSummary.mock.calls[0]).toEqual([
+      'um-viewer',
+      { subjectIds: subjectIds.slice(50, 60) },
+    ]);
   });
 
   it('maps leave stale cells onto table rows', async () => {

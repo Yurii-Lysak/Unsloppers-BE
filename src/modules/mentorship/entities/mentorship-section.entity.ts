@@ -1,4 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  MENTOR_STATUS_VALUES,
+  type MentorStatus,
+} from '../contracts/mentor-status.contract';
+
+export { MENTOR_STATUS_VALUES, type MentorStatus };
 
 export class MentorshipRelationEntity {
   @ApiProperty({ format: 'uuid' })
@@ -10,14 +16,6 @@ export class MentorshipRelationEntity {
   @ApiPropertyOptional({ format: 'uuid' })
   pairId?: string;
 }
-
-export const MENTOR_STATUS_VALUES = [
-  'mentor',
-  'openToMentoring',
-  'none',
-] as const;
-
-export type MentorStatus = (typeof MENTOR_STATUS_VALUES)[number];
 
 export const MENTORSHIP_PAIR_HISTORY_ROLES = ['mentor', 'mentee'] as const;
 

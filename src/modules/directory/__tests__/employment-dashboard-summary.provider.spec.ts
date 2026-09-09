@@ -124,7 +124,9 @@ describe('EmploymentDashboardSummaryProvider', () => {
   });
 
   it('returns unavailable when project assignment reader throws', async () => {
-    projectAssignment.listByEmployee.mockRejectedValue(new Error('reader down'));
+    projectAssignment.listByEmployee.mockRejectedValue(
+      new Error('reader down'),
+    );
 
     const result = await provider.getSummary('viewer', {
       subjectIds: ['emp-1'],

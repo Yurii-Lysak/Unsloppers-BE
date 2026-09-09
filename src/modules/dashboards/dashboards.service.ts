@@ -1,4 +1,8 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
 import type { User } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DashboardAudience } from '../contracts/dashboard-audience.contract';
@@ -169,7 +173,11 @@ export class DashboardsService {
       }
 
       const fragment = fragments.get(spec.providerId);
-      const value = this.resolveCounterValue(spec.id, spec.providerId, fragment);
+      const value = this.resolveCounterValue(
+        spec.id,
+        spec.providerId,
+        fragment,
+      );
       if (value === undefined) {
         counters[spec.id] = { status: 'unavailable' };
       } else {
