@@ -468,6 +468,305 @@ describe('Dashboards (e2e)', () => {
     await agent.get('/api/v1/dashboards/summary?projectId=%20%20').expect(400);
   });
 
+  it('returns PM config with the DM six-counter catalog and resourcing block', async () => {
+    const pm = await createEmployeeUser(
+      testApp,
+      'dash-pm-config@example.com',
+      'PM',
+    );
+
+    await assignBuiltInRole(
+      testApp,
+      pm.employeeId,
+      BUILT_IN_ROLE_NAMES.PROJECT_MANAGER,
+    );
+
+    const agent = await loginAs(testApp, pm.email);
+    const configRes = await agent.get('/api/v1/dashboards/config').expect(200);
+    const config = configRes.body as DashboardConfigResponse;
+
+    expect(config.variant).toBe('pm');
+    expect(config.counters.map((counter) => counter.id)).toEqual([
+      'headcount',
+      'need_attention',
+      'medium',
+      'high',
+      'leaver',
+      'openResourcingRequests',
+    ]);
+    expect(config.blocks).toContain('resourcingRequests');
+    expect(config.selectorProjects).toBeUndefined();
+  });
+
+  it('scopes PM dashboard to PM-managed projects only, excluding mere team membership', async () => {
+    const pm = await createEmployeeUser(testApp, 'dash-pm@example.com', 'PM');
+    const memberA = await createEmployeeUser(
+      testApp,
+      'dash-pm-member-a@example.com',
+      'Member A',
+    );
+    const memberB = await createEmployeeUser(
+      testApp,
+      'dash-pm-member-b@example.com',
+      'Member B',
+    );
+    const teamMemberOnly = await createEmployeeUser(
+      testApp,
+      'dash-pm-team-only@example.com',
+      'Team Member Only',
+    );
+
+    for (const [projectId, member] of [
+      ['proj-pm-a', memberA],
+      ['proj-pm-b', memberB],
+    ] as const) {
+      await testApp.prisma.projectAssignment.create({
+        data: {
+          employeeId: member.employeeId,
+          projectId,
+          pmId: pm.employeeId,
+          dmId: pm.employeeId,
+          startDate: new Date('2026-01-01T00:00:00.000Z'),
+          confirmed: true,
+          confirmedAt: new Date('2026-01-05T08:00:00.000Z'),
+        },
+      });
+    }
+    // Team member on a third project where the viewer is NOT the pmId —
+    // must never appear on the PM's dashboard, even though the viewer is
+    // dmId there (mere employeeId/dmId membership is not PM scope).
+    await testApp.prisma.projectAssignment.create({
+      data: {
+        employeeId: teamMemberOnly.employeeId,
+        projectId: 'proj-pm-c',
+        pmId: memberA.employeeId,
+        dmId: pm.employeeId,
+        startDate: new Date('2026-01-01T00:00:00.000Z'),
+        confirmed: true,
+        confirmedAt: new Date('2026-01-05T08:00:00.000Z'),
+      },
+    });
+
+    await assignBuiltInRole(
+      testApp,
+      pm.employeeId,
+      BUILT_IN_ROLE_NAMES.PROJECT_MANAGER,
+    );
+
+    const agent = await loginAs(testApp, pm.email);
+    const summaryRes = await agent
+      .get('/api/v1/dashboards/summary')
+      .expect(200);
+    const summary = summaryRes.body as DashboardSummaryResponse;
+
+    expect(summary.grouping).toBe('project');
+    const projectIds = summary.groups?.map((group) => group.projectId).sort();
+    expect(projectIds).toEqual(['proj-pm-a', 'proj-pm-b']);
+    expect(summary.counters.headcount.value).toBe(2);
+  });
+
+  it('shows only PM-authored resourcing requests, excluding a DM request on a shared project', async () => {
+    const pm = await createEmployeeUser(
+      testApp,
+      'dash-pm-resourcing@example.com',
+      'PM',
+    );
+    const dm = await createEmployeeUser(
+      testApp,
+      'dash-pm-resourcing-dm@example.com',
+      'DM',
+    );
+    const member = await createEmployeeUser(
+      testApp,
+      'dash-pm-resourcing-member@example.com',
+      'Member',
+    );
+
+    await testApp.prisma.projectAssignment.create({
+      data: {
+        employeeId: member.employeeId,
+        projectId: 'proj-pm-resourcing',
+        pmId: pm.employeeId,
+        dmId: dm.employeeId,
+        startDate: new Date('2026-01-01T00:00:00.000Z'),
+        confirmed: true,
+        confirmedAt: new Date('2026-01-05T08:00:00.000Z'),
+      },
+    });
+
+    await assignBuiltInRole(
+      testApp,
+      pm.employeeId,
+      BUILT_IN_ROLE_NAMES.PROJECT_MANAGER,
+    );
+    await assignBuiltInRole(
+      testApp,
+      dm.employeeId,
+      BUILT_IN_ROLE_NAMES.DELIVERY_MANAGER,
+    );
+
+    const pmOpenRequest = await testApp.prisma.resourcingRequest.create({
+      data: {
+        authorId: pm.employeeId,
+        vacancyDetails: 'PM open request',
+        expectedCompBand: '$80k-$100k',
+        duration: '6 months',
+        workload: 'Full-time',
+        headcount: 1,
+        department: 'Engineering',
+        projectId: 'proj-pm-resourcing',
+        status: 'open',
+      },
+    });
+    await testApp.prisma.resourcingRequest.create({
+      data: {
+        authorId: pm.employeeId,
+        vacancyDetails: 'PM pending review request',
+        expectedCompBand: '$80k-$100k',
+        duration: '6 months',
+        workload: 'Full-time',
+        headcount: 1,
+        department: 'Engineering',
+        projectId: 'proj-pm-resourcing',
+        status: 'pending_dm_review',
+        reviewingDmId: dm.employeeId,
+      },
+    });
+    await testApp.prisma.resourcingRequest.create({
+      data: {
+        authorId: dm.employeeId,
+        vacancyDetails: 'DM own request',
+        expectedCompBand: '$80k-$100k',
+        duration: '6 months',
+        workload: 'Full-time',
+        headcount: 1,
+        department: 'Engineering',
+        projectId: 'proj-pm-resourcing',
+        status: 'open',
+      },
+    });
+
+    const agent = await loginAs(testApp, pm.email);
+    const summaryRes = await agent
+      .get('/api/v1/dashboards/summary')
+      .expect(200);
+    const summary = summaryRes.body as DashboardSummaryResponse;
+
+    const requestIds = summary.resourcingRequests?.map((request) => request.id);
+    expect(requestIds).toHaveLength(2);
+    expect(requestIds).toContain(pmOpenRequest.id);
+    expect(summary.counters.openResourcingRequests.value).toBe(1);
+  });
+
+  it('deduplicates PM headcount when one person is on multiple PM projects', async () => {
+    const pm = await createEmployeeUser(
+      testApp,
+      'dash-pm-dedup@example.com',
+      'PM',
+    );
+    const member = await createEmployeeUser(
+      testApp,
+      'dash-pm-dedup-member@example.com',
+      'Member',
+    );
+
+    for (const projectId of ['proj-pm-dedup-a', 'proj-pm-dedup-b']) {
+      await testApp.prisma.projectAssignment.create({
+        data: {
+          employeeId: member.employeeId,
+          projectId,
+          pmId: pm.employeeId,
+          dmId: pm.employeeId,
+          startDate: new Date('2026-01-01T00:00:00.000Z'),
+          confirmed: true,
+          confirmedAt: new Date('2026-01-05T08:00:00.000Z'),
+        },
+      });
+    }
+
+    await assignBuiltInRole(
+      testApp,
+      pm.employeeId,
+      BUILT_IN_ROLE_NAMES.PROJECT_MANAGER,
+    );
+
+    const agent = await loginAs(testApp, pm.email);
+    const summaryRes = await agent
+      .get('/api/v1/dashboards/summary')
+      .expect(200);
+    const summary = summaryRes.body as DashboardSummaryResponse;
+
+    expect(summary.counters.headcount.value).toBe(1);
+    expect(summary.groups).toHaveLength(2);
+  });
+
+  it('returns empty tables and zero counters for a PM with no managed projects', async () => {
+    const pm = await createEmployeeUser(
+      testApp,
+      'dash-pm-empty@example.com',
+      'PM',
+    );
+
+    await assignBuiltInRole(
+      testApp,
+      pm.employeeId,
+      BUILT_IN_ROLE_NAMES.PROJECT_MANAGER,
+    );
+
+    const agent = await loginAs(testApp, pm.email);
+    const summaryRes = await agent
+      .get('/api/v1/dashboards/summary')
+      .expect(200);
+    const summary = summaryRes.body as DashboardSummaryResponse;
+
+    expect(summary.groups).toEqual([]);
+    expect(summary.counters.headcount.value).toBe(0);
+    expect(summary.resourcingRequests).toEqual([]);
+  });
+
+  it('filters PM dashboard summary to a single project and rejects an outsider projectId', async () => {
+    const pm = await createEmployeeUser(
+      testApp,
+      'dash-pm-filter@example.com',
+      'PM',
+    );
+    const member = await createEmployeeUser(
+      testApp,
+      'dash-pm-filter-member@example.com',
+      'Member',
+    );
+
+    await testApp.prisma.projectAssignment.create({
+      data: {
+        employeeId: member.employeeId,
+        projectId: 'proj-pm-filter',
+        pmId: pm.employeeId,
+        dmId: pm.employeeId,
+        startDate: new Date('2026-01-01T00:00:00.000Z'),
+        confirmed: true,
+        confirmedAt: new Date('2026-01-05T08:00:00.000Z'),
+      },
+    });
+
+    await assignBuiltInRole(
+      testApp,
+      pm.employeeId,
+      BUILT_IN_ROLE_NAMES.PROJECT_MANAGER,
+    );
+
+    const agent = await loginAs(testApp, pm.email);
+    const filteredRes = await agent
+      .get('/api/v1/dashboards/summary?projectId=proj-pm-filter')
+      .expect(200);
+    const filtered = filteredRes.body as DashboardSummaryResponse;
+    expect(filtered.groups).toHaveLength(1);
+    expect(filtered.groups?.[0].projectId).toBe('proj-pm-filter');
+
+    await agent
+      .get('/api/v1/dashboards/summary?projectId=some-other-project')
+      .expect(400);
+  });
+
   it('prefers UM variant when viewer holds both UM and DM roles', async () => {
     const dualRole = await createEmployeeUser(
       testApp,
@@ -490,6 +789,30 @@ describe('Dashboards (e2e)', () => {
     const configRes = await agent.get('/api/v1/dashboards/config').expect(200);
     const config = configRes.body as DashboardConfigResponse;
     expect(config.variant).toBe('um');
+  });
+
+  it('prefers DM variant when viewer holds both DM and PM roles', async () => {
+    const dualRole = await createEmployeeUser(
+      testApp,
+      'dash-dual-dm-pm@example.com',
+      'Dual DM/PM',
+    );
+
+    await assignBuiltInRole(
+      testApp,
+      dualRole.employeeId,
+      BUILT_IN_ROLE_NAMES.DELIVERY_MANAGER,
+    );
+    await assignBuiltInRole(
+      testApp,
+      dualRole.employeeId,
+      BUILT_IN_ROLE_NAMES.PROJECT_MANAGER,
+    );
+
+    const agent = await loginAs(testApp, dualRole.email);
+    const configRes = await agent.get('/api/v1/dashboards/config').expect(200);
+    const config = configRes.body as DashboardConfigResponse;
+    expect(config.variant).toBe('dm');
   });
 
   it('returns 403 for viewers without a dashboard variant', async () => {

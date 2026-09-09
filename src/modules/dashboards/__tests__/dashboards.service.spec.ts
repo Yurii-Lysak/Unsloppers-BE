@@ -502,6 +502,28 @@ describe('DashboardsService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('returns PM config with the DM six-counter catalog and resourcingRequests block', async () => {
+    variantResolver.resolveVariant.mockResolvedValue({
+      variant: 'pm',
+      resolvedBy: 'functional-role',
+    });
+    audience.listProjectGroups.mockResolvedValue([]);
+
+    const config = await service.getConfig('pm-viewer');
+
+    expect(config.variant).toBe('pm');
+    expect(config.counters.map((counter) => counter.id)).toEqual([
+      'headcount',
+      'need_attention',
+      'medium',
+      'high',
+      'leaver',
+      'openResourcingRequests',
+    ]);
+    expect(config.blocks).toContain('resourcingRequests');
+    expect(config.selectorProjects).toBeUndefined();
+  });
+
   it('returns 403 when viewer has no dashboard variant', async () => {
     variantResolver.resolveVariant.mockResolvedValue({
       variant: null,
