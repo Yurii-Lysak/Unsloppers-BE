@@ -58,6 +58,10 @@ function makePrismaMock() {
     string,
     { employeeId: string; value: string; effectiveFrom: Date }
   >();
+  const positionHistoryRows = new Map<
+    string,
+    { employeeId: string; value: string; effectiveFrom: Date }
+  >();
 
   const historyDelegate = (
     dimension: string,
@@ -401,7 +405,7 @@ function makePrismaMock() {
   );
 
   const grade = historyDelegate('grade');
-  const position = historyDelegate('position');
+  const position = historyDelegate('position', positionHistoryRows);
   const department = historyDelegate('department', departmentHistoryRows);
   const employmentType = historyDelegate('employmentType');
 
@@ -508,6 +512,17 @@ function makePrismaMock() {
       create: departmentModelCreate,
       update: departmentModelUpdate,
     },
+    skillsMatrixEntry: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      update: jest.fn(),
+      create: jest.fn(({ data }) =>
+        Promise.resolve({ id: 'matrix-1', ...data }),
+      ),
+    },
+    cDSAssessment: {
+      count: jest.fn().mockResolvedValue(0),
+      createMany: jest.fn().mockResolvedValue({ count: 2 }),
+    },
   } as unknown as PrismaService;
 
   return {
@@ -560,6 +575,8 @@ describe('SeedService', () => {
     // trivially "resolvable" as that department's Unit Manager.
     expect(summary.departmentsUpserted).toBe(3);
     expect(summary.unitManagerAssignments).toBe(3);
+    expect(summary.skillsMatrixEntriesUpserted).toBe(3);
+    expect(summary.cdsDemoAssessmentsCreated).toBe(2);
     expect(userUpsert).toHaveBeenCalledTimes(3);
     expect(externalIdentityUpsert).toHaveBeenCalledTimes(3);
     expect(mentorshipPairCreate).toHaveBeenCalledTimes(1);

@@ -130,6 +130,9 @@ model Employee {
   ownedSavedViews         SavedView[]      @relation("SavedViewOwner")
   savedViewSharesReceived SavedViewShare[] @relation("SavedViewShareRecipient")
 
+  // Story 8.1 — flat assessment log entries (registry-only; no CDS wrapper row).
+  cdsAssessments CDSAssessment[]
+
   @@index([managerId])
   @@index([peoplePartnerId])
   @@map("employees")
@@ -552,9 +555,44 @@ model Department {
   children Department[] @relation("DepartmentParent")
   manager  Employee?    @relation("DepartmentManager", fields: [managerId], references: [id], onDelete: SetNull)
 
+  // Story 8.1 — department+position keyed skills-matrix dictionary.
+  skillsMatrixEntries SkillsMatrixEntry[]
+
   @@index([parentId])
   @@index([managerId])
   @@map("departments")
+}
+
+// Story 8.1 — centrally maintained skills-matrix file per department+position.
+model SkillsMatrixEntry {
+  id           String   @id @default(uuid())
+  departmentId String
+  position     String
+  fileUrl      String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+
+  @@unique([departmentId, position])
+  @@index([departmentId])
+  @@map("skills_matrix_entries")
+}
+
+// Story 8.1 — completed assessment log row (flat FK to employee).
+model CDSAssessment {
+  id          String   @id @default(uuid())
+  employeeId  String
+  date        DateTime @db.Date
+  assessor    String
+  resultLink  String
+  conclusion  String   @db.Text
+  createdAt   DateTime @default(now())
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId])
+  @@map("cds_assessments")
 }
 
 // Story 6.2 — a UM's attached candidate (internal or external-link) against a
