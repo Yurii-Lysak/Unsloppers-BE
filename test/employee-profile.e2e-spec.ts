@@ -172,6 +172,7 @@ describe('Employee profile assembly (e2e)', () => {
     expect(s12?.data.matrixLink).toBe(
       'https://skills-matrix.bootcamp.example/files/engineering/software-engineer',
     );
+    expect(s12?.data.idpRecords).toEqual([]);
     expect(s12?.data.assessments).toHaveLength(1);
     expect(s12?.data.assessments[0]).toMatchObject({
       date: '2026-06-15',
@@ -842,6 +843,299 @@ describe('Employee profile assembly (e2e)', () => {
       .expect(200);
 
     expect(after.body).toEqual(before.body);
+  });
+
+  it('IDP_CREATED: manager creates an open IDP for a report', async () => {
+    const createRes = await managerAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/idp-records`)
+      .send({
+        description: 'Complete leadership training',
+        deadline: '2026-12-01',
+        fileUrl: 'https://idp.bootcamp.example/plans/leadership',
+      })
+      .expect(201);
+
+    expect(createRes.body).toMatchObject({
+      description: 'Complete leadership training',
+      deadline: '2026-12-01',
+      fileUrl: 'https://idp.bootcamp.example/plans/leadership',
+      completedAt: null,
+    });
+
+    const profileRes = await managerAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const idpRecords = (
+      profileRes.body as {
+        sections: {
+          S12?: {
+            data: {
+              idpRecords: Array<{
+                id: string;
+                description: string;
+                completedAt: string | null;
+              }>;
+            };
+          };
+        };
+      }
+    ).sections.S12?.data.idpRecords;
+
+    expect(idpRecords).toEqual([
+      expect.objectContaining({
+        id: (createRes.body as { id: string }).id,
+        description: 'Complete leadership training',
+        completedAt: null,
+      }),
+    ]);
+  });
+
+  it('CREATE_DENIED: colleague without maintain_cds_records cannot create IDP', async () => {
+    await colleagueAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/idp-records`)
+      .send({
+        description: 'Blocked plan',
+        deadline: '2026-12-01',
+        fileUrl: 'https://idp.bootcamp.example/plans/blocked',
+      })
+      .expect(403);
+  });
+
+  it('SELF_COMPLETE: employee completes their own open IDP', async () => {
+    const createRes = await managerAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/idp-records`)
+      .send({
+        description: 'Self-complete plan',
+        deadline: '2026-12-01',
+        fileUrl: 'https://idp.bootcamp.example/plans/self-complete',
+      })
+      .expect(201);
+
+    const idpId = (createRes.body as { id: string }).id;
+
+    const completeRes = await reportAgent
+      .post(
+        `/api/v1/employees/${reportEmployeeId}/idp-records/${idpId}/complete`,
+      )
+      .expect(200);
+
+    expect(
+      (completeRes.body as { completedAt: string | null }).completedAt,
+    ).toBeTruthy();
+    expect((completeRes.body as { deadline: string }).deadline).toBe(
+      '2026-12-01',
+    );
+  });
+
+  it('MANAGER_CANNOT_COMPLETE: manager cannot complete employee IDP', async () => {
+    const createRes = await managerAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/idp-records`)
+      .send({
+        description: 'Manager-complete blocked',
+        deadline: '2026-12-01',
+        fileUrl: 'https://idp.bootcamp.example/plans/manager-blocked',
+      })
+      .expect(201);
+
+    const idpId = (createRes.body as { id: string }).id;
+
+    await managerAgent
+      .post(
+        `/api/v1/employees/${reportEmployeeId}/idp-records/${idpId}/complete`,
+      )
+      .expect(403);
+  });
+
+  it('EDIT_OPEN: manager can update an open IDP', async () => {
+    const createRes = await managerAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/idp-records`)
+      .send({
+        description: 'Open plan',
+        deadline: '2026-12-01',
+        fileUrl: 'https://idp.bootcamp.example/plans/open-edit',
+      })
+      .expect(201);
+
+    const idpId = (createRes.body as { id: string }).id;
+
+    const patchRes = await managerAgent
+      .patch(`/api/v1/employees/${reportEmployeeId}/idp-records/${idpId}`)
+      .send({
+        description: 'Updated open plan',
+        deadline: '2027-01-15',
+        fileUrl: 'https://idp.bootcamp.example/plans/open-edit-updated',
+      })
+      .expect(200);
+
+    expect(patchRes.body).toMatchObject({
+      description: 'Updated open plan',
+      deadline: '2027-01-15',
+      fileUrl: 'https://idp.bootcamp.example/plans/open-edit-updated',
+      completedAt: null,
+    });
+  });
+
+  it('EDIT_COMPLETED_BLOCKED: manager cannot edit a completed IDP', async () => {
+    const createRes = await managerAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/idp-records`)
+      .send({
+        description: 'Completed edit blocked',
+        deadline: '2026-12-01',
+        fileUrl: 'https://idp.bootcamp.example/plans/completed-edit',
+      })
+      .expect(201);
+
+    const idpId = (createRes.body as { id: string }).id;
+
+    await reportAgent
+      .post(
+        `/api/v1/employees/${reportEmployeeId}/idp-records/${idpId}/complete`,
+      )
+      .expect(200);
+
+    await managerAgent
+      .patch(`/api/v1/employees/${reportEmployeeId}/idp-records/${idpId}`)
+      .send({ description: 'Should not apply' })
+      .expect(409);
+  });
+
+  it('SELF_COMPLETE_TWICE: second complete returns 409', async () => {
+    const createRes = await managerAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/idp-records`)
+      .send({
+        description: 'Double complete plan',
+        deadline: '2026-12-01',
+        fileUrl: 'https://idp.bootcamp.example/plans/double-complete',
+      })
+      .expect(201);
+
+    const idpId = (createRes.body as { id: string }).id;
+
+    await reportAgent
+      .post(
+        `/api/v1/employees/${reportEmployeeId}/idp-records/${idpId}/complete`,
+      )
+      .expect(200);
+
+    await reportAgent
+      .post(
+        `/api/v1/employees/${reportEmployeeId}/idp-records/${idpId}/complete`,
+      )
+      .expect(409);
+  });
+
+  it('SUBJECT_NOT_FOUND: IDP routes return 404 for unknown employee', async () => {
+    const missingEmployeeId = '00000000-0000-4000-8000-000000000099';
+
+    await managerAgent
+      .post(`/api/v1/employees/${missingEmployeeId}/idp-records`)
+      .send({
+        description: 'Missing subject',
+        deadline: '2026-12-01',
+        fileUrl: 'https://idp.bootcamp.example/plans/missing-subject',
+      })
+      .expect(404);
+
+    await managerAgent
+      .patch(
+        `/api/v1/employees/${missingEmployeeId}/idp-records/00000000-0000-4000-8000-000000000001`,
+      )
+      .send({ description: 'Missing subject' })
+      .expect(404);
+
+    await reportAgent
+      .post(
+        `/api/v1/employees/${missingEmployeeId}/idp-records/00000000-0000-4000-8000-000000000001/complete`,
+      )
+      .expect(404);
+  });
+
+  it('PATCH empty body on open IDP is a no-op 200', async () => {
+    const createRes = await managerAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/idp-records`)
+      .send({
+        description: 'No-op patch plan',
+        deadline: '2026-12-01',
+        fileUrl: 'https://idp.bootcamp.example/plans/no-op',
+      })
+      .expect(201);
+
+    const idpId = (createRes.body as { id: string }).id;
+
+    const patchRes = await managerAgent
+      .patch(`/api/v1/employees/${reportEmployeeId}/idp-records/${idpId}`)
+      .send({})
+      .expect(200);
+
+    expect(patchRes.body).toMatchObject({
+      id: idpId,
+      description: 'No-op patch plan',
+      deadline: '2026-12-01',
+      fileUrl: 'https://idp.bootcamp.example/plans/no-op',
+      completedAt: null,
+    });
+  });
+
+  it('CREATE_REJECTS_COMPLETED_AT: create payload cannot set completedAt', async () => {
+    await managerAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/idp-records`)
+      .send({
+        description: 'Reject completedAt on create',
+        deadline: '2026-12-01',
+        fileUrl:
+          'https://idp.bootcamp.example/plans/reject-create-completed-at',
+        completedAt: '2026-09-09T00:00:00.000Z',
+      })
+      .expect(400);
+  });
+
+  it('UPDATE_REJECTS_COMPLETED_AT: update payload cannot set completedAt', async () => {
+    const createRes = await managerAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/idp-records`)
+      .send({
+        description: 'Reject completedAt injection',
+        deadline: '2026-12-01',
+        fileUrl: 'https://idp.bootcamp.example/plans/reject-completed-at',
+      })
+      .expect(201);
+
+    const idpId = (createRes.body as { id: string }).id;
+
+    await managerAgent
+      .patch(`/api/v1/employees/${reportEmployeeId}/idp-records/${idpId}`)
+      .send({ completedAt: '2026-09-09T00:00:00.000Z' })
+      .expect(400);
+  });
+
+  it('IDP_NOT_FOUND: update returns 404 for another employee idpId', async () => {
+    const otherEmployee = await testApp.prisma.employee.create({
+      data: {
+        manager: { connect: { id: managerEmployeeId } },
+        user: {
+          create: {
+            email: 'profile-idp-other@example.com',
+            passwordHash: await hash(PASSWORD, 12),
+          },
+        },
+      },
+    });
+
+    const createRes = await managerAgent
+      .post(`/api/v1/employees/${otherEmployee.id}/idp-records`)
+      .send({
+        description: 'Other employee plan',
+        deadline: '2026-12-01',
+        fileUrl: 'https://idp.bootcamp.example/plans/other',
+      })
+      .expect(201);
+
+    const idpId = (createRes.body as { id: string }).id;
+
+    await managerAgent
+      .patch(`/api/v1/employees/${reportEmployeeId}/idp-records/${idpId}`)
+      .send({ description: 'Wrong subject' })
+      .expect(404);
   });
 });
 
