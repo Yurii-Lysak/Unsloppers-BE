@@ -80,7 +80,12 @@ export class DashboardsService {
     };
 
     if (config.grouping === 'project') {
-      return this.buildProjectSummary(viewerEmployeeId, config, query, scopeBase);
+      return this.buildProjectSummary(
+        viewerEmployeeId,
+        config,
+        query,
+        scopeBase,
+      );
     }
 
     const subjectIds = await this.resolveSubjectIds(
@@ -158,16 +163,10 @@ export class DashboardsService {
         ? []
         : parsedProjectId
           ? (visibleAudienceGroups[0]?.subjectIds ?? [])
-          : [
-              ...new Set(
-                audienceGroups.flatMap((group) => group.subjectIds),
-              ),
-            ];
+          : [...new Set(audienceGroups.flatMap((group) => group.subjectIds))];
 
     const tableSubjectIds = [
-      ...new Set(
-        visibleAudienceGroups.flatMap((group) => group.subjectIds),
-      ),
+      ...new Set(visibleAudienceGroups.flatMap((group) => group.subjectIds)),
     ];
 
     const scope: DashboardSummaryScope = {
@@ -224,9 +223,7 @@ export class DashboardsService {
 
     const trimmed = raw.trim();
     if (trimmed.length === 0) {
-      throw new BadRequestException(
-        'Invalid projectId for dashboard summary',
-      );
+      throw new BadRequestException('Invalid projectId for dashboard summary');
     }
 
     if (trimmed === 'all') {
@@ -245,9 +242,7 @@ export class DashboardsService {
     }
 
     if (!groups.some((group) => group.projectId === projectId)) {
-      throw new BadRequestException(
-        'Invalid projectId for dashboard summary',
-      );
+      throw new BadRequestException('Invalid projectId for dashboard summary');
     }
   }
 

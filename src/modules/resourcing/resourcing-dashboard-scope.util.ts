@@ -4,10 +4,9 @@ export interface ResourcingRequestProjectRef {
   projectId?: string | null;
 }
 
-export function filterResourcingRequestsByProject<T extends ResourcingRequestProjectRef>(
-  requests: T[],
-  projectId?: string,
-): T[] {
+export function filterResourcingRequestsByProject<
+  T extends ResourcingRequestProjectRef,
+>(requests: T[], projectId?: string): T[] {
   if (!projectId || projectId === 'all') {
     return requests;
   }

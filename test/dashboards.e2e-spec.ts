@@ -220,7 +220,11 @@ describe('Dashboards (e2e)', () => {
   });
 
   it('returns DM config with six counters, selector projects, and resourcing block', async () => {
-    const dm = await createEmployeeUser(testApp, 'dash-dm-config@example.com', 'DM');
+    const dm = await createEmployeeUser(
+      testApp,
+      'dash-dm-config@example.com',
+      'DM',
+    );
     const member = await createEmployeeUser(
       testApp,
       'dash-dm-config-member@example.com',
@@ -398,7 +402,9 @@ describe('Dashboards (e2e)', () => {
     expect(summary.counters.headcount.value).toBe(1);
     expect(summary.groups).toHaveLength(2);
     expect(
-      summary.groups?.flatMap((group) => group.rows.map((row) => row.employeeId)),
+      summary.groups?.flatMap((group) =>
+        group.rows.map((row) => row.employeeId),
+      ),
     ).toEqual([member.employeeId, member.employeeId]);
   });
 

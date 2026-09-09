@@ -16,7 +16,10 @@ export class ResourcingRequestsDashboardSummaryProvider extends DashboardSummary
 
   async getSummary(viewerEmployeeId: string, scope?: DashboardSummaryScope) {
     if (scope?.variant !== 'dm') {
-      return { providerId: 'resourcing-requests', status: 'unavailable' as const };
+      return {
+        providerId: 'resourcing-requests',
+        status: 'unavailable' as const,
+      };
     }
 
     try {
@@ -26,7 +29,8 @@ export class ResourcingRequestsDashboardSummaryProvider extends DashboardSummary
         scope.projectId,
       ).sort(
         (left, right) =>
-          new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+          new Date(right.createdAt).getTime() -
+          new Date(left.createdAt).getTime(),
       );
 
       return {
@@ -42,7 +46,10 @@ export class ResourcingRequestsDashboardSummaryProvider extends DashboardSummary
         })),
       };
     } catch {
-      return { providerId: 'resourcing-requests', status: 'unavailable' as const };
+      return {
+        providerId: 'resourcing-requests',
+        status: 'unavailable' as const,
+      };
     }
   }
 }

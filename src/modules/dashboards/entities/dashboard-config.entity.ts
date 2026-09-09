@@ -1,11 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export type DashboardBlockId =
-  | 'counters'
-  | 'table'
-  | 'ownActionItems'
-  | 'quickNav'
-  | 'resourcingRequests';
+  'counters' | 'table' | 'ownActionItems' | 'quickNav' | 'resourcingRequests';
 
 export type DashboardGrouping = 'people' | 'project';
 
@@ -47,7 +43,13 @@ export class DashboardConfigEntity {
 
   @ApiProperty({
     type: [String],
-    enum: ['counters', 'table', 'ownActionItems', 'quickNav', 'resourcingRequests'],
+    enum: [
+      'counters',
+      'table',
+      'ownActionItems',
+      'quickNav',
+      'resourcingRequests',
+    ],
   })
   blocks!: DashboardBlockId[];
 

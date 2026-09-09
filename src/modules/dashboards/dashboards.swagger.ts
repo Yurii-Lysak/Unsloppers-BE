@@ -17,8 +17,7 @@ export const SwaggerGetDashboardSummary = () =>
   applyDecorators(
     ApiOkResponse({ type: DashboardSummaryEntity }),
     ApiBadRequestResponse({
-      description:
-        'Invalid pagination or projectId query parameters',
+      description: 'Invalid pagination or projectId query parameters',
     }),
     ApiForbiddenResponse({ description: 'Viewer has no dashboard variant' }),
   );

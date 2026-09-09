@@ -779,11 +779,14 @@ describe('DashboardsService', () => {
       status: 'available',
       value: 1,
     });
-    expect(risksProvider.getSummary).toHaveBeenCalledWith('dm-viewer', {
-      subjectIds: ['emp-1'],
-      projectId: 'proj-a',
-      variant: 'dm',
-    });
+    expect(risksProvider.getSummary.mock.calls[0]).toEqual([
+      'dm-viewer',
+      {
+        subjectIds: ['emp-1'],
+        projectId: 'proj-a',
+        variant: 'dm',
+      },
+    ]);
   });
 
   it('returns zero people counters for DM unassigned project filter', async () => {
