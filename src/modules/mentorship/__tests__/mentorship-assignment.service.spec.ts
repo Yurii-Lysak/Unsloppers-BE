@@ -269,11 +269,9 @@ describe('MentorshipAssignmentService', () => {
       },
     ]);
 
-    expect(prisma.mentorshipPair.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ endedAt: null }),
-      }),
-    );
+    const [[activeFindManyArg]] = jest.mocked(prisma.mentorshipPair.findMany)
+      .mock.calls as unknown as [[{ where: { endedAt: unknown } }]];
+    expect(activeFindManyArg.where.endedAt).toBeNull();
   });
 
   it('lists scoped ended pairs', async () => {
@@ -307,11 +305,9 @@ describe('MentorshipAssignmentService', () => {
       },
     ]);
 
-    expect(prisma.mentorshipPair.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ endedAt: { not: null } }),
-      }),
-    );
+    const [[endedFindManyArg]] = jest.mocked(prisma.mentorshipPair.findMany)
+      .mock.calls as unknown as [[{ where: { endedAt: { not: null } } }]];
+    expect(endedFindManyArg.where.endedAt).toEqual({ not: null });
   });
 
   it('lists all scoped pairs when status is all', async () => {
