@@ -1022,7 +1022,8 @@ const seedCdsFixture = async (
         assessor: 'Profile Assessment Manager',
         resultLink:
           'https://skills-matrix.bootcamp.example/assessments/profile-demo',
-        conclusion: 'Completed skills assessment with agreed development goals.',
+        conclusion:
+          'Completed skills assessment with agreed development goals.',
       },
     });
   }
