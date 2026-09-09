@@ -16,6 +16,7 @@ import { buildSyntheticProfile } from './seed.synthetic';
 import { seedFunctionalRoles } from './seed.functional-roles';
 import { seedDemoMentorshipPair } from './seed.mentorship';
 import { seedDepartments } from './seed.departments';
+import { seedSkillsMatrix } from './seed.skills-matrix';
 import { FunctionalRoleAssignmentService } from '../../modules/access/functional-role-assignment.service';
 
 export interface SeedSummary {
@@ -26,6 +27,8 @@ export interface SeedSummary {
   mentorshipPairsSeeded: number;
   departmentsUpserted: number;
   unitManagerAssignments: number;
+  skillsMatrixEntriesUpserted: number;
+  cdsDemoAssessmentsCreated: number;
 }
 
 /**
@@ -99,11 +102,14 @@ export class SeedService {
       this.logger,
     );
 
+    const skillsMatrixSeed = await seedSkillsMatrix(this.prisma, this.logger);
+
     this.logger.log(
       `Seed complete: ${identitiesUpserted} identities upserted, ${duplicateEmails.length} duplicate ` +
         `email(s) deduped, ${functionalRoleSeed.rolesUpserted} built-in functional roles upserted, ` +
         `${mentorshipPairsSeeded} mentorship pair(s) seeded, ${departmentSeed.departmentsUpserted} ` +
-        `department(s) seeded.`,
+        `department(s) seeded, ${skillsMatrixSeed.dictionaryEntriesUpserted} skills-matrix ` +
+        `entr${skillsMatrixSeed.dictionaryEntriesUpserted === 1 ? 'y' : 'ies'} seeded.`,
     );
 
     return {
@@ -114,6 +120,8 @@ export class SeedService {
       mentorshipPairsSeeded,
       departmentsUpserted: departmentSeed.departmentsUpserted,
       unitManagerAssignments: departmentSeed.unitManagerAssignments,
+      skillsMatrixEntriesUpserted: skillsMatrixSeed.dictionaryEntriesUpserted,
+      cdsDemoAssessmentsCreated: skillsMatrixSeed.demoAssessmentsCreated,
     };
   }
 

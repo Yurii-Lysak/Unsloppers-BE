@@ -23,6 +23,7 @@ import { MentorshipModule } from './modules/mentorship/mentorship.module';
 import { CampaignsModule } from './modules/campaigns/campaigns.module';
 import { DashboardsModule } from './modules/dashboards/dashboards.module';
 import { ResourcingModule } from './modules/resourcing/resourcing.module';
+import { CdsModule } from './modules/cds/cds.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { ResourcingModule } from './modules/resourcing/resourcing.module';
     CampaignsModule,
     DashboardsModule,
     ResourcingModule,
+    CdsModule,
     HealthModule,
     UsersModule,
   ],

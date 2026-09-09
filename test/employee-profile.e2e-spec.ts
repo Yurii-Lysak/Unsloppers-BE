@@ -144,6 +144,325 @@ describe('Employee profile assembly (e2e)', () => {
     expect(s10?.data?.leaves?.[0]?.approvalState).toBeNull();
   });
 
+  it('returns S12 with matrix link and assessments for ReportingLine viewers', async () => {
+    const res = await managerAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s12 = (
+      res.body as {
+        sections: {
+          S12?: {
+            accessLevel: string;
+            data: {
+              matrixLink: string | null;
+              assessments: Array<{
+                date: string;
+                assessor: string;
+                resultLink: string;
+                conclusion: string;
+              }>;
+            };
+          };
+        };
+      }
+    ).sections.S12;
+
+    expect(s12?.accessLevel).toBe('RW');
+    expect(s12?.data.matrixLink).toBe(
+      'https://skills-matrix.bootcamp.example/files/engineering/software-engineer',
+    );
+    expect(s12?.data.assessments).toHaveLength(1);
+    expect(s12?.data.assessments[0]).toMatchObject({
+      date: '2026-06-15',
+      assessor: 'Profile Assessment Manager',
+      resultLink:
+        'https://skills-matrix.bootcamp.example/assessments/profile-demo',
+      conclusion: 'Completed skills assessment with agreed development goals.',
+    });
+  });
+
+  it('omits S12 from Colleague viewers', async () => {
+    const res = await colleagueAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    expect(
+      (res.body as { sections?: Record<string, unknown> }).sections ?? {},
+    ).not.toHaveProperty('S12');
+  });
+
+  it('returns read-only S12 for Self viewers', async () => {
+    const res = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s12 = (
+      res.body as {
+        sections: {
+          S12?: { accessLevel: string; data: { assessments: unknown[] } };
+        };
+      }
+    ).sections.S12;
+
+    expect(s12?.accessLevel).toBe('R');
+    expect(s12?.data.assessments).toHaveLength(1);
+  });
+
+  it('returns S12 for ProjectLine and PP viewers', async () => {
+    const managerRes = await managerAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+    const dmRes = await dmAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+    const ppRes = await ppAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const expectedS12 = (
+      managerRes.body as { sections: Record<string, unknown> }
+    ).sections.S12;
+
+    expect(
+      (dmRes.body as { sections: Record<string, unknown> }).sections.S12,
+    ).toEqual(expectedS12);
+    expect(
+      (ppRes.body as { sections: Record<string, unknown> }).sections.S12,
+    ).toEqual(expectedS12);
+  });
+
+  it('returns S12 data with null matrixLink when no dictionary entry exists', async () => {
+    const report = await testApp.prisma.employee.findUniqueOrThrow({
+      where: { id: reportEmployeeId },
+      select: { managerId: true },
+    });
+    const peerUser = await testApp.prisma.user.create({
+      data: {
+        email: `profile-s12-no-dictionary-${randomUUID()}@example.com`,
+        passwordHash: await hash(PASSWORD, 12),
+      },
+    });
+    const peerEmployee = await testApp.prisma.employee.create({
+      data: {
+        userId: peerUser.id,
+        managerId: report.managerId,
+      },
+    });
+
+    await seedCdsHistory(
+      testApp,
+      peerEmployee.id,
+      'Engineering',
+      'Unmapped Position',
+    );
+    await testApp.prisma.cDSAssessment.create({
+      data: {
+        employeeId: peerEmployee.id,
+        date: new Date('2026-05-01'),
+        assessor: 'Profile Assessment Manager',
+        resultLink:
+          'https://skills-matrix.bootcamp.example/assessments/unmapped-demo',
+        conclusion: 'Assessment without a dictionary mapping.',
+      },
+    });
+
+    const res = await managerAgent
+      .get(`/api/v1/employees/${peerEmployee.id}/profile`)
+      .expect(200);
+
+    const s12 = (
+      res.body as {
+        sections: {
+          S12?: {
+            status?: string;
+            data: {
+              matrixLink: string | null;
+              assessments: unknown[];
+            };
+          };
+        };
+      }
+    ).sections.S12;
+
+    expect(s12).toBeDefined();
+    expect(s12).not.toHaveProperty('status', 'unavailable');
+    expect(s12?.data.matrixLink).toBeNull();
+    expect(s12?.data.assessments).toHaveLength(1);
+  });
+
+  it('returns S12 data with empty assessments when the matrix is mapped', async () => {
+    const report = await testApp.prisma.employee.findUniqueOrThrow({
+      where: { id: reportEmployeeId },
+      select: { managerId: true },
+    });
+    const peerUser = await testApp.prisma.user.create({
+      data: {
+        email: `profile-s12-empty-log-${randomUUID()}@example.com`,
+        passwordHash: await hash(PASSWORD, 12),
+      },
+    });
+    const peerEmployee = await testApp.prisma.employee.create({
+      data: {
+        userId: peerUser.id,
+        managerId: report.managerId,
+      },
+    });
+
+    await seedCdsFixture(testApp, peerEmployee.id, {
+      includeAssessment: false,
+    });
+
+    const res = await managerAgent
+      .get(`/api/v1/employees/${peerEmployee.id}/profile`)
+      .expect(200);
+
+    const s12 = (
+      res.body as {
+        sections: {
+          S12?: {
+            status?: string;
+            data: {
+              matrixLink: string | null;
+              assessments: unknown[];
+            };
+          };
+        };
+      }
+    ).sections.S12;
+
+    expect(s12).toBeDefined();
+    expect(s12).not.toHaveProperty('status', 'unavailable');
+    expect(s12?.data.matrixLink).toBe(
+      'https://skills-matrix.bootcamp.example/files/engineering/software-engineer',
+    );
+    expect(s12?.data.assessments).toEqual([]);
+  });
+
+  it('reflects skills-matrix dictionary updates on the next profile response', async () => {
+    const report = await testApp.prisma.employee.findUniqueOrThrow({
+      where: { id: reportEmployeeId },
+      select: { managerId: true },
+    });
+    const peerUser = await testApp.prisma.user.create({
+      data: {
+        email: `profile-s12-dictionary-peer-${randomUUID()}@example.com`,
+        passwordHash: await hash(PASSWORD, 12),
+      },
+    });
+    const peerEmployee = await testApp.prisma.employee.create({
+      data: {
+        userId: peerUser.id,
+        managerId: report.managerId,
+      },
+    });
+    await seedCdsFixture(testApp, peerEmployee.id, {
+      includeAssessment: false,
+    });
+
+    const department = await testApp.prisma.department.findUniqueOrThrow({
+      where: { name: 'Engineering' },
+    });
+    const entry = await testApp.prisma.skillsMatrixEntry.findUniqueOrThrow({
+      where: {
+        departmentId_position: {
+          departmentId: department.id,
+          position: 'Software Engineer',
+        },
+      },
+    });
+
+    const updatedUrl =
+      'https://skills-matrix.bootcamp.example/files/engineering/software-engineer-v2';
+    await testApp.prisma.skillsMatrixEntry.update({
+      where: { id: entry.id },
+      data: { fileUrl: updatedUrl },
+    });
+
+    const [reportRes, peerRes] = await Promise.all([
+      managerAgent
+        .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+        .expect(200),
+      managerAgent
+        .get(`/api/v1/employees/${peerEmployee.id}/profile`)
+        .expect(200),
+    ]);
+
+    expect(
+      (
+        reportRes.body as {
+          sections: { S12?: { data?: { matrixLink?: string | null } } };
+        }
+      ).sections.S12?.data?.matrixLink,
+    ).toBe(updatedUrl);
+    expect(
+      (
+        peerRes.body as {
+          sections: { S12?: { data?: { matrixLink?: string | null } } };
+        }
+      ).sections.S12?.data?.matrixLink,
+    ).toBe(updatedUrl);
+  });
+
+  it('S12_SHARED_LINK_CFG: shared-link consume returns S12 when enabled', async () => {
+    const recipientUser = await testApp.prisma.user.create({
+      data: {
+        email: `profile-s12-recipient-${randomUUID()}@example.com`,
+        passwordHash: await hash(PASSWORD, 12),
+      },
+    });
+    const recipientEmployee = await testApp.prisma.employee.create({
+      data: { userId: recipientUser.id },
+    });
+
+    const createLinkRes = await managerAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/shared-links`)
+      .send({
+        recipientEmployeeId: recipientEmployee.id,
+        sections: ['S12'],
+      })
+      .expect(201);
+    const token = (createLinkRes.body as { token: string }).token;
+
+    const recipientAgent = request.agent(testApp.server);
+    await recipientAgent
+      .post('/api/v1/auth/login')
+      .send({ email: recipientUser.email, password: PASSWORD })
+      .expect(200);
+
+    const consumeRes = await recipientAgent
+      .get(`/api/v1/shared-links/${token}/profile`)
+      .expect(200);
+
+    const s12 = (consumeRes.body as { sections: Record<string, unknown> })
+      .sections.S12 as {
+      data: { matrixLink: string | null; assessments: unknown[] };
+    };
+
+    expect(s12.data.matrixLink).toBeTruthy();
+    expect(s12.data.assessments).toHaveLength(1);
+  });
+
+  it('S12_SHARED_LINK_CFG: a Colleague creator cannot create a shared link with S12 (403)', async () => {
+    const recipientUser = await testApp.prisma.user.create({
+      data: {
+        email: `profile-s12-recipient-denied-${randomUUID()}@example.com`,
+        passwordHash: await hash(PASSWORD, 12),
+      },
+    });
+    const recipientEmployee = await testApp.prisma.employee.create({
+      data: { userId: recipientUser.id },
+    });
+
+    await colleagueAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/shared-links`)
+      .send({
+        recipientEmployeeId: recipientEmployee.id,
+        sections: ['S12'],
+      })
+      .expect(403);
+  });
+
   it('returns ReportingLine-granted sections for a direct manager', async () => {
     const res = await managerAgent
       .get(`/api/v1/employees/${reportEmployeeId}/profile`)
@@ -623,9 +942,88 @@ const seedProfileGraph = async (
     data: { userId: colleagueUser.id },
   });
 
+  await seedCdsFixture(testApp, reportEmployee.id);
+
   return {
     reportEmployeeId: reportEmployee.id,
     mentorEmployeeId: mentorEmployee.id,
     managerEmployeeId: managerEmployee.id,
   };
+};
+
+const seedCdsHistory = async (
+  testApp: TestApp,
+  employeeId: string,
+  departmentName: string,
+  position: string,
+) => {
+  const effectiveFrom = new Date('2024-01-01');
+
+  await testApp.prisma.departmentHistory.create({
+    data: {
+      employeeId,
+      value: departmentName,
+      effectiveFrom,
+    },
+  });
+  await testApp.prisma.positionHistory.create({
+    data: {
+      employeeId,
+      value: position,
+      effectiveFrom,
+    },
+  });
+};
+
+const seedCdsFixture = async (
+  testApp: TestApp,
+  reportEmployeeId: string,
+  options?: { includeAssessment?: boolean },
+) => {
+  const includeAssessment = options?.includeAssessment ?? true;
+
+  await seedCdsHistory(
+    testApp,
+    reportEmployeeId,
+    'Engineering',
+    'Software Engineer',
+  );
+
+  const department = await testApp.prisma.department.upsert({
+    where: { name: 'Engineering' },
+    update: { managerId: null },
+    create: { name: 'Engineering' },
+  });
+
+  await testApp.prisma.skillsMatrixEntry.upsert({
+    where: {
+      departmentId_position: {
+        departmentId: department.id,
+        position: 'Software Engineer',
+      },
+    },
+    update: {
+      fileUrl:
+        'https://skills-matrix.bootcamp.example/files/engineering/software-engineer',
+    },
+    create: {
+      departmentId: department.id,
+      position: 'Software Engineer',
+      fileUrl:
+        'https://skills-matrix.bootcamp.example/files/engineering/software-engineer',
+    },
+  });
+
+  if (includeAssessment) {
+    await testApp.prisma.cDSAssessment.create({
+      data: {
+        employeeId: reportEmployeeId,
+        date: new Date('2026-06-15'),
+        assessor: 'Profile Assessment Manager',
+        resultLink:
+          'https://skills-matrix.bootcamp.example/assessments/profile-demo',
+        conclusion: 'Completed skills assessment with agreed development goals.',
+      },
+    });
+  }
 };
