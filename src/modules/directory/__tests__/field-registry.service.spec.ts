@@ -2,11 +2,14 @@ import {
   BadRequestException,
   ConflictException,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '../../../generated/prisma/client';
 import { Clock } from '../../../clock/clock.service';
 import { BUILTIN_FIELD_IDS } from '../../contracts/field-registry.contract';
+import { FieldProvider } from '../../contracts/field-provider.contract';
+import { ProviderRegistryService } from '../../registry/provider-registry.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { FieldRegistryService } from '../field-registry.service';
 
@@ -16,6 +19,10 @@ describe('FieldRegistryService', () => {
   const clock = {
     now: jest.fn(() => new Date('2026-08-31T12:00:00.000Z')),
     nowMs: jest.fn(() => new Date('2026-08-31T12:00:00.000Z').getTime()),
+  };
+
+  const registry = {
+    get: jest.fn().mockReturnValue({ status: 'unavailable' }),
   };
 
   const prisma = {
@@ -61,6 +68,7 @@ describe('FieldRegistryService', () => {
         FieldRegistryService,
         { provide: PrismaService, useValue: prisma },
         { provide: Clock, useValue: clock },
+        { provide: ProviderRegistryService, useValue: registry },
       ],
     }).compile();
 
@@ -634,6 +642,408 @@ describe('FieldRegistryService', () => {
         'emp-none',
         'emp-mentor',
       ]);
+    });
+
+    it('filters custom date fields with date comparison operators', async () => {
+      prisma.customFieldDefinition.findMany.mockResolvedValue([
+        {
+          id: 'custom-start',
+          name: 'Start date',
+          type: 'date',
+          visibility: 'employee',
+          options: null,
+        },
+      ]);
+      prisma.employee.findMany.mockResolvedValue([
+        {
+          id: 'emp-early',
+          user: { name: 'Early' },
+          gradeHistory: [],
+          positionHistory: [],
+          departmentHistory: [],
+          employmentTypeHistory: [],
+        },
+        {
+          id: 'emp-late',
+          user: { name: 'Late' },
+          gradeHistory: [],
+          positionHistory: [],
+          departmentHistory: [],
+          employmentTypeHistory: [],
+        },
+      ]);
+      prisma.customFieldValue.findMany.mockResolvedValue([
+        {
+          employeeId: 'emp-early',
+          fieldDefinitionId: 'custom-start',
+          valueText: null,
+          valueNumber: null,
+          valueDate: new Date('2025-01-01T00:00:00.000Z'),
+          valueBoolean: null,
+          valueSelect: null,
+          fieldDefinition: { type: 'date' },
+        },
+        {
+          employeeId: 'emp-late',
+          fieldDefinitionId: 'custom-start',
+          valueText: null,
+          valueNumber: null,
+          valueDate: new Date('2026-06-01T00:00:00.000Z'),
+          valueBoolean: null,
+          valueSelect: null,
+          fieldDefinition: { type: 'date' },
+        },
+      ]);
+
+      const result = await service.queryEmployees({
+        page: 1,
+        pageSize: 50,
+        filters: [
+          {
+            fieldId: 'custom-start',
+            operator: 'gte',
+            value: '2026-01-01',
+          },
+        ],
+      });
+
+      expect(result.total).toBe(1);
+      expect(result.rows[0]?.employeeId).toBe('emp-late');
+    });
+
+    it('rejects malformed between and is_empty filters', async () => {
+      prisma.customFieldDefinition.findMany.mockResolvedValue([]);
+      prisma.employee.findMany.mockResolvedValue([]);
+
+      await expect(
+        service.queryEmployees({
+          page: 1,
+          pageSize: 50,
+          filters: [
+            {
+              fieldId: BUILTIN_FIELD_IDS.last_assessment_date,
+              operator: 'between',
+              value: ['2026-06-01', '2026-01-01'],
+            },
+          ],
+        }),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        service.queryEmployees({
+          page: 1,
+          pageSize: 50,
+          filters: [
+            {
+              fieldId: BUILTIN_FIELD_IDS.last_assessment_date,
+              operator: 'is_empty',
+              value: '2026-01-01',
+            },
+          ],
+        }),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        service.queryEmployees({
+          page: 1,
+          pageSize: 50,
+          filters: [
+            {
+              fieldId: BUILTIN_FIELD_IDS.last_assessment_date,
+              operator: 'between',
+              value: ['2026-01-01'],
+            },
+          ],
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('narrows snapshots with employeeIds before filtering', async () => {
+      prisma.customFieldDefinition.findMany.mockResolvedValue([]);
+      prisma.employee.findMany.mockResolvedValue([
+        {
+          id: 'emp-in',
+          user: { name: 'In' },
+          gradeHistory: [],
+          positionHistory: [],
+          departmentHistory: [],
+          employmentTypeHistory: [],
+        },
+        {
+          id: 'emp-out',
+          user: { name: 'Out' },
+          gradeHistory: [],
+          positionHistory: [],
+          departmentHistory: [],
+          employmentTypeHistory: [],
+        },
+      ]);
+
+      const result = await service.queryEmployees({
+        page: 1,
+        pageSize: 50,
+        employeeIds: ['emp-in'],
+        visibleFieldIds: [BUILTIN_FIELD_IDS.name],
+      });
+
+      expect(result.total).toBe(1);
+      expect(result.rows[0]?.employeeId).toBe('emp-in');
+    });
+
+    it('loads provider-backed field values and filters by them', async () => {
+      prisma.customFieldDefinition.findMany.mockResolvedValue([]);
+      prisma.employee.findMany.mockResolvedValue([
+        {
+          id: 'emp-assessed',
+          user: { name: 'Assessed' },
+          gradeHistory: [],
+          positionHistory: [],
+          departmentHistory: [],
+          employmentTypeHistory: [],
+        },
+        {
+          id: 'emp-never',
+          user: { name: 'Never' },
+          gradeHistory: [],
+          positionHistory: [],
+          departmentHistory: [],
+          employmentTypeHistory: [],
+        },
+      ]);
+
+      const lastAssessmentProvider: FieldProvider = {
+        queryValues: jest.fn().mockResolvedValue([
+          {
+            employeeId: 'emp-assessed',
+            fieldId: BUILTIN_FIELD_IDS.last_assessment_date,
+            value: '2026-03-15',
+          },
+          {
+            employeeId: 'emp-never',
+            fieldId: BUILTIN_FIELD_IDS.last_assessment_date,
+            value: null,
+          },
+        ]),
+      };
+      registry.get.mockImplementation((family: string, id: string) => {
+        if (
+          family === 'field' &&
+          id === BUILTIN_FIELD_IDS.last_assessment_date
+        ) {
+          return { status: 'available', provider: lastAssessmentProvider };
+        }
+        return { status: 'unavailable' };
+      });
+
+      const neverAssessed = await service.queryEmployees({
+        page: 1,
+        pageSize: 50,
+        filters: [
+          {
+            fieldId: BUILTIN_FIELD_IDS.last_assessment_date,
+            operator: 'is_empty',
+            value: null,
+          },
+        ],
+      });
+
+      expect(neverAssessed.total).toBe(1);
+      expect(neverAssessed.rows[0]?.employeeId).toBe('emp-never');
+
+      const inRange = await service.queryEmployees({
+        page: 1,
+        pageSize: 50,
+        filters: [
+          {
+            fieldId: BUILTIN_FIELD_IDS.last_assessment_date,
+            operator: 'between',
+            value: ['2026-01-01', '2026-06-30'],
+          },
+        ],
+      });
+
+      expect(inRange.total).toBe(1);
+      expect(inRange.rows[0]?.employeeId).toBe('emp-assessed');
+    });
+
+    it('filters has_open_idp eq true via provider values', async () => {
+      prisma.customFieldDefinition.findMany.mockResolvedValue([]);
+      prisma.employee.findMany.mockResolvedValue([
+        {
+          id: 'emp-open',
+          user: { name: 'Open' },
+          gradeHistory: [],
+          positionHistory: [],
+          departmentHistory: [],
+          employmentTypeHistory: [],
+        },
+        {
+          id: 'emp-closed',
+          user: { name: 'Closed' },
+          gradeHistory: [],
+          positionHistory: [],
+          departmentHistory: [],
+          employmentTypeHistory: [],
+        },
+      ]);
+
+      const openIdpProvider: FieldProvider = {
+        queryValues: jest.fn().mockResolvedValue([
+          {
+            employeeId: 'emp-open',
+            fieldId: BUILTIN_FIELD_IDS.has_open_idp,
+            value: true,
+          },
+          {
+            employeeId: 'emp-closed',
+            fieldId: BUILTIN_FIELD_IDS.has_open_idp,
+            value: false,
+          },
+        ]),
+      };
+      registry.get.mockImplementation((family: string, id: string) => {
+        if (family === 'field' && id === BUILTIN_FIELD_IDS.has_open_idp) {
+          return { status: 'available', provider: openIdpProvider };
+        }
+        return { status: 'unavailable' };
+      });
+
+      const result = await service.queryEmployees({
+        page: 1,
+        pageSize: 50,
+        filters: [
+          {
+            fieldId: BUILTIN_FIELD_IDS.has_open_idp,
+            operator: 'eq',
+            value: true,
+          },
+        ],
+      });
+
+      expect(result.total).toBe(1);
+      expect(result.rows[0]?.employeeId).toBe('emp-open');
+    });
+
+    it('nulls provider values for suppressed employees before filtering', async () => {
+      prisma.customFieldDefinition.findMany.mockResolvedValue([]);
+      prisma.employee.findMany.mockResolvedValue([
+        {
+          id: 'emp-assessed',
+          user: { name: 'Assessed' },
+          gradeHistory: [],
+          positionHistory: [],
+          departmentHistory: [],
+          employmentTypeHistory: [],
+        },
+        {
+          id: 'emp-suppressed',
+          user: { name: 'Suppressed' },
+          gradeHistory: [],
+          positionHistory: [],
+          departmentHistory: [],
+          employmentTypeHistory: [],
+        },
+      ]);
+
+      const lastAssessmentProvider: FieldProvider = {
+        queryValues: jest.fn().mockResolvedValue([
+          {
+            employeeId: 'emp-assessed',
+            fieldId: BUILTIN_FIELD_IDS.last_assessment_date,
+            value: '2026-01-01',
+          },
+          {
+            employeeId: 'emp-suppressed',
+            fieldId: BUILTIN_FIELD_IDS.last_assessment_date,
+            value: '2026-06-01',
+          },
+        ]),
+      };
+      registry.get.mockImplementation((family: string, id: string) => {
+        if (
+          family === 'field' &&
+          id === BUILTIN_FIELD_IDS.last_assessment_date
+        ) {
+          return { status: 'available', provider: lastAssessmentProvider };
+        }
+        return { status: 'unavailable' };
+      });
+
+      const result = await service.queryEmployees({
+        page: 1,
+        pageSize: 50,
+        suppressProviderValuesForEmployeeIds: ['emp-suppressed'],
+        filters: [
+          {
+            fieldId: BUILTIN_FIELD_IDS.last_assessment_date,
+            operator: 'is_empty',
+            value: null,
+          },
+        ],
+      });
+
+      expect(result.total).toBe(1);
+      expect(result.rows[0]?.employeeId).toBe('emp-suppressed');
+    });
+
+    it('rejects filtering on unavailable provider-backed fields', async () => {
+      prisma.customFieldDefinition.findMany.mockResolvedValue([]);
+      prisma.employee.findMany.mockResolvedValue([
+        {
+          id: 'emp-1',
+          user: { name: 'One' },
+          gradeHistory: [],
+          positionHistory: [],
+          departmentHistory: [],
+          employmentTypeHistory: [],
+        },
+      ]);
+      registry.get.mockReturnValue({ status: 'unavailable' });
+
+      await expect(
+        service.queryEmployees({
+          page: 1,
+          pageSize: 50,
+          filters: [
+            {
+              fieldId: BUILTIN_FIELD_IDS.has_open_idp,
+              operator: 'eq',
+              value: true,
+            },
+          ],
+        }),
+      ).rejects.toThrow(ServiceUnavailableException);
+    });
+
+    it('returns fieldsUnavailable for display when provider is missing', async () => {
+      prisma.customFieldDefinition.findMany.mockResolvedValue([]);
+      prisma.employee.findMany.mockResolvedValue([
+        {
+          id: 'emp-1',
+          user: { name: 'One' },
+          gradeHistory: [],
+          positionHistory: [],
+          departmentHistory: [],
+          employmentTypeHistory: [],
+        },
+      ]);
+      registry.get.mockReturnValue({ status: 'unavailable' });
+
+      const result = await service.queryEmployees({
+        page: 1,
+        pageSize: 50,
+        visibleFieldIds: [
+          BUILTIN_FIELD_IDS.name,
+          BUILTIN_FIELD_IDS.last_assessment_date,
+        ],
+      });
+
+      expect(result.fieldsUnavailable).toEqual([
+        BUILTIN_FIELD_IDS.last_assessment_date,
+      ]);
+      expect(
+        result.rows[0]?.cells[BUILTIN_FIELD_IDS.last_assessment_date],
+      ).toBeUndefined();
     });
   });
 

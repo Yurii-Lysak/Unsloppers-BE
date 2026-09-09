@@ -22,9 +22,16 @@ export const sanitizeSpreadsheetString = (value: string): string => {
   return value;
 };
 
+export const EXPORT_CELL_UNAVAILABLE = 'Temporarily unavailable';
+
 export const formatExportCellValue = (
   value: FieldValue | undefined,
+  fieldId?: string,
+  fieldsUnavailable?: string[],
 ): string | number | boolean => {
+  if (fieldId && fieldsUnavailable?.includes(fieldId)) {
+    return EXPORT_CELL_UNAVAILABLE;
+  }
   if (value === undefined || value === null) {
     return '';
   }

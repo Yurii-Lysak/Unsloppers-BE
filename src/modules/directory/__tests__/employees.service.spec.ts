@@ -921,6 +921,194 @@ describe('EmployeesService', () => {
     ]);
   });
 
+  it('scopes CDS filters to S12-visible employees and reuses audience cache', async () => {
+    const cdsFields: FieldSpec[] = [
+      {
+        id: BUILTIN_FIELD_IDS.last_assessment_date,
+        name: 'Last assessment date',
+        type: 'date',
+        source: 'derived',
+        sectionId: 'S12',
+        sortable: true,
+        filterable: true,
+      },
+      {
+        id: BUILTIN_FIELD_IDS.has_open_idp,
+        name: 'Has open IDP',
+        type: 'boolean',
+        source: 'derived',
+        sectionId: 'S12',
+        sortable: true,
+        filterable: true,
+      },
+    ];
+    listCatalogAccess.resolveCatalogAccess.mockResolvedValue({
+      sections: new Set(['S1', 'S12', 'S16'] as const),
+      elevated: true,
+    });
+    fieldRegistryService.listFields.mockResolvedValue([
+      ...builtinFields,
+      ...cdsFields,
+    ]);
+    permissionChecker.hasPermission.mockResolvedValue(false);
+    prisma.employee.findMany.mockResolvedValue([
+      { id: 'report-1' },
+      { id: 'stranger-1' },
+    ]);
+    accessResolver.resolveAudience.mockImplementation(
+      (_viewerId: string, subjectId: string) => {
+        if (subjectId === 'report-1') {
+          return Promise.resolve({
+            role: 'ReportingLine',
+            sections: { S1: 'R', S4: 'R', S12: 'R', S16: 'none' },
+          });
+        }
+        return Promise.resolve({
+          role: 'Colleague',
+          sections: { S1: 'R', S4: 'none', S12: 'none', S16: 'none' },
+        });
+      },
+    );
+    fieldRegistryService.queryEmployees.mockResolvedValue({
+      rows: [],
+      total: 0,
+      page: 1,
+      pageSize: 50,
+    });
+
+    await service.listEmployees('viewer-1', {
+      filters: [
+        {
+          fieldId: BUILTIN_FIELD_IDS.has_open_idp,
+          operator: 'eq',
+          value: true,
+        },
+      ],
+    });
+
+    expect(fieldRegistryService.queryEmployees).toHaveBeenCalledWith(
+      expect.objectContaining({
+        employeeIds: ['report-1'],
+      }),
+    );
+    expect(accessResolver.resolveAudience).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns zero rows when CDS filters are stripped for viewers without S12 field access', async () => {
+    const cdsFields: FieldSpec[] = [
+      {
+        id: BUILTIN_FIELD_IDS.has_open_idp,
+        name: 'Has open IDP',
+        type: 'boolean',
+        source: 'derived',
+        sectionId: 'S12',
+        sortable: true,
+        filterable: true,
+      },
+    ];
+    listCatalogAccess.resolveCatalogAccess.mockResolvedValue({
+      sections: new Set(['S1', 'S4'] as const),
+      elevated: false,
+    });
+    listCatalogAccess.resolveCatalogSections.mockResolvedValue(
+      new Set(['S1', 'S4'] as const),
+    );
+    fieldRegistryService.listFields.mockResolvedValue([
+      ...builtinFields,
+      ...cdsFields,
+    ]);
+    permissionChecker.hasPermission.mockResolvedValue(false);
+
+    const result = await service.listEmployees('viewer-1', {
+      filters: [
+        {
+          fieldId: BUILTIN_FIELD_IDS.has_open_idp,
+          operator: 'eq',
+          value: true,
+        },
+      ],
+    });
+
+    expect(result.total).toBe(0);
+    expect(result.rows).toEqual([]);
+    expect(fieldRegistryService.queryEmployees).not.toHaveBeenCalled();
+  });
+
+  it('passes suppressProviderValuesForEmployeeIds when sorting by a CDS field only', async () => {
+    const cdsFields: FieldSpec[] = [
+      {
+        id: BUILTIN_FIELD_IDS.last_assessment_date,
+        name: 'Last assessment date',
+        type: 'date',
+        source: 'derived',
+        sectionId: 'S12',
+        sortable: true,
+        filterable: true,
+      },
+    ];
+    listCatalogAccess.resolveCatalogAccess.mockResolvedValue({
+      sections: new Set(['S1', 'S12', 'S16'] as const),
+      elevated: true,
+    });
+    fieldRegistryService.listFields.mockResolvedValue([
+      ...builtinFields,
+      ...cdsFields,
+    ]);
+    permissionChecker.hasPermission.mockResolvedValue(false);
+    prisma.employee.findMany.mockResolvedValue([
+      { id: 'report-1' },
+      { id: 'stranger-1' },
+    ]);
+    accessResolver.resolveAudience.mockImplementation(
+      (_viewerId: string, subjectId: string) => {
+        if (subjectId === 'report-1') {
+          return Promise.resolve({
+            role: 'ReportingLine',
+            sections: { S1: 'R', S4: 'R', S12: 'R', S16: 'none' },
+          });
+        }
+        return Promise.resolve({
+          role: 'Colleague',
+          sections: { S1: 'R', S4: 'none', S12: 'none', S16: 'none' },
+        });
+      },
+    );
+    fieldRegistryService.queryEmployees.mockResolvedValue({
+      rows: [],
+      total: 0,
+      page: 1,
+      pageSize: 50,
+    });
+
+    await service.listEmployees('viewer-1', {
+      sort: BUILTIN_FIELD_IDS.last_assessment_date,
+      order: 'asc',
+    });
+
+    expect(fieldRegistryService.queryEmployees).toHaveBeenCalledWith(
+      expect.objectContaining({
+        suppressProviderValuesForEmployeeIds: ['stranger-1'],
+      }),
+    );
+  });
+
+  it('propagates fieldsUnavailable from the field registry', async () => {
+    fieldRegistryService.listFields.mockResolvedValue(builtinFields);
+    fieldRegistryService.queryEmployees.mockResolvedValue({
+      rows: [],
+      total: 0,
+      page: 1,
+      pageSize: 50,
+      fieldsUnavailable: [BUILTIN_FIELD_IDS.last_assessment_date],
+    });
+
+    const result = await service.listEmployees('viewer-1', {});
+
+    expect(result.fieldsUnavailable).toEqual([
+      BUILTIN_FIELD_IDS.last_assessment_date,
+    ]);
+  });
+
   it('updateEmployeeField rejects empty built-in grade values', async () => {
     const gradeField: FieldSpec = {
       id: BUILTIN_FIELD_IDS.grade,

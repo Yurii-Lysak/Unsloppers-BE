@@ -91,6 +91,26 @@ export const BUILTIN_FIELD_SPECS: FieldSpec[] = [
     sortable: false,
     filterable: false,
   },
+  {
+    id: BUILTIN_FIELD_IDS.last_assessment_date,
+    name: 'Last assessment date',
+    type: 'date',
+    source: 'derived',
+    sectionId: 'S12',
+    sortable: true,
+    filterable: true,
+    editable: false,
+  },
+  {
+    id: BUILTIN_FIELD_IDS.has_open_idp,
+    name: 'Has open IDP',
+    type: 'boolean',
+    source: 'derived',
+    sectionId: 'S12',
+    sortable: true,
+    filterable: true,
+    editable: false,
+  },
 ];
 
 export {

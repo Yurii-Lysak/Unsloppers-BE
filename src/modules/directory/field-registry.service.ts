@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import {
   CustomFieldDefinition,
@@ -27,6 +28,8 @@ import {
   FieldValueType,
   FieldVisibility,
 } from '../contracts/field-registry.contract';
+import { FieldProvider } from '../contracts/field-provider.contract';
+import { ProviderRegistryService } from '../registry/provider-registry.service';
 import {
   BUILTIN_FIELD_SPECS,
   DEFAULT_PAGE_SIZE,
@@ -42,6 +45,7 @@ import {
   getCellValue,
   HistoryRowSnapshot,
   isBuiltinFieldId,
+  isProviderBackedFieldId,
   sortSnapshots,
 } from './employee-query.helpers';
 
@@ -52,6 +56,7 @@ export class FieldRegistryService extends FieldRegistry {
   constructor(
     private readonly prisma: PrismaService,
     private readonly clock: Clock,
+    private readonly registry: ProviderRegistryService,
   ) {
     super();
   }
@@ -513,23 +518,42 @@ export class FieldRegistryService extends FieldRegistry {
     const asOf = this.clock.now();
     let snapshots = await this.loadEmployeeSnapshots();
 
-    const customFieldIdsForQuery = this.collectCustomFieldIds(
+    if (options.employeeIds) {
+      const allowedIds = new Set(options.employeeIds);
+      snapshots = snapshots.filter((snapshot) =>
+        allowedIds.has(snapshot.employeeId),
+      );
+    }
+
+    const queryableFieldIds = this.collectQueryableFieldIds(
       visibleFieldIds,
       filters,
       sortFieldId,
     );
-    const customValueMap = await this.loadCustomValueMap(
-      snapshots,
-      customFieldIdsForQuery,
+    const customFieldIds = queryableFieldIds.filter(
+      (fieldId) => !isProviderBackedFieldId(fieldId),
+    );
+    const providerFieldIds = queryableFieldIds.filter((fieldId) =>
+      isProviderBackedFieldId(fieldId),
     );
 
-    snapshots = applyFilters(
+    const customValueMap = await this.loadCustomValueMap(
       snapshots,
-      filters,
-      fieldById,
-      asOf,
-      customValueMap,
+      customFieldIds,
     );
+    const { valueMap: providerValueMap, fieldsUnavailable } =
+      await this.loadProviderValueMap(snapshots, providerFieldIds, filters);
+    const valueMap = new Map([...customValueMap, ...providerValueMap]);
+    if (options.suppressProviderValuesForEmployeeIds?.length) {
+      const suppressed = new Set(options.suppressProviderValuesForEmployeeIds);
+      for (const fieldId of providerFieldIds) {
+        for (const employeeId of suppressed) {
+          valueMap.set(`${employeeId}:${fieldId}`, null);
+        }
+      }
+    }
+
+    snapshots = applyFilters(snapshots, filters, fieldById, asOf, valueMap);
 
     if (sortFieldId) {
       snapshots = sortSnapshots(
@@ -537,7 +561,7 @@ export class FieldRegistryService extends FieldRegistry {
         sortFieldId,
         sortOrder,
         asOf,
-        customValueMap,
+        valueMap,
       );
     } else {
       snapshots = sortSnapshots(
@@ -545,7 +569,7 @@ export class FieldRegistryService extends FieldRegistry {
         BUILTIN_FIELD_SPECS[0].id,
         'asc',
         asOf,
-        customValueMap,
+        valueMap,
       );
     }
 
@@ -556,34 +580,89 @@ export class FieldRegistryService extends FieldRegistry {
     const rows: EmployeeRowDto[] = pageSnapshots.map((snapshot) => {
       const cells: Record<string, FieldValue> = {};
       for (const fieldId of visibleFieldIds) {
-        cells[fieldId] = getCellValue(snapshot, fieldId, asOf, customValueMap);
+        if (fieldsUnavailable.includes(fieldId)) {
+          continue;
+        }
+        cells[fieldId] = getCellValue(snapshot, fieldId, asOf, valueMap);
       }
       return { employeeId: snapshot.employeeId, cells };
     });
 
-    return { rows, total, page, pageSize };
+    return {
+      rows,
+      total,
+      page,
+      pageSize,
+      ...(fieldsUnavailable.length > 0 ? { fieldsUnavailable } : {}),
+    };
   }
 
-  private collectCustomFieldIds(
+  private collectQueryableFieldIds(
     visibleFieldIds: string[],
     filters: FieldFilter[],
     sortFieldId: string | undefined,
   ): string[] {
     const ids = new Set<string>();
-    for (const fieldId of visibleFieldIds) {
-      if (!isBuiltinFieldId(fieldId)) {
+    const maybeAdd = (fieldId: string) => {
+      if (!isBuiltinFieldId(fieldId) || isProviderBackedFieldId(fieldId)) {
         ids.add(fieldId);
       }
+    };
+    for (const fieldId of visibleFieldIds) {
+      maybeAdd(fieldId);
     }
     for (const filter of filters) {
-      if (!isBuiltinFieldId(filter.fieldId)) {
-        ids.add(filter.fieldId);
-      }
+      maybeAdd(filter.fieldId);
     }
-    if (sortFieldId && !isBuiltinFieldId(sortFieldId)) {
-      ids.add(sortFieldId);
+    if (sortFieldId) {
+      maybeAdd(sortFieldId);
     }
     return [...ids];
+  }
+
+  private async loadProviderValueMap(
+    snapshots: EmployeeSnapshot[],
+    providerFieldIds: string[],
+    filters: FieldFilter[],
+  ): Promise<{
+    valueMap: Map<string, FieldValue>;
+    fieldsUnavailable: string[];
+  }> {
+    const valueMap = new Map<string, FieldValue>();
+    const fieldsUnavailable: string[] = [];
+    if (providerFieldIds.length === 0 || snapshots.length === 0) {
+      return { valueMap, fieldsUnavailable };
+    }
+
+    const employeeIds = snapshots.map((snapshot) => snapshot.employeeId);
+    for (const fieldId of providerFieldIds) {
+      const lookup = this.registry.get<FieldProvider>('field', fieldId);
+      if (lookup.status === 'unavailable') {
+        fieldsUnavailable.push(fieldId);
+        if (filters.some((filter) => filter.fieldId === fieldId)) {
+          throw new ServiceUnavailableException(
+            `Field "${fieldId}" is temporarily unavailable`,
+          );
+        }
+        continue;
+      }
+
+      try {
+        const results = await lookup.provider.queryValues(employeeIds);
+        for (const entry of results) {
+          valueMap.set(`${entry.employeeId}:${entry.fieldId}`, entry.value);
+        }
+      } catch {
+        fieldsUnavailable.push(fieldId);
+        if (filters.some((filter) => filter.fieldId === fieldId)) {
+          throw new ServiceUnavailableException(
+            `Field "${fieldId}" is temporarily unavailable`,
+          );
+        }
+      }
+    }
+
+    return { valueMap, fieldsUnavailable };
   }
 
   private async loadCustomValueMap(
@@ -631,7 +710,45 @@ export class FieldRegistryService extends FieldRegistry {
           `Operator "${filter.operator}" is not supported for field "${filter.fieldId}"`,
         );
       }
+      if (filter.operator === 'between') {
+        this.validateBetweenFilter(filter);
+      }
+      if (filter.operator === 'is_empty') {
+        this.validateIsEmptyFilter(filter);
+      }
     }
+  }
+
+  private validateBetweenFilter(filter: FieldFilter): void {
+    const { value } = filter;
+    if (!Array.isArray(value) || value.length !== 2) {
+      throw new BadRequestException(
+        'between filter requires exactly two ISO dates',
+      );
+    }
+    const [from, to] = value;
+    if (!this.isWellFormedIsoDate(from) || !this.isWellFormedIsoDate(to)) {
+      throw new BadRequestException(
+        'between filter requires well-formed ISO dates',
+      );
+    }
+    if (from > to) {
+      throw new BadRequestException('between filter requires from <= to');
+    }
+  }
+
+  private validateIsEmptyFilter(filter: FieldFilter): void {
+    if (filter.value !== null && filter.value !== undefined) {
+      throw new BadRequestException('is_empty filter must not include a value');
+    }
+  }
+
+  private isWellFormedIsoDate(value: unknown): boolean {
+    return (
+      typeof value === 'string' &&
+      /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+      !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`))
+    );
   }
 
   private async loadEmployeeSnapshots(): Promise<EmployeeSnapshot[]> {
