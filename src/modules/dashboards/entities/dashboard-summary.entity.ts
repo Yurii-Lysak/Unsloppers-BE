@@ -42,6 +42,12 @@ export class DashboardTableRowEntity {
 
   @ApiPropertyOptional()
   projectLabel?: string;
+
+  @ApiPropertyOptional()
+  leaveStale?: boolean;
+
+  @ApiPropertyOptional()
+  projectStale?: boolean;
 }
 
 export class DashboardProjectGroupEntity {
@@ -53,6 +59,17 @@ export class DashboardProjectGroupEntity {
 
   @ApiProperty({ type: [DashboardTableRowEntity] })
   rows!: DashboardTableRowEntity[];
+}
+
+export class DashboardPaginationEntity {
+  @ApiProperty()
+  page!: number;
+
+  @ApiProperty()
+  pageSize!: number;
+
+  @ApiProperty()
+  totalRows!: number;
 }
 
 export class DashboardSummaryEntity {
@@ -70,4 +87,7 @@ export class DashboardSummaryEntity {
 
   @ApiPropertyOptional({ type: [DashboardProjectGroupEntity] })
   groups?: DashboardProjectGroupEntity[];
+
+  @ApiPropertyOptional({ type: DashboardPaginationEntity })
+  pagination?: DashboardPaginationEntity;
 }
