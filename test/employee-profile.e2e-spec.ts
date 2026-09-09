@@ -781,6 +781,11 @@ describe('Employee profile assembly (e2e)', () => {
         }
       ).sections.S1?.data?.peoplePartner?.id,
     ).toBe(mentorEmployeeId);
+
+    await testApp.prisma.employee.update({
+      where: { id: reportEmployeeId },
+      data: { peoplePartnerId: ppEmployee.id },
+    });
   });
 
   it('keeps assembled profile sections unchanged after a C8 role assignment', async () => {
@@ -1137,6 +1142,441 @@ describe('Employee profile assembly (e2e)', () => {
       .send({ description: 'Wrong subject' })
       .expect(404);
   });
+
+  it('ASSESSMENT_CREATED: PP appends a new assessment entry', async () => {
+    const profileBefore = await ppAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+    const priorAssessment = (
+      profileBefore.body as {
+        sections: {
+          S12?: {
+            data: {
+              assessments: Array<{ id: string; conclusion: string }>;
+            };
+          };
+        };
+      }
+    ).sections.S12?.data.assessments[0];
+
+    const createRes = await ppAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/cds-assessments`)
+      .send({
+        date: '2026-08-01',
+        assessor: 'Unit Manager',
+        resultLink: 'https://skills-matrix.bootcamp.example/assessments/new',
+        conclusion: 'Follow-up assessment with updated goals.',
+      })
+      .expect(201);
+
+    expect(createRes.body).toMatchObject({
+      date: '2026-08-01',
+      assessor: 'Unit Manager',
+      resultLink: 'https://skills-matrix.bootcamp.example/assessments/new',
+      conclusion: 'Follow-up assessment with updated goals.',
+    });
+
+    const profileAfter = await ppAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+    const assessments = (
+      profileAfter.body as {
+        sections: {
+          S12?: {
+            data: {
+              assessments: Array<{
+                id: string;
+                date: string;
+                conclusion: string;
+              }>;
+            };
+          };
+        };
+      }
+    ).sections.S12?.data.assessments;
+
+    expect(assessments?.[0]).toMatchObject({
+      id: (createRes.body as { id: string }).id,
+      date: '2026-08-01',
+    });
+    expect(assessments).toContainEqual(
+      expect.objectContaining({
+        id: priorAssessment?.id,
+        conclusion: priorAssessment?.conclusion,
+      }),
+    );
+  });
+
+  it('CREATE_DENIED: colleague cannot create an assessment', async () => {
+    await colleagueAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/cds-assessments`)
+      .send({
+        date: '2026-08-01',
+        assessor: 'Blocked Assessor',
+        resultLink:
+          'https://skills-matrix.bootcamp.example/assessments/blocked',
+        conclusion: 'Should not be created.',
+      })
+      .expect(403);
+  });
+
+  it('CREATE_DENIED: Self viewer with S12 R cannot create an assessment', async () => {
+    await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/cds-assessments`)
+      .send({
+        date: '2026-08-01',
+        assessor: 'Blocked Assessor',
+        resultLink:
+          'https://skills-matrix.bootcamp.example/assessments/blocked-self',
+        conclusion: 'Should not be created.',
+      })
+      .expect(403);
+  });
+
+  it('CREATE_DENIED: unrelated manager cannot write assessments', async () => {
+    const unrelatedEmail = profileEmail('unrelated-manager', `-${randomUUID()}`);
+    const unrelatedUser = await testApp.prisma.user.create({
+      data: {
+        email: unrelatedEmail,
+        passwordHash: await hash(PASSWORD, 12),
+      },
+    });
+    await testApp.prisma.employee.create({
+      data: { userId: unrelatedUser.id },
+    });
+    const unrelatedAgent = await loginAgent(testApp, unrelatedEmail);
+
+    await unrelatedAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/cds-assessments`)
+      .send({
+        date: '2026-08-01',
+        assessor: 'Unrelated Manager',
+        resultLink:
+          'https://skills-matrix.bootcamp.example/assessments/unrelated',
+        conclusion: 'Should not be created.',
+      })
+      .expect(403);
+
+    const profileRes = await managerAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+    const assessmentId = (
+      profileRes.body as {
+        sections: {
+          S12?: { data: { assessments: Array<{ id: string }> } };
+        };
+      }
+    ).sections.S12?.data.assessments[0]?.id;
+
+    await unrelatedAgent
+      .patch(
+        `/api/v1/employees/${reportEmployeeId}/cds-assessments/${assessmentId}`,
+      )
+      .send({ conclusion: 'Blocked unrelated edit' })
+      .expect(403);
+  });
+
+  it('CONCLUSION_EDITED: manager updates an existing assessment conclusion', async () => {
+    const profileRes = await managerAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+    const existing = (
+      profileRes.body as {
+        sections: {
+          S12?: {
+            data: {
+              assessments: Array<{
+                id: string;
+                date: string;
+                assessor: string;
+                resultLink: string;
+              }>;
+            };
+          };
+        };
+      }
+    ).sections.S12?.data.assessments[0];
+
+    const patchRes = await managerAgent
+      .patch(
+        `/api/v1/employees/${reportEmployeeId}/cds-assessments/${existing?.id}`,
+      )
+      .send({ conclusion: 'Revised conclusion after calibration.' })
+      .expect(200);
+
+    expect(patchRes.body).toMatchObject({
+      id: existing?.id,
+      date: existing?.date,
+      assessor: existing?.assessor,
+      resultLink: existing?.resultLink,
+      conclusion: 'Revised conclusion after calibration.',
+    });
+
+    const profileAfter = await managerAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+    const updatedAssessment = (
+      profileAfter.body as {
+        sections: {
+          S12?: {
+            data: {
+              assessments: Array<{ id: string; conclusion: string }>;
+            };
+          };
+        };
+      }
+    ).sections.S12?.data.assessments?.find(
+      (assessment) => assessment.id === existing?.id,
+    );
+
+    expect(updatedAssessment?.conclusion).toBe(
+      'Revised conclusion after calibration.',
+    );
+  });
+
+  it('EDIT_DENIED: colleague cannot edit an assessment conclusion', async () => {
+    const profileRes = await managerAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+    const assessmentId = (
+      profileRes.body as {
+        sections: {
+          S12?: { data: { assessments: Array<{ id: string }> } };
+        };
+      }
+    ).sections.S12?.data.assessments[0]?.id;
+
+    await colleagueAgent
+      .patch(
+        `/api/v1/employees/${reportEmployeeId}/cds-assessments/${assessmentId}`,
+      )
+      .send({ conclusion: 'Blocked edit' })
+      .expect(403);
+  });
+
+  it('EDIT_DENIED: Self viewer with S12 R cannot edit an assessment conclusion', async () => {
+    const profileRes = await managerAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+    const assessmentId = (
+      profileRes.body as {
+        sections: {
+          S12?: { data: { assessments: Array<{ id: string }> } };
+        };
+      }
+    ).sections.S12?.data.assessments[0]?.id;
+
+    await reportAgent
+      .patch(
+        `/api/v1/employees/${reportEmployeeId}/cds-assessments/${assessmentId}`,
+      )
+      .send({ conclusion: 'Blocked self edit' })
+      .expect(403);
+  });
+
+  it('MAINTAIN_PERMISSION_ALLOWS: maintain_cds_records holder with S12 R can write', async () => {
+    const maintainRole = await testApp.prisma.functionalRole.create({
+      data: {
+        name: 'Profile CDS Maintainer',
+        isBuiltIn: false,
+        permissions: {
+          create: [{ permissionKey: PERMISSION_KEYS.MAINTAIN_CDS_RECORDS }],
+        },
+      },
+    });
+    const reportUser = await testApp.prisma.user.findUniqueOrThrow({
+      where: { email: REPORT_EMAIL },
+    });
+    const reportEmployee = await testApp.prisma.employee.findUniqueOrThrow({
+      where: { userId: reportUser.id },
+    });
+    await testApp.prisma.functionalRoleAssignment.create({
+      data: { employeeId: reportEmployee.id, roleId: maintainRole.id },
+    });
+
+    const createRes = await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/cds-assessments`)
+      .send({
+        date: '2026-05-01',
+        assessor: 'Self-maintainer',
+        resultLink:
+          'https://skills-matrix.bootcamp.example/assessments/maintain-create',
+        conclusion: 'Created via maintain permission.',
+      })
+      .expect(201);
+
+    await reportAgent
+      .patch(
+        `/api/v1/employees/${reportEmployeeId}/cds-assessments/${(createRes.body as { id: string }).id}`,
+      )
+      .send({ conclusion: 'Updated via maintain permission.' })
+      .expect(200);
+  });
+
+  it('MAINTAIN_PERMISSION_NO_S12: maintain_cds_records alone is not sufficient', async () => {
+    const maintainRole = await testApp.prisma.functionalRole.create({
+      data: {
+        name: 'Profile CDS Maintainer No S12',
+        isBuiltIn: false,
+        permissions: {
+          create: [{ permissionKey: PERMISSION_KEYS.MAINTAIN_CDS_RECORDS }],
+        },
+      },
+    });
+    const colleagueUser = await testApp.prisma.user.findUniqueOrThrow({
+      where: { email: COLLEAGUE_EMAIL },
+    });
+    const colleagueEmployee = await testApp.prisma.employee.findUniqueOrThrow({
+      where: { userId: colleagueUser.id },
+    });
+    await testApp.prisma.functionalRoleAssignment.create({
+      data: { employeeId: colleagueEmployee.id, roleId: maintainRole.id },
+    });
+
+    await colleagueAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/cds-assessments`)
+      .send({
+        date: '2026-08-01',
+        assessor: 'Blocked Assessor',
+        resultLink: 'https://skills-matrix.bootcamp.example/assessments/no-s12',
+        conclusion: 'Should not be created.',
+      })
+      .expect(403);
+
+    const profileRes = await managerAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+    const assessmentId = (
+      profileRes.body as {
+        sections: {
+          S12?: { data: { assessments: Array<{ id: string }> } };
+        };
+      }
+    ).sections.S12?.data.assessments[0]?.id;
+
+    await colleagueAgent
+      .patch(
+        `/api/v1/employees/${reportEmployeeId}/cds-assessments/${assessmentId}`,
+      )
+      .send({ conclusion: 'Blocked maintain-only edit' })
+      .expect(403);
+  });
+
+  it('SUBJECT_NOT_FOUND: assessment routes return 404 for unknown employee', async () => {
+    const missingEmployeeId = '00000000-0000-4000-8000-000000000099';
+
+    await managerAgent
+      .post(`/api/v1/employees/${missingEmployeeId}/cds-assessments`)
+      .send({
+        date: '2026-08-01',
+        assessor: 'Missing Subject',
+        resultLink:
+          'https://skills-matrix.bootcamp.example/assessments/missing-subject',
+        conclusion: 'Missing subject.',
+      })
+      .expect(404);
+
+    await managerAgent
+      .patch(
+        `/api/v1/employees/${missingEmployeeId}/cds-assessments/00000000-0000-4000-8000-000000000001`,
+      )
+      .send({ conclusion: 'Missing subject' })
+      .expect(404);
+  });
+
+  it('ASSESSMENT_NOT_FOUND: patch returns 404 for another employee assessmentId', async () => {
+    const otherEmployee = await testApp.prisma.employee.create({
+      data: {
+        manager: { connect: { id: managerEmployeeId } },
+        user: {
+          create: {
+            email: 'profile-assessment-other@example.com',
+            passwordHash: await hash(PASSWORD, 12),
+          },
+        },
+      },
+    });
+
+    const createRes = await managerAgent
+      .post(`/api/v1/employees/${otherEmployee.id}/cds-assessments`)
+      .send({
+        date: '2026-08-01',
+        assessor: 'Other Assessor',
+        resultLink: 'https://skills-matrix.bootcamp.example/assessments/other',
+        conclusion: 'Other employee assessment.',
+      })
+      .expect(201);
+
+    await managerAgent
+      .patch(
+        `/api/v1/employees/${reportEmployeeId}/cds-assessments/${(createRes.body as { id: string }).id}`,
+      )
+      .send({ conclusion: 'Wrong subject' })
+      .expect(404);
+  });
+
+  it('ASSESSMENT_NOT_FOUND: patch returns 404 for a non-existent assessmentId', async () => {
+    await managerAgent
+      .patch(
+        `/api/v1/employees/${reportEmployeeId}/cds-assessments/${randomUUID()}`,
+      )
+      .send({ conclusion: 'Missing assessment' })
+      .expect(404);
+  });
+
+  it('CREATE_REJECTS_WHITESPACE_ASSESSOR: whitespace-only assessor returns 400', async () => {
+    await managerAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/cds-assessments`)
+      .send({
+        date: '2026-08-01',
+        assessor: '   ',
+        resultLink:
+          'https://skills-matrix.bootcamp.example/assessments/whitespace-assessor',
+        conclusion: 'Invalid assessor.',
+      })
+      .expect(400);
+  });
+
+  it('PATCH_EMPTY_BODY: empty conclusion patch returns 400', async () => {
+    const profileRes = await managerAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+    const assessmentId = (
+      profileRes.body as {
+        sections: {
+          S12?: { data: { assessments: Array<{ id: string }> } };
+        };
+      }
+    ).sections.S12?.data.assessments[0]?.id;
+
+    await managerAgent
+      .patch(
+        `/api/v1/employees/${reportEmployeeId}/cds-assessments/${assessmentId}`,
+      )
+      .send({})
+      .expect(400);
+  });
+
+  it('PATCH_REJECTS_WHITESPACE_CONCLUSION: whitespace-only conclusion returns 400', async () => {
+    const profileRes = await managerAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+    const assessmentId = (
+      profileRes.body as {
+        sections: {
+          S12?: { data: { assessments: Array<{ id: string }> } };
+        };
+      }
+    ).sections.S12?.data.assessments[0]?.id;
+
+    await managerAgent
+      .patch(
+        `/api/v1/employees/${reportEmployeeId}/cds-assessments/${assessmentId}`,
+      )
+      .send({ conclusion: '   ' })
+      .expect(400);
+  });
+
 });
 
 const loginAgent = async (testApp: TestApp, email: string) => {
