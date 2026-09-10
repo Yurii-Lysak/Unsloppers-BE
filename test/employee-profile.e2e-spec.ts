@@ -769,6 +769,315 @@ describe('Employee profile assembly (e2e)', () => {
     expect(sections ?? {}).not.toHaveProperty('S15');
   });
 
+  it('SELF_RISK_INVISIBLE: Self profile omits S6 even when a risk record exists', async () => {
+    await testApp.prisma.riskRecord.create({
+      data: {
+        subjectEmployeeId: reportEmployeeId,
+        authorEmployeeId: managerEmployeeId,
+        level: 'medium',
+        description: 'Self risk regression',
+        details: 'Must not surface on own profile',
+        recordedAt: new Date('2026-01-15'),
+      },
+    });
+
+    const res = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const sections = (res.body as { sections?: Record<string, unknown> })
+      .sections;
+    expect(sections ?? {}).not.toHaveProperty('S6');
+  });
+
+  it('SELF_VIEW_S7_FILTERED: Self sees only management notes flagged visibleForEmployee', async () => {
+    const visibleNote = await testApp.prisma.managementNote.create({
+      data: {
+        subjectEmployeeId: reportEmployeeId,
+        authorEmployeeId: managerEmployeeId,
+        content: 'Visible to employee note',
+        visibleForEmployee: true,
+      },
+    });
+    await testApp.prisma.managementNote.create({
+      data: {
+        subjectEmployeeId: reportEmployeeId,
+        authorEmployeeId: managerEmployeeId,
+        content: 'Hidden from employee note',
+        visibleForEmployee: false,
+      },
+    });
+
+    const res = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s7 = readS7Section(res.body as { sections: Record<string, unknown> });
+
+    expect(s7?.accessLevel).toBe('R');
+    expect(s7?.data.notes).toHaveLength(1);
+    expect(s7?.data.notes[0]).toMatchObject({
+      id: visibleNote.id,
+      content: 'Visible to employee note',
+    });
+    expect(s7?.data.notes[0]).not.toHaveProperty('visibleForEmployee');
+  });
+
+  it('SELF_VIEW_S8_FILTERED: Self sees only feedback records sharedWithEmployee', async () => {
+    const sharedRecord = await testApp.prisma.feedbackRecord.create({
+      data: {
+        subjectEmployeeId: reportEmployeeId,
+        authorEmployeeId: managerEmployeeId,
+        recordedAt: new Date('2026-02-01'),
+        context: 'Shared review',
+        body: 'Shared feedback body',
+        sharedWithEmployee: true,
+      },
+    });
+    await testApp.prisma.feedbackRecord.create({
+      data: {
+        subjectEmployeeId: reportEmployeeId,
+        authorEmployeeId: managerEmployeeId,
+        recordedAt: new Date('2026-02-02'),
+        context: 'Private review',
+        body: 'Private feedback body',
+        sharedWithEmployee: false,
+      },
+    });
+
+    const res = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s8 = readS8Section(res.body as { sections: Record<string, unknown> });
+
+    expect(s8?.accessLevel).toBe('R');
+    expect(s8?.data.records).toHaveLength(1);
+    expect(s8?.data.records[0]).toMatchObject({
+      id: sharedRecord.id,
+      context: 'Shared review',
+      body: 'Shared feedback body',
+    });
+    expect(s8?.data.records[0]).not.toHaveProperty('sharedWithEmployee');
+  });
+
+  it('SELF_VIEW_S14_OWN_ONLY: Self S14 lists only items assigned to the subject', async () => {
+    const ownItemOne = await testApp.prisma.actionItem.create({
+      data: {
+        assigneeId: reportEmployeeId,
+        authorId: managerEmployeeId,
+        title: 'Own action item one',
+        dueDate: new Date('2026-09-01'),
+        source: 'manual',
+        status: 'open',
+      },
+    });
+    const ownItemTwo = await testApp.prisma.actionItem.create({
+      data: {
+        assigneeId: reportEmployeeId,
+        authorId: managerEmployeeId,
+        title: 'Own action item two',
+        dueDate: new Date('2026-09-15'),
+        source: 'manual',
+        status: 'open',
+      },
+    });
+    await testApp.prisma.actionItem.create({
+      data: {
+        assigneeId: managerEmployeeId,
+        authorId: reportEmployeeId,
+        title: 'Authored for manager',
+        dueDate: new Date('2026-09-20'),
+        source: 'manual',
+        status: 'open',
+      },
+    });
+
+    const res = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s14 = readS14Section(
+      res.body as { sections: Record<string, unknown> },
+    );
+
+    expect(s14?.accessLevel).toBe('R');
+    expect(s14?.data.items.map((item) => item.id).sort()).toEqual(
+      [ownItemOne.id, ownItemTwo.id].sort(),
+    );
+    expect(s14?.data.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: 'Own action item one' }),
+        expect.objectContaining({ title: 'Own action item two' }),
+      ]),
+    );
+    expect(
+      s14?.data.items.some((item) => item.title === 'Authored for manager'),
+    ).toBe(false);
+  });
+
+  it('SELF_COMPLETE_ACTION_ITEM: assignee can complete own open item via profile flow', async () => {
+    const item = await testApp.prisma.actionItem.create({
+      data: {
+        assigneeId: reportEmployeeId,
+        authorId: managerEmployeeId,
+        title: 'Complete me',
+        dueDate: new Date('2026-10-01'),
+        source: 'manual',
+        status: 'open',
+      },
+    });
+
+    const completeRes = await reportAgent
+      .post(
+        `/api/v1/employees/${reportEmployeeId}/action-items/${item.id}/complete`,
+      )
+      .expect(200);
+
+    const completedItem = completeRes.body as {
+      id: string;
+      title: string;
+      status: string;
+      completedAt?: string;
+    };
+
+    expect(completedItem).toMatchObject({
+      id: item.id,
+      title: 'Complete me',
+      status: 'completed',
+      dueDate: '2026-10-01',
+    });
+    expect(completedItem.completedAt).toBeTruthy();
+
+    const profileRes = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+    const s14 = readS14Section(
+      profileRes.body as { sections: Record<string, unknown> },
+    );
+    const completed = s14?.data.items.find(
+      (actionItem) => actionItem.id === item.id,
+    );
+
+    expect(completed).toMatchObject({
+      id: item.id,
+      title: 'Complete me',
+      status: 'completed',
+    });
+    expect(completed?.completedAt).toBeTruthy();
+    expect(completed).toMatchObject({
+      title: 'Complete me',
+      dueDate: '2026-10-01',
+    });
+  });
+
+  it('SELF_COMPLETE_ACTION_ITEM_TWICE: second complete returns 409 with status completed', async () => {
+    const item = await testApp.prisma.actionItem.create({
+      data: {
+        assigneeId: reportEmployeeId,
+        authorId: managerEmployeeId,
+        title: 'Complete once',
+        dueDate: new Date('2026-10-15'),
+        source: 'manual',
+        status: 'open',
+      },
+    });
+
+    await reportAgent
+      .post(
+        `/api/v1/employees/${reportEmployeeId}/action-items/${item.id}/complete`,
+      )
+      .expect(200);
+
+    const conflictRes = await reportAgent
+      .post(
+        `/api/v1/employees/${reportEmployeeId}/action-items/${item.id}/complete`,
+      )
+      .expect(409);
+
+    expect(conflictRes.body).toMatchObject({ status: 'completed' });
+  });
+
+  it('SELF_VIEW_S14_CANCELLED: Self S14 includes cancelled item metadata', async () => {
+    const cancelledItem = await testApp.prisma.actionItem.create({
+      data: {
+        assigneeId: reportEmployeeId,
+        authorId: managerEmployeeId,
+        title: 'Cancelled item',
+        dueDate: new Date('2026-08-01'),
+        source: 'manual',
+        status: 'cancelled',
+        cancelledAt: new Date('2026-08-10'),
+        cancelledReason: 'No longer relevant',
+      },
+    });
+
+    const res = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s14 = readS14Section(
+      res.body as { sections: Record<string, unknown> },
+    );
+    const cancelled = s14?.data.items.find(
+      (actionItem) => actionItem.id === cancelledItem.id,
+    );
+
+    expect(cancelled).toMatchObject({
+      id: cancelledItem.id,
+      title: 'Cancelled item',
+      status: 'cancelled',
+      cancelledReason: 'No longer relevant',
+    });
+    expect(cancelled?.cancelledAt).toBeTruthy();
+  });
+
+  it('SELF_COMPLETE_CANCELLED_ITEM: complete on cancelled item returns 409 with status cancelled', async () => {
+    const item = await testApp.prisma.actionItem.create({
+      data: {
+        assigneeId: reportEmployeeId,
+        authorId: managerEmployeeId,
+        title: 'Already cancelled',
+        dueDate: new Date('2026-08-20'),
+        source: 'manual',
+        status: 'cancelled',
+        cancelledAt: new Date('2026-08-21'),
+        cancelledReason: 'Superseded',
+      },
+    });
+
+    const conflictRes = await reportAgent
+      .post(
+        `/api/v1/employees/${reportEmployeeId}/action-items/${item.id}/complete`,
+      )
+      .expect(409);
+
+    expect(conflictRes.body).toMatchObject({ status: 'cancelled' });
+  });
+
+  it('SELF_VIEW_S14_EMPTY: Self sees empty S14 when no items are assigned', async () => {
+    const email = profileEmail('s14-empty');
+    const passwordHash = await hash(PASSWORD, 12);
+    const user = await testApp.prisma.user.create({
+      data: { email, passwordHash },
+    });
+    const employee = await testApp.prisma.employee.create({
+      data: { userId: user.id },
+    });
+    const agent = await loginAgent(testApp, email);
+
+    const res = await agent
+      .get(`/api/v1/employees/${employee.id}/profile`)
+      .expect(200);
+
+    const s14 = readS14Section(
+      res.body as { sections: Record<string, unknown> },
+    );
+
+    expect(s14?.accessLevel).toBe('R');
+    expect(s14?.data.items).toEqual([]);
+  });
+
   it('returns S4 employment section for Self with all seven keys', async () => {
     await seedS4EmploymentFixture(testApp, reportEmployeeId);
 
@@ -2807,6 +3116,44 @@ const readS3Section = (body: { sections: Record<string, unknown> }) =>
         accessLevel: string;
         data: {
           contacts: Array<Record<string, unknown>>;
+        };
+      }
+    | undefined;
+
+const readS7Section = (body: { sections: Record<string, unknown> }) =>
+  body.sections.S7 as
+    | {
+        accessLevel: string;
+        data: {
+          notes: Array<Record<string, unknown>>;
+        };
+      }
+    | undefined;
+
+const readS8Section = (body: { sections: Record<string, unknown> }) =>
+  body.sections.S8 as
+    | {
+        accessLevel: string;
+        data: {
+          records: Array<Record<string, unknown>>;
+        };
+      }
+    | undefined;
+
+const readS14Section = (body: { sections: Record<string, unknown> }) =>
+  body.sections.S14 as
+    | {
+        accessLevel: string;
+        data: {
+          items: Array<{
+            id: string;
+            title: string;
+            status: string;
+            dueDate?: string;
+            completedAt?: string;
+            cancelledAt?: string;
+            cancelledReason?: string;
+          }>;
         };
       }
     | undefined;
