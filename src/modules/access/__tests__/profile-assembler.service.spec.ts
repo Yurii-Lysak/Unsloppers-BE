@@ -142,7 +142,7 @@ describe('ProfileAssemblerService', () => {
     });
   });
 
-  it('normalizes S10 integration unavailability to section unavailable', async () => {
+  it('surfaces S10 integration unavailability in section data', async () => {
     accessResolver.resolveAudience.mockResolvedValue({
       role: 'ReportingLine',
       sections: { ...ALL_SECTIONS_NONE, S10: 'R' },
@@ -163,7 +163,11 @@ describe('ProfileAssemblerService', () => {
 
     expect(profile.sections.S10).toEqual({
       accessLevel: 'R',
-      status: 'unavailable',
+      data: {
+        availability: 'unavailable',
+        leaves: [],
+        manageLeaveUrl: null,
+      },
     });
   });
 
@@ -254,7 +258,7 @@ describe('ProfileAssemblerService', () => {
     });
   });
 
-  it('strips nested availability from successful S10 section data', async () => {
+  it('includes availability in successful S10 section data for non-Colleague viewers', async () => {
     accessResolver.resolveAudience.mockResolvedValue({
       role: 'ReportingLine',
       sections: { ...ALL_SECTIONS_NONE, S10: 'R' },
@@ -283,6 +287,7 @@ describe('ProfileAssemblerService', () => {
     expect(profile.sections.S10).toMatchObject({
       accessLevel: 'R',
       data: {
+        availability: 'ok',
         leaves: [
           {
             type: 'vacation',
@@ -294,6 +299,52 @@ describe('ProfileAssemblerService', () => {
         manageLeaveUrl: null,
       },
     });
+  });
+
+  it('normalizes S10 integration unavailability to section unavailable for Colleague viewers', async () => {
+    accessResolver.resolveAudience.mockResolvedValue({
+      role: 'Colleague',
+      sections: { ...ALL_SECTIONS_NONE, S10: 'R' },
+    } satisfies ResolvedAudience);
+
+    registry.get.mockReturnValue({
+      status: 'available',
+      provider: {
+        getSection: jest.fn().mockResolvedValue({
+          availability: 'unavailable',
+          leaves: [],
+          manageLeaveUrl: null,
+        }),
+      },
+    });
+
+    const profile = await service.assembleProfile('colleague-1', 'subject-1');
+
+    expect(profile.sections.S10).toEqual({
+      accessLevel: 'R',
+      status: 'unavailable',
+    });
+  });
+
+  it('strips availability from successful S10 section data for Colleague viewers', async () => {
+    accessResolver.resolveAudience.mockResolvedValue({
+      role: 'Colleague',
+      sections: { ...ALL_SECTIONS_NONE, S10: 'R' },
+    } satisfies ResolvedAudience);
+
+    registry.get.mockReturnValue({
+      status: 'available',
+      provider: {
+        getSection: jest.fn().mockResolvedValue({
+          availability: 'ok',
+          leaves: [],
+          manageLeaveUrl: null,
+        }),
+      },
+    });
+
+    const profile = await service.assembleProfile('colleague-1', 'subject-1');
+
     if (profile.sections.S10 && 'data' in profile.sections.S10) {
       expect(profile.sections.S10.data).not.toHaveProperty('availability');
     }

@@ -12,6 +12,12 @@ import { ActiveMentorLookup } from '../src/modules/contracts/active-mentor-looku
 import { createTestApp, TestApp } from './support/app-harness';
 
 const PASSWORD = 'test-only-employee-profile-password';
+const MANAGE_LEAVE_URL = 'https://timetracker.bootcamp.example/manage-leave';
+
+const leavesSyncMock = {
+  getLeavesForEmployee: jest.fn(),
+  getManageLeaveUrl: jest.fn(),
+};
 const MINIMAL_JPEG = Buffer.from([
   0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01,
   0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43, 0x00, 0xff,
@@ -39,24 +45,24 @@ describe('Employee profile assembly (e2e)', () => {
   let managerEmployeeId: string;
 
   beforeAll(async () => {
+    leavesSyncMock.getLeavesForEmployee.mockResolvedValue({
+      availability: 'ok',
+      leaves: [
+        {
+          type: 'vacation',
+          startDate: '2026-08-25',
+          endDate: '2026-08-29',
+          approvalState: 'approved',
+        },
+      ],
+    });
+    leavesSyncMock.getManageLeaveUrl.mockReturnValue(MANAGE_LEAVE_URL);
+
     testApp = await createTestApp({
       providerOverrides: [
         {
           provide: LeavesSyncService,
-          useValue: {
-            getLeavesForEmployee: jest.fn().mockResolvedValue({
-              availability: 'ok',
-              leaves: [
-                {
-                  type: 'vacation',
-                  startDate: '2026-08-25',
-                  endDate: '2026-08-29',
-                  approvalState: 'approved',
-                },
-              ],
-            }),
-            getManageLeaveUrl: jest.fn().mockReturnValue(null),
-          },
+          useValue: leavesSyncMock,
         },
       ],
     });
@@ -216,6 +222,203 @@ describe('Employee profile assembly (e2e)', () => {
 
     expect(s12?.accessLevel).toBe('R');
     expect(s12?.data.assessments).toHaveLength(1);
+  });
+
+  it('SELF_VIEW_TIMELINE: Self viewer receives read-only S9 timeline events', async () => {
+    await testApp.prisma.timelineEvent.create({
+      data: {
+        employeeId: reportEmployeeId,
+        type: 'position_change',
+        effectiveDate: new Date('2026-03-01'),
+        source: 'manual',
+      },
+    });
+
+    const res = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s9 = (
+      res.body as {
+        sections: {
+          S9?: {
+            accessLevel: string;
+            data: { events: Array<{ type: string; effectiveDate: string }> };
+          };
+        };
+      }
+    ).sections.S9;
+
+    expect(s9?.accessLevel).toBe('R');
+    expect(
+      s9?.data.events.some(
+        (event) =>
+          event.type === 'position_change' &&
+          event.effectiveDate.startsWith('2026-03-01'),
+      ),
+    ).toBe(true);
+  });
+
+  it('SELF_VIEW_LEAVES_OK: Self viewer receives S10 leaves and manageLeaveUrl', async () => {
+    const res = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s10 = (
+      res.body as {
+        sections: {
+          S10?: {
+            accessLevel: string;
+            data: {
+              availability: string;
+              manageLeaveUrl: string | null;
+              leaves: Array<{ startDate: string; endDate: string }>;
+            };
+          };
+        };
+      }
+    ).sections.S10;
+
+    expect(s10?.accessLevel).toBe('R');
+    expect(s10?.data.availability).toBe('ok');
+    expect(s10?.data.manageLeaveUrl).toBe(MANAGE_LEAVE_URL);
+    expect(s10?.data.leaves).toHaveLength(1);
+    expect(s10?.data.leaves[0]).toMatchObject({
+      startDate: '2026-08-25',
+      endDate: '2026-08-29',
+    });
+  });
+
+  it('SELF_VIEW_LEAVES_DEGRADED: Self viewer receives unavailable S10 state', async () => {
+    leavesSyncMock.getLeavesForEmployee.mockResolvedValueOnce({
+      availability: 'unavailable',
+      leaves: [],
+    });
+
+    const res = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s10 = (
+      res.body as {
+        sections: {
+          S10?: {
+            data: {
+              availability: string;
+              leaves: unknown[];
+              manageLeaveUrl: string | null;
+            };
+          };
+        };
+      }
+    ).sections.S10;
+
+    expect(s10?.data.availability).toBe('unavailable');
+    expect(s10?.data.leaves).toEqual([]);
+    expect(s10?.data.manageLeaveUrl).toBe(MANAGE_LEAVE_URL);
+  });
+
+  it('SELF_VIEW_PROJECTS_ENRICHED: Self viewer receives S11 PM/DM/period', async () => {
+    const res = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s11 = (
+      res.body as {
+        sections: {
+          S11?: {
+            accessLevel: string;
+            data: {
+              projects: Array<{
+                name: string;
+                pm: string | null;
+                dm: string | null;
+                startDate: string;
+                endDate: string | null;
+              }>;
+            };
+          };
+        };
+      }
+    ).sections.S11;
+
+    expect(s11?.accessLevel).toBe('R');
+    expect(s11?.data.projects).toEqual([
+      {
+        name: 'profile-project',
+        pm: profileEmail('manager'),
+        dm: profileEmail('dm'),
+        startDate: '2026-01-01',
+        endDate: null,
+      },
+    ]);
+  });
+
+  it('COLLEAGUE_VIEW_PROJECTS_NAME_ONLY: Colleague S11 omits PM/DM/period server-side', async () => {
+    const res = await colleagueAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const project = (
+      res.body as {
+        sections: {
+          S11?: { data: { projects: Array<Record<string, unknown>> } };
+        };
+      }
+    ).sections.S11?.data.projects[0];
+
+    expect(project).toEqual({ name: 'profile-project' });
+    expect(project).not.toHaveProperty('pm');
+    expect(project).not.toHaveProperty('dm');
+    expect(project).not.toHaveProperty('startDate');
+    expect(project).not.toHaveProperty('endDate');
+  });
+
+  it('SELF_TOGGLE_MENTORING: Self viewer can update open-to-mentoring on S13', async () => {
+    await reportAgent
+      .patch(
+        `/api/v1/employees/${reportEmployeeId}/mentorship/open-to-mentoring`,
+      )
+      .send({ openToMentoring: true })
+      .expect(200);
+
+    const res = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s13 = (
+      res.body as {
+        sections: {
+          S13?: {
+            accessLevel: string;
+            data: { openToMentoring: boolean };
+          };
+        };
+      }
+    ).sections.S13;
+
+    expect(s13?.accessLevel).toBe('RW');
+    expect(s13?.data.openToMentoring).toBe(true);
+  });
+
+  it('SELF_VIEW_S12: Self viewer receives read-only S12 CDS data', async () => {
+    const res = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s12 = (
+      res.body as {
+        sections: {
+          S12?: {
+            accessLevel: string;
+            data: { assessments: unknown[]; idpRecords: unknown[] };
+          };
+        };
+      }
+    ).sections.S12;
+
+    expect(s12?.accessLevel).toBe('R');
+    expect(s12?.data.assessments.length).toBeGreaterThan(0);
   });
 
   it('returns S12 for ProjectLine and PP viewers', async () => {
@@ -781,7 +984,7 @@ describe('Employee profile assembly (e2e)', () => {
               availability: 'ok',
               leaves: [],
             }),
-            getManageLeaveUrl: jest.fn().mockReturnValue(null),
+            getManageLeaveUrl: jest.fn().mockReturnValue(MANAGE_LEAVE_URL),
           },
         },
       ],
@@ -1043,6 +1246,42 @@ describe('Employee profile assembly (e2e)', () => {
     expect((completeRes.body as { deadline: string }).deadline).toBe(
       '2026-12-01',
     );
+
+    const profileRes = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const completedRecord = (
+      profileRes.body as {
+        sections: {
+          S12?: {
+            data: {
+              idpRecords: Array<{ id: string; completedAt: string | null }>;
+            };
+          };
+        };
+      }
+    ).sections.S12?.data.idpRecords.find((record) => record.id === idpId);
+
+    expect(completedRecord?.completedAt).toBeTruthy();
+  });
+
+  it('EDIT_DENIED: Self viewer cannot edit an IDP deadline', async () => {
+    const createRes = await managerAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/idp-records`)
+      .send({
+        description: 'Self deadline edit blocked',
+        deadline: '2026-12-01',
+        fileUrl: 'https://idp.bootcamp.example/plans/deadline-blocked',
+      })
+      .expect(201);
+
+    const idpId = (createRes.body as { id: string }).id;
+
+    await reportAgent
+      .patch(`/api/v1/employees/${reportEmployeeId}/idp-records/${idpId}`)
+      .send({ deadline: '2027-01-15' })
+      .expect(403);
   });
 
   it('MANAGER_CANNOT_COMPLETE: manager cannot complete employee IDP', async () => {

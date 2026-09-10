@@ -56,6 +56,7 @@ describe('ProjectAssignmentService', () => {
 
       expect(prisma.projectAssignment.findMany).toHaveBeenCalledWith({
         where: { employeeId: 'B' },
+        orderBy: { startDate: 'asc' },
       });
       expect(result).toEqual([
         {
@@ -63,7 +64,7 @@ describe('ProjectAssignmentService', () => {
           projectId: 'proj-1',
           pmId: 'P',
           dmId: 'D',
-          startDate: row.startDate.toISOString(),
+          startDate: '2026-01-01',
           endDate: null,
           confirmed: true,
           confirmedAt: row.confirmedAt!.toISOString(),
@@ -178,7 +179,7 @@ describe('ProjectAssignmentService', () => {
         where: { id: 'row-1' },
         data: { endDate, confirmed: false, confirmedAt: null },
       });
-      expect(result.endDate).toBe(endDate.toISOString());
+      expect(result.endDate).toBe('2026-09-01');
       expect(result.confirmed).toBe(false);
     });
 

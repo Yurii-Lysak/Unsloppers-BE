@@ -162,12 +162,19 @@ export class ProfileAssemblerService {
         subjectEmployeeId,
         audience,
       );
+      if (
+        sectionId === 'S10' &&
+        audience.role === 'Colleague' &&
+        this.isS10UnavailablePayload(data)
+      ) {
+        return unavailable();
+      }
       if (this.isUnavailablePayload(sectionId, data)) {
         return unavailable();
       }
       return {
         accessLevel: accessLevel as 'R' | 'RW',
-        data: this.toWireSectionData(sectionId, data),
+        data: this.toWireSectionData(sectionId, data, audience),
       };
     } catch (error) {
       this.logger.warn(
@@ -180,6 +187,7 @@ export class ProfileAssemblerService {
   private toWireSectionData(
     sectionId: SectionId,
     data: unknown,
+    audience: ResolvedAudience,
   ): ProfileSectionDataEntity['data'] {
     if (
       sectionId === 'S10' &&
@@ -188,15 +196,34 @@ export class ProfileAssemblerService {
       'leaves' in data
     ) {
       const leavesSection = data as {
+        availability?: 'ok' | 'unavailable';
         leaves: unknown;
         manageLeaveUrl?: string | null;
       };
-      return {
-        leaves: leavesSection.leaves,
+      const wire: {
+        leaves: unknown;
+        manageLeaveUrl: string | null;
+        availability?: 'ok' | 'unavailable';
+      } = {
+        leaves: leavesSection.leaves ?? [],
         manageLeaveUrl: leavesSection.manageLeaveUrl ?? null,
       };
+      if (audience.role !== 'Colleague') {
+        wire.availability =
+          leavesSection.availability === 'unavailable' ? 'unavailable' : 'ok';
+      }
+      return wire;
     }
     return data as ProfileSectionDataEntity['data'];
+  }
+
+  private isS10UnavailablePayload(data: unknown): boolean {
+    return (
+      data != null &&
+      typeof data === 'object' &&
+      'availability' in data &&
+      (data as { availability?: string }).availability === 'unavailable'
+    );
   }
 
   private isUnavailablePayload(sectionId: SectionId, data: unknown): boolean {
@@ -210,13 +237,8 @@ export class ProfileAssemblerService {
     ) {
       return true;
     }
-    if (
-      sectionId === 'S10' &&
-      typeof data === 'object' &&
-      'availability' in data &&
-      (data as { availability?: string }).availability === 'unavailable'
-    ) {
-      return true;
+    if (sectionId === 'S10') {
+      return false;
     }
     if (
       typeof data === 'object' &&
