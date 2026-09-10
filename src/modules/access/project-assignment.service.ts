@@ -38,6 +38,7 @@ export class ProjectAssignmentService extends ProjectAssignment {
   async listByEmployee(employeeId: string): Promise<ProjectAssignmentDto[]> {
     const rows = await this.prisma.projectAssignment.findMany({
       where: { employeeId },
+      orderBy: { startDate: 'asc' },
     });
     return rows.map((row) => this.toDto(row));
   }
@@ -102,10 +103,14 @@ export class ProjectAssignmentService extends ProjectAssignment {
       projectId: row.projectId,
       pmId: row.pmId,
       dmId: row.dmId,
-      startDate: row.startDate.toISOString(),
-      endDate: row.endDate ? row.endDate.toISOString() : null,
+      startDate: this.toIsoDate(row.startDate),
+      endDate: row.endDate ? this.toIsoDate(row.endDate) : null,
       confirmed: row.confirmed,
       confirmedAt: row.confirmedAt ? row.confirmedAt.toISOString() : null,
     };
+  }
+
+  private toIsoDate(date: Date): string {
+    return date.toISOString().slice(0, 10);
   }
 }
