@@ -20,10 +20,12 @@ describe('DashboardAudienceService', () => {
   };
 
   const setOpenDepartments = (entries: Record<string, string | null>) => {
-    prisma.departmentHistory.findFirst.mockImplementation(({ where }) => {
-      const value = entries[where.employeeId];
-      return Promise.resolve(value ? { value } : null);
-    });
+    prisma.departmentHistory.findFirst.mockImplementation(
+      ({ where }: { where: { employeeId: string } }) => {
+        const value = entries[where.employeeId];
+        return Promise.resolve(value ? { value } : null);
+      },
+    );
   };
 
   beforeEach(async () => {

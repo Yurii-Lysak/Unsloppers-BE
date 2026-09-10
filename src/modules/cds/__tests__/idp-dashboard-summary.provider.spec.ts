@@ -103,13 +103,14 @@ describe('IdpDashboardSummaryProvider', () => {
 
     expect(prisma.iDPRecord.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({
+        where: {
+          employeeId: { in: ['emp-1'] },
           completedAt: null,
           deadline: {
             gte: new Date('2026-09-05T00:00:00.000Z'),
             lte: new Date('2026-10-05T00:00:00.000Z'),
           },
-        }),
+        },
       }),
     );
   });

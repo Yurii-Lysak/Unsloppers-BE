@@ -880,7 +880,11 @@ describe('Dashboards (e2e)', () => {
   });
 
   it('scopes PP dashboard to direct and HR-line assignees with IDPs in the 30-day window', async () => {
-    const pp = await createEmployeeUser(testApp, 'dash-pp-scope@example.com', 'PP');
+    const pp = await createEmployeeUser(
+      testApp,
+      'dash-pp-scope@example.com',
+      'PP',
+    );
     const hrManager = await createEmployeeUser(
       testApp,
       'dash-pp-hr-mgr@example.com',
@@ -998,10 +1002,13 @@ describe('Dashboards (e2e)', () => {
     expect(summary.rows?.map((row) => row.employeeId).sort()).toEqual(
       [directAssignee.employeeId, indirectAssignee.employeeId].sort(),
     );
-    expect(summary.rows?.find((row) => row.employeeId === directAssignee.employeeId)?.departmentLabel).toBe(
-      'HR',
-    );
-    expect(summary.idpDeadlines?.map((row) => row.id)).toEqual([inWindowIdp.id]);
+    expect(
+      summary.rows?.find((row) => row.employeeId === directAssignee.employeeId)
+        ?.departmentLabel,
+    ).toBe('HR');
+    expect(summary.idpDeadlines?.map((row) => row.id)).toEqual([
+      inWindowIdp.id,
+    ]);
     expect(summary.resourcingRequests).toBeUndefined();
   });
 

@@ -1027,7 +1027,7 @@ describe('DashboardsService', () => {
 
     const summary = await service.getSummary('pp-viewer');
 
-    expect(audience.listPpAssignedIds).toHaveBeenCalledWith('pp-viewer');
+    expect(audience.listPpAssignedIds.mock.calls[0]).toEqual(['pp-viewer']);
     expect(summary.counters.headcount).toEqual({
       status: 'available',
       value: 1,

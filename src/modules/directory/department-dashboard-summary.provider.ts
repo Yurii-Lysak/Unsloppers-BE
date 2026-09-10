@@ -5,10 +5,7 @@ import type {
   DashboardSummaryScope,
   DashboardTableCellFragment,
 } from '../contracts/dashboard-summary.types';
-import {
-  currentHistoryValue,
-  type HistoryRowSnapshot,
-} from '../contracts/temporal-history.contract';
+import { currentHistoryValue } from '../contracts/temporal-history.contract';
 import { RegisterProvider } from '../registry/register-provider.decorator';
 
 @Injectable()
@@ -46,9 +43,7 @@ export class DepartmentDashboardSummaryProvider extends DashboardSummaryProvider
 
       const cells: Record<string, DashboardTableCellFragment> = {};
       for (const employee of employees) {
-        const department = currentHistoryValue(
-          employee.departmentHistory as HistoryRowSnapshot[],
-        );
+        const department = currentHistoryValue(employee.departmentHistory);
         cells[employee.id] = {
           value: department?.value ?? '',
           unavailable: false,
