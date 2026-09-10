@@ -27,7 +27,7 @@ import {
 } from '../contracts/access-resolver.contract';
 import { CurrentUserProvider } from '../contracts/current-user-provider.contract';
 import { SectionAccessGate } from '../contracts/section-access-gate.contract';
-import { FileStorageService } from '../storage/file-storage.service';
+import { FileStorageService } from '../../storage/file-storage.service';
 import { PROJECT_LINE_VISIBLE_DOCUMENT_TYPES } from './documents.constants';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { DocumentRecordEntity } from './entities/document.entity';

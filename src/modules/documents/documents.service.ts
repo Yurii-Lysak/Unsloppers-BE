@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { DocumentType } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { FileStorageService } from '../storage/file-storage.service';
+import { FileStorageService } from '../../storage/file-storage.service';
 import { DocumentRecordEntity } from './entities/document.entity';
 
 @Injectable()

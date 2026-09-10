@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { StorageModule } from '../storage/storage.module';
+import { StorageModule } from '../../storage/storage.module';
 import { DocumentsController } from './documents.controller';
 import { DocumentsSectionProvider } from './documents-section.provider';
 import { DocumentsService } from './documents.service';

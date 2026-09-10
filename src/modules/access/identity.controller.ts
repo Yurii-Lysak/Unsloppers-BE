@@ -21,7 +21,7 @@ import { MulterExceptionFilter } from '../../common/filters/multer-exception.fil
 import { CurrentUserProvider } from '../contracts/current-user-provider.contract';
 import { SectionAccessGate } from '../contracts/section-access-gate.contract';
 import { PrismaService } from '../../prisma/prisma.service';
-import { FileStorageService } from '../storage/file-storage.service';
+import { FileStorageService } from '../../storage/file-storage.service';
 import { IdentityService } from './identity.service';
 
 const PHOTO_MAX_BYTES = 5 * 1024 * 1024;

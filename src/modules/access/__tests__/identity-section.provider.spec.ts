@@ -6,6 +6,7 @@ import {
 import { ActiveMentorLookup } from '../../contracts/active-mentor-lookup.contract';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { IdentitySectionProvider } from '../identity-section.provider';
+import { IdentityService } from '../identity.service';
 
 describe('IdentitySectionProvider', () => {
   let provider: IdentitySectionProvider;
@@ -13,9 +14,18 @@ describe('IdentitySectionProvider', () => {
   const activeMentorLookup = {
     getActiveMentorForMentee: jest.fn(),
   };
+  const identity = {
+    buildPhotoUrl: jest.fn(
+      (employeeId: string, photoStorageKey: string | null) =>
+        photoStorageKey
+          ? `/api/v1/employees/${employeeId}/identity/photo`
+          : null,
+    ),
+  };
 
   const baseEmployee = {
     id: 'subject-1',
+    photoStorageKey: null as string | null,
     user: { name: 'Subject User', email: 'subject@example.com' },
     manager: null,
     peoplePartner: null,
@@ -33,6 +43,7 @@ describe('IdentitySectionProvider', () => {
         IdentitySectionProvider,
         { provide: PrismaService, useValue: prisma },
         { provide: ActiveMentorLookup, useValue: activeMentorLookup },
+        { provide: IdentityService, useValue: identity },
       ],
     }).compile();
     provider = module.get(IdentitySectionProvider);

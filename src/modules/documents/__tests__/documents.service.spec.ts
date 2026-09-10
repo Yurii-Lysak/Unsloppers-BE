@@ -2,7 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { DocumentType } from '../../../generated/prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { FileStorageService } from '../../storage/file-storage.service';
+import { FileStorageService } from '../../../storage/file-storage.service';
 import { DocumentsService } from '../documents.service';
 
 describe('DocumentsService', () => {

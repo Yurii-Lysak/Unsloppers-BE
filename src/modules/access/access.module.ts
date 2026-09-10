@@ -20,7 +20,7 @@ import { ProfileController } from './profile.controller';
 import { IdentityController } from './identity.controller';
 import { IdentityService } from './identity.service';
 import { SharedLinkController } from './shared-link.controller';
-import { StorageModule } from '../storage/storage.module';
+import { StorageModule } from '../../storage/storage.module';
 import { ProfileAssemblerService } from './profile-assembler.service';
 import { SharedLinkService } from './shared-link.service';
 import { EmploymentSectionProvider } from './employment-section.provider';
