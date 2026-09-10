@@ -3,7 +3,7 @@ import { ResolvedAudience } from '../contracts/access-resolver.contract';
 import {
   currentHistoryValue,
   HistoryRowSnapshot,
-} from '../directory/employee-query.helpers';
+} from '../contracts/temporal-history.contract';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SectionProvider } from '../contracts/section-provider.contract';
 import { RegisterProvider } from '../registry/register-provider.decorator';
