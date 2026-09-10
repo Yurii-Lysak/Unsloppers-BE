@@ -46,6 +46,12 @@ model Employee {
   employmentStatus EmploymentStatus @default(active)
   // Story 9.1 — self-declared willingness to mentor; writable by Self on S13 only.
   openToMentoring Boolean @default(false)
+  // Story 2.1 — current-value employment fields (non-temporal; grade/position/
+  // employmentType resolve from history tables in S4).
+  seniority       String?
+  englishLevel    String?
+  probationStatus String?
+  contractType    String?
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 

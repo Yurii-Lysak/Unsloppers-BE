@@ -20,6 +20,7 @@ import { ProfileController } from './profile.controller';
 import { SharedLinkController } from './shared-link.controller';
 import { ProfileAssemblerService } from './profile-assembler.service';
 import { SharedLinkService } from './shared-link.service';
+import { EmploymentSectionProvider } from './employment-section.provider';
 import { IdentitySectionProvider } from './identity-section.provider';
 import { ProjectsSectionProvider } from './projects-section.provider';
 import { SectionAccessGateService } from './section-access-gate.service';
@@ -67,6 +68,7 @@ import { RelationshipGraphGenerationService } from './relationship-graph-generat
     SharedLinkService,
     { provide: RelationshipJournal, useClass: RelationshipJournalService },
     IdentitySectionProvider,
+    EmploymentSectionProvider,
     ProjectsSectionProvider,
     { provide: SectionAccessGate, useClass: SectionAccessGateService },
     { provide: DashboardAudience, useClass: DashboardAudienceService },

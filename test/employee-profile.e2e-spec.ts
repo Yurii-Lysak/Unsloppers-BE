@@ -558,6 +558,105 @@ describe('Employee profile assembly (e2e)', () => {
     expect(sections ?? {}).not.toHaveProperty('S15');
   });
 
+  it('returns S4 employment section for Self with all seven keys', async () => {
+    await seedS4EmploymentFixture(testApp, reportEmployeeId);
+
+    const res = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s4 = readS4Section(res.body as { sections: Record<string, unknown> });
+
+    expect(s4?.accessLevel).toBe('R');
+    expect(s4?.data).toEqual(EXPECTED_S4_EMPLOYMENT_DATA);
+    expect(Object.keys(s4?.data ?? {})).toHaveLength(7);
+  });
+
+  it('returns S4 with null temporal fields when history is empty', async () => {
+    const email = profileEmail('s4-empty-history');
+    const passwordHash = await hash(PASSWORD, 12);
+    const user = await testApp.prisma.user.create({
+      data: { email, passwordHash },
+    });
+    const employee = await testApp.prisma.employee.create({
+      data: { userId: user.id },
+    });
+    const agent = await loginAgent(testApp, email);
+
+    const res = await agent
+      .get(`/api/v1/employees/${employee.id}/profile`)
+      .expect(200);
+
+    const s4 = readS4Section(res.body as { sections: Record<string, unknown> });
+
+    expect(s4?.accessLevel).toBe('R');
+    expect(s4?.data).toEqual({
+      grade: null,
+      position: null,
+      seniority: null,
+      employmentType: null,
+      englishLevel: null,
+      probationStatus: null,
+      contractType: null,
+    });
+  });
+
+  it('caps S4 accessLevel to R when a manager views their own profile', async () => {
+    const res = await managerAgent
+      .get(`/api/v1/employees/${managerEmployeeId}/profile`)
+      .expect(200);
+
+    const s4 = readS4Section(res.body as { sections: Record<string, unknown> });
+
+    expect(s4?.accessLevel).toBe('R');
+  });
+
+  it('returns 404 when attempting to PATCH S4 fields via profile route', async () => {
+    await reportAgent
+      .patch(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .send({ seniority: 'Principal' })
+      .expect(404);
+  });
+
+  it('returns S4 with RW accessLevel for ReportingLine viewers', async () => {
+    await seedS4EmploymentFixture(testApp, reportEmployeeId);
+
+    const res = await managerAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s4 = readS4Section(res.body as { sections: Record<string, unknown> });
+
+    expect(s4?.accessLevel).toBe('RW');
+    expect(s4?.data).toEqual(EXPECTED_S4_EMPLOYMENT_DATA);
+  });
+
+  it('returns S4 with RW accessLevel for ProjectLine viewers', async () => {
+    await seedS4EmploymentFixture(testApp, reportEmployeeId);
+
+    const res = await dmAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s4 = readS4Section(res.body as { sections: Record<string, unknown> });
+
+    expect(s4?.accessLevel).toBe('RW');
+    expect(s4?.data).toEqual(EXPECTED_S4_EMPLOYMENT_DATA);
+  });
+
+  it('returns S4 with RW accessLevel for PP viewers', async () => {
+    await seedS4EmploymentFixture(testApp, reportEmployeeId);
+
+    const res = await ppAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s4 = readS4Section(res.body as { sections: Record<string, unknown> });
+
+    expect(s4?.accessLevel).toBe('RW');
+    expect(s4?.data).toEqual(EXPECTED_S4_EMPLOYMENT_DATA);
+  });
+
   it('includes empty S15 for ReportingLine viewers when no proposals exist', async () => {
     const res = await managerAgent
       .get(`/api/v1/employees/${reportEmployeeId}/profile`)
@@ -1580,6 +1679,48 @@ describe('Employee profile assembly (e2e)', () => {
       .expect(400);
   });
 });
+
+const EXPECTED_S4_EMPLOYMENT_DATA = {
+  grade: 'L4',
+  position: 'Software Engineer',
+  seniority: 'Senior',
+  employmentType: 'Full-time',
+  englishLevel: null,
+  probationStatus: null,
+  contractType: null,
+} as const;
+
+const readS4Section = (body: { sections: Record<string, unknown> }) =>
+  body.sections.S4 as
+    | {
+        accessLevel: string;
+        data: Record<string, string | null>;
+      }
+    | undefined;
+
+const seedS4EmploymentFixture = async (
+  testApp: TestApp,
+  employeeId: string,
+) => {
+  await testApp.prisma.employee.update({
+    where: { id: employeeId },
+    data: { seniority: 'Senior' },
+  });
+  await testApp.prisma.gradeHistory.create({
+    data: {
+      employeeId,
+      value: 'L4',
+      effectiveFrom: new Date('2025-06-01'),
+    },
+  });
+  await testApp.prisma.employmentTypeHistory.create({
+    data: {
+      employeeId,
+      value: 'Full-time',
+      effectiveFrom: new Date('2025-06-01'),
+    },
+  });
+};
 
 const loginAgent = async (testApp: TestApp, email: string) => {
   const agent = request.agent(testApp.server);

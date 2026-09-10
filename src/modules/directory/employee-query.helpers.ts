@@ -8,6 +8,12 @@ import {
   SortOrder,
 } from '../contracts/field-registry.contract';
 import { computeMentorStatus } from '../contracts/mentor-status.contract';
+import {
+  currentHistoryValue,
+  HistoryRowSnapshot,
+} from '../contracts/temporal-history.contract';
+
+export { currentHistoryValue, type HistoryRowSnapshot };
 
 const MS_PER_YEAR = 365.25 * 24 * 60 * 60 * 1000;
 
@@ -79,27 +85,6 @@ export function getCellValue(
     default:
       return null;
   }
-}
-
-export interface HistoryRowSnapshot {
-  value: string;
-  effectiveFrom: Date;
-  effectiveTo: Date | null;
-}
-
-export function currentHistoryValue(
-  rows: HistoryRowSnapshot[],
-): HistoryRowSnapshot | null {
-  if (rows.length === 0) {
-    return null;
-  }
-  const open = rows.find((row) => row.effectiveTo === null);
-  if (open) {
-    return open;
-  }
-  return rows.reduce((latest, row) =>
-    row.effectiveFrom.getTime() > latest.effectiveFrom.getTime() ? row : latest,
-  );
 }
 
 function compareValues(a: FieldValue, b: FieldValue): number {
