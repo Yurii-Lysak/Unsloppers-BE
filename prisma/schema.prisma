@@ -55,6 +55,8 @@ model Employee {
   // Story 2.2 — optional scalar address fields on S2 (not repeatable).
   residentialAddress String?
   placeOfStay        String?
+  // Story 2.3 — profile photo on local disk; nullable when no photo uploaded.
+  photoStorageKey    String?
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
@@ -146,6 +148,8 @@ model Employee {
   // Story 2.2 — personal and emergency contact rows (Cascade on employee delete).
   personalContactMethods PersonalContactMethod[]
   emergencyContacts      EmergencyContact[]
+  // Story 2.3 — S5 document rows (Cascade on employee delete).
+  documents              Document[]
 
   @@index([managerId])
   @@index([peoplePartnerId])
@@ -646,6 +650,32 @@ model PersonalContactMethod {
 
   @@index([employeeId])
   @@map("personal_contact_methods")
+}
+
+enum DocumentType {
+  CONTRACT
+  W8
+  COOPERATION_FORM
+  DIIA_CITY
+  CV
+  CERTIFICATE
+}
+
+// Story 2.3 — S5 document metadata; file bytes live on local disk via storageKey.
+model Document {
+  id               String       @id @default(uuid())
+  employeeId       String
+  type             DocumentType
+  originalFilename String       @db.VarChar(255)
+  storageKey       String
+  mimeType         String
+  sizeBytes        Int
+  uploadedAt       DateTime     @default(now())
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@map("documents")
 }
 
 // Story 2.2 — repeatable emergency contact persons for S3.

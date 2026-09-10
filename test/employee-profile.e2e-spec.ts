@@ -1,5 +1,7 @@
 import { hash } from 'bcryptjs';
 import { randomUUID } from 'node:crypto';
+import { access, unlink, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import request from 'supertest';
 import {
   BUILT_IN_ROLE_NAMES,
@@ -10,6 +12,12 @@ import { ActiveMentorLookup } from '../src/modules/contracts/active-mentor-looku
 import { createTestApp, TestApp } from './support/app-harness';
 
 const PASSWORD = 'test-only-employee-profile-password';
+const MINIMAL_JPEG = Buffer.from([
+  0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01,
+  0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43, 0x00, 0xff,
+  0xd9,
+]);
+const MINIMAL_PDF = Buffer.from('%PDF-1.0\n%%EOF');
 const MANAGER_EMAIL = 'profile-manager@example.com';
 const REPORT_EMAIL = 'profile-report@example.com';
 const COLLEAGUE_EMAIL = 'profile-colleague@example.com';
@@ -1883,6 +1891,328 @@ describe('Employee profile assembly (e2e)', () => {
       .expect(403);
   });
 
+  it('SELF_UPLOAD_PHOTO: employee uploads a profile photo', async () => {
+    const uploadRes = await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/identity/photo`)
+      .attach('photo', MINIMAL_JPEG, {
+        filename: 'profile.jpg',
+        contentType: 'image/jpeg',
+      })
+      .expect(200);
+
+    expect(uploadRes.body).toEqual({
+      photoUrl: `/api/v1/employees/${reportEmployeeId}/identity/photo`,
+    });
+
+    const profileRes = await colleagueAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+    const s1 = readS1Section(
+      profileRes.body as { sections: Record<string, unknown> },
+    );
+    expect(s1?.data.photoUrl).toBe(
+      `/api/v1/employees/${reportEmployeeId}/identity/photo`,
+    );
+
+    await colleagueAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/identity/photo`)
+      .expect(200);
+  });
+
+  it('OTHER_EMPLOYEE_UPLOAD_DENIED: manager cannot upload photo for a report', async () => {
+    await managerAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/identity/photo`)
+      .attach('photo', MINIMAL_JPEG, {
+        filename: 'profile.jpg',
+        contentType: 'image/jpeg',
+      })
+      .expect(403);
+  });
+
+  it('PHOTO_NOT_SET: entitled viewer gets 404 when no photo exists', async () => {
+    await testApp.prisma.user.create({
+      data: {
+        email: 'profile-no-photo@example.com',
+        name: 'No Photo',
+        passwordHash: await hash(PASSWORD, 10),
+        employee: { create: {} },
+      },
+    });
+    const noPhotoEmployee = await testApp.prisma.employee.findFirstOrThrow({
+      where: { user: { email: 'profile-no-photo@example.com' } },
+      select: { id: true },
+    });
+
+    await colleagueAgent
+      .get(`/api/v1/employees/${noPhotoEmployee.id}/identity/photo`)
+      .expect(404);
+  });
+
+  it('SELF_UPLOAD_CERTIFICATE: employee uploads a certificate document', async () => {
+    const uploadRes = await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/documents`)
+      .field('type', 'CERTIFICATE')
+      .attach('file', MINIMAL_PDF, {
+        filename: 'certificate.pdf',
+        contentType: 'application/pdf',
+      })
+      .expect(201);
+
+    const profileRes = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+    const s5 = readS5Section(
+      profileRes.body as { sections: Record<string, unknown> },
+    );
+    expect(s5?.data.documents).toEqual([
+      expect.objectContaining({
+        id: (uploadRes.body as { id: string }).id,
+        type: 'CERTIFICATE',
+        originalFilename: 'certificate.pdf',
+      }),
+    ]);
+  });
+
+  it('NON_CERTIFICATE_TYPE_REJECTED: employee cannot upload CV type', async () => {
+    await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/documents`)
+      .field('type', 'CV')
+      .attach('file', MINIMAL_PDF, {
+        filename: 'cv.pdf',
+        contentType: 'application/pdf',
+      })
+      .expect(400);
+  });
+
+  it('COLLEAGUE_READ_DOCUMENT: colleague cannot download S5 files', async () => {
+    const uploadRes = await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/documents`)
+      .field('type', 'CERTIFICATE')
+      .attach('file', MINIMAL_PDF, {
+        filename: 'blocked.pdf',
+        contentType: 'application/pdf',
+      })
+      .expect(201);
+
+    await colleagueAgent
+      .get(
+        `/api/v1/employees/${reportEmployeeId}/documents/${(uploadRes.body as { id: string }).id}/file`,
+      )
+      .expect(403);
+  });
+
+  it('MISSING_FILE_IN_UPLOAD: POST without multipart file returns 400', async () => {
+    await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/identity/photo`)
+      .expect(400);
+
+    await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/documents`)
+      .field('type', 'CERTIFICATE')
+      .expect(400);
+  });
+
+  it('OTHER_EMPLOYEE_UPLOAD_DENIED: manager cannot upload certificate for a report', async () => {
+    await managerAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/documents`)
+      .field('type', 'CERTIFICATE')
+      .attach('file', MINIMAL_PDF, {
+        filename: 'blocked.pdf',
+        contentType: 'application/pdf',
+      })
+      .expect(403);
+  });
+
+  it('PROJECT_LINE_LIST_FILTERED: project-line viewer sees only CV and certificate rows in S5', async () => {
+    await testApp.prisma.document.createMany({
+      data: [
+        {
+          employeeId: reportEmployeeId,
+          type: 'CONTRACT',
+          originalFilename: 'contract.pdf',
+          storageKey: `${randomUUID()}.pdf`,
+          mimeType: 'application/pdf',
+          sizeBytes: MINIMAL_PDF.length,
+        },
+        {
+          employeeId: reportEmployeeId,
+          type: 'CERTIFICATE',
+          originalFilename: 'visible-cert.pdf',
+          storageKey: `${randomUUID()}.pdf`,
+          mimeType: 'application/pdf',
+          sizeBytes: MINIMAL_PDF.length,
+        },
+      ],
+    });
+
+    const profileRes = await dmAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+    const s5 = readS5Section(
+      profileRes.body as { sections: Record<string, unknown> },
+    );
+
+    expect(
+      s5?.data.documents.every((document) => document.type !== 'CONTRACT'),
+    ).toBe(true);
+    expect(
+      s5?.data.documents.some((document) => document.type === 'CERTIFICATE'),
+    ).toBe(true);
+  });
+
+  it('PROJECT_LINE_READ_CERT_ONLY: project-line download of restricted type returns 404', async () => {
+    const storageKey = `${randomUUID()}.pdf`;
+    const contract = await testApp.prisma.document.create({
+      data: {
+        employeeId: reportEmployeeId,
+        type: 'CONTRACT',
+        originalFilename: 'hidden-contract.pdf',
+        storageKey,
+        mimeType: 'application/pdf',
+        sizeBytes: MINIMAL_PDF.length,
+      },
+    });
+    const uploadsDir = path.resolve(process.cwd(), 'uploads');
+    await writeFile(path.join(uploadsDir, storageKey), MINIMAL_PDF);
+
+    await dmAgent
+      .get(
+        `/api/v1/employees/${reportEmployeeId}/documents/${contract.id}/file`,
+      )
+      .expect(404);
+  });
+
+  it('DOCUMENT_NOT_FOUND: unknown or cross-employee document id returns 404', async () => {
+    await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/documents`)
+      .field('type', 'CERTIFICATE')
+      .attach('file', MINIMAL_PDF, {
+        filename: 'owned.pdf',
+        contentType: 'application/pdf',
+      })
+      .expect(201);
+
+    await reportAgent
+      .get(
+        `/api/v1/employees/${reportEmployeeId}/documents/${randomUUID()}/file`,
+      )
+      .expect(404);
+
+    const otherGraph = await seedProfileGraph(testApp, {
+      emailSuffix: '-doc-isolation',
+    });
+    const otherDocument = await testApp.prisma.document.create({
+      data: {
+        employeeId: otherGraph.reportEmployeeId,
+        type: 'CERTIFICATE',
+        originalFilename: 'other.pdf',
+        storageKey: `${randomUUID()}.pdf`,
+        mimeType: 'application/pdf',
+        sizeBytes: MINIMAL_PDF.length,
+      },
+    });
+
+    await reportAgent
+      .get(
+        `/api/v1/employees/${reportEmployeeId}/documents/${otherDocument.id}/file`,
+      )
+      .expect(404);
+  });
+
+  it('SUBJECT_NOT_FOUND: identity and document routes return 404 for unknown employee', async () => {
+    const missingEmployeeId = '00000000-0000-4000-8000-000000000098';
+
+    await reportAgent
+      .post(`/api/v1/employees/${missingEmployeeId}/identity/photo`)
+      .attach('photo', MINIMAL_JPEG, {
+        filename: 'profile.jpg',
+        contentType: 'image/jpeg',
+      })
+      .expect(404);
+
+    await reportAgent
+      .get(`/api/v1/employees/${missingEmployeeId}/identity/photo`)
+      .expect(404);
+
+    await reportAgent
+      .post(`/api/v1/employees/${missingEmployeeId}/documents`)
+      .field('type', 'CERTIFICATE')
+      .attach('file', MINIMAL_PDF, {
+        filename: 'certificate.pdf',
+        contentType: 'application/pdf',
+      })
+      .expect(404);
+
+    await reportAgent
+      .get(
+        `/api/v1/employees/${missingEmployeeId}/documents/${randomUUID()}/file`,
+      )
+      .expect(404);
+  });
+
+  it('SELF_UPLOAD_PHOTO replaces prior photo on disk', async () => {
+    await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/identity/photo`)
+      .attach('photo', MINIMAL_JPEG, {
+        filename: 'first.jpg',
+        contentType: 'image/jpeg',
+      })
+      .expect(200);
+
+    const firstKey = (
+      await testApp.prisma.employee.findUniqueOrThrow({
+        where: { id: reportEmployeeId },
+        select: { photoStorageKey: true },
+      })
+    ).photoStorageKey;
+    expect(firstKey).toBeTruthy();
+
+    await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/identity/photo`)
+      .attach('photo', MINIMAL_JPEG, {
+        filename: 'second.jpg',
+        contentType: 'image/jpeg',
+      })
+      .expect(200);
+
+    const secondKey = (
+      await testApp.prisma.employee.findUniqueOrThrow({
+        where: { id: reportEmployeeId },
+        select: { photoStorageKey: true },
+      })
+    ).photoStorageKey;
+    expect(secondKey).toBeTruthy();
+    expect(secondKey).not.toBe(firstKey);
+
+    const uploadsDir = path.resolve(process.cwd(), 'uploads');
+    await expect(access(path.join(uploadsDir, firstKey!))).rejects.toThrow();
+  });
+
+  it('returns 404 when on-disk photo file is missing', async () => {
+    await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/identity/photo`)
+      .attach('photo', MINIMAL_JPEG, {
+        filename: 'missing-on-disk.jpg',
+        contentType: 'image/jpeg',
+      })
+      .expect(200);
+
+    const storageKey = (
+      await testApp.prisma.employee.findUniqueOrThrow({
+        where: { id: reportEmployeeId },
+        select: { photoStorageKey: true },
+      })
+    ).photoStorageKey;
+    expect(storageKey).toBeTruthy();
+
+    const uploadsDir = path.resolve(process.cwd(), 'uploads');
+    await unlink(path.join(uploadsDir, storageKey!));
+
+    await colleagueAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/identity/photo`)
+      .expect(404);
+  });
+
   it('S2 validation rejects malformed email and phone values', async () => {
     await reportAgent
       .post(`/api/v1/employees/${reportEmployeeId}/personal-contacts`)
@@ -2197,6 +2527,26 @@ const readS4Section = (body: { sections: Record<string, unknown> }) =>
     | {
         accessLevel: string;
         data: Record<string, string | null>;
+      }
+    | undefined;
+
+const readS1Section = (body: { sections: Record<string, unknown> }) =>
+  body.sections.S1 as
+    | {
+        accessLevel: string;
+        data: {
+          photoUrl?: string | null;
+        };
+      }
+    | undefined;
+
+const readS5Section = (body: { sections: Record<string, unknown> }) =>
+  body.sections.S5 as
+    | {
+        accessLevel: string;
+        data: {
+          documents: Array<Record<string, unknown>>;
+        };
       }
     | undefined;
 
