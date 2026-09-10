@@ -17,4 +17,6 @@ export abstract class DashboardAudience {
     viewerEmployeeId: string,
     responsibility: 'dm' | 'pm',
   ): Promise<DashboardProjectGroup[]>;
+
+  abstract listPpAssignedIds(viewerEmployeeId: string): Promise<string[]>;
 }

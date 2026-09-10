@@ -23,6 +23,7 @@ import type {
 } from './entities/dashboard-config.entity';
 import type {
   DashboardCounterValueEntity,
+  DashboardIdpRowEntity,
   DashboardPaginationEntity,
   DashboardProjectGroupEntity,
   DashboardResourcingRequestEntity,
@@ -125,12 +126,23 @@ export class DashboardsService {
       tableFragments,
     );
 
+    let idpDeadlines: DashboardIdpRowEntity[] | undefined;
+    if (config.blocks.includes('idpDeadlines')) {
+      const blockFragment = await this.loadProviderFragment(
+        viewerEmployeeId,
+        'idp',
+        scope,
+      );
+      idpDeadlines = this.mapIdpDeadlines(blockFragment);
+    }
+
     return {
       variant: config.variant,
       grouping: config.grouping,
       counters,
       rows,
       pagination: pagination.meta,
+      idpDeadlines,
     };
   }
 
@@ -298,6 +310,16 @@ export class DashboardsService {
     return fragment.requests;
   }
 
+  private mapIdpDeadlines(
+    fragment: DashboardSummaryFragment,
+  ): DashboardIdpRowEntity[] | undefined {
+    if (fragment.status !== 'available' || fragment.providerId !== 'idp') {
+      return undefined;
+    }
+
+    return fragment.rows;
+  }
+
   private collectProviderIds(
     specs: DashboardConfigEntity['counters'],
   ): Set<string> {
@@ -324,6 +346,10 @@ export class DashboardsService {
         variant === 'dm' ? 'dm' : 'pm',
       );
       return [...new Set(groups.flatMap((group) => group.subjectIds))];
+    }
+
+    if (variant === 'pp') {
+      return this.audience.listPpAssignedIds(viewerEmployeeId);
     }
 
     return [];
@@ -430,6 +456,7 @@ export class DashboardsService {
     const riskFragment = fragments.get('risks');
     const leaveFragment = fragments.get('leave');
     const employmentFragment = fragments.get('employment');
+    const departmentFragment = fragments.get('department');
 
     const riskByEmployee = new Map<
       string,
@@ -460,6 +487,11 @@ export class DashboardsService {
         employmentFragment.providerId === 'employment'
           ? employmentFragment.cells[employeeId]
           : undefined;
+      const departmentCell =
+        departmentFragment?.status === 'available' &&
+        departmentFragment.providerId === 'department'
+          ? departmentFragment.cells[employeeId]
+          : undefined;
 
       return {
         employeeId,
@@ -477,6 +509,15 @@ export class DashboardsService {
             ? projectCell.value
             : undefined,
         projectStale: projectCell?.stale,
+        departmentStatus:
+          departmentCell && !departmentCell.unavailable
+            ? 'available'
+            : 'unavailable',
+        departmentLabel:
+          departmentCell && !departmentCell.unavailable
+            ? departmentCell.value
+            : undefined,
+        departmentStale: departmentCell?.stale,
       };
     });
   }
@@ -522,6 +563,10 @@ export class DashboardsService {
 
     const merged = new Map(existingFragments);
     const toLoad = new Set<string>(['leave', 'employment']);
+
+    if (scope.variant === 'pp') {
+      toLoad.add('department');
+    }
 
     const existingRisks = merged.get('risks');
     if (!existingRisks || existingRisks.status !== 'available') {

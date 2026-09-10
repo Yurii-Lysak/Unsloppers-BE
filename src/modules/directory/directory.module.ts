@@ -6,6 +6,7 @@ import { CustomFieldsController } from './custom-fields.controller';
 import { CustomFieldsSectionProvider } from './custom-fields-section.provider';
 import { EmployeesController } from './employees.controller';
 import { CustomFieldsService } from './custom-fields.service';
+import { DepartmentDashboardSummaryProvider } from './department-dashboard-summary.provider';
 import { EmploymentDashboardSummaryProvider } from './employment-dashboard-summary.provider';
 import { EmployeesService } from './employees.service';
 import { FieldRegistryService } from './field-registry.service';
@@ -30,6 +31,7 @@ import { SavedViewsService } from './saved-views.service';
     CustomFieldsService,
     EmployeesService,
     EmploymentDashboardSummaryProvider,
+    DepartmentDashboardSummaryProvider,
     SavedViewsService,
     ListCatalogAccessService,
     CustomFieldVisibilityService,

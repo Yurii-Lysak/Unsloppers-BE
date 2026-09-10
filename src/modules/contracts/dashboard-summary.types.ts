@@ -36,6 +36,14 @@ export interface DashboardResourcingRequestRowFragment {
   createdAt: string;
 }
 
+export interface DashboardIdpRowFragment {
+  id: string;
+  employeeId: string;
+  employeeDisplayName: string;
+  description: string;
+  deadline: string;
+}
+
 export interface DashboardTableCellFragment {
   value: string;
   unavailable: boolean;
@@ -79,6 +87,16 @@ export type DashboardSummaryFragment =
       providerId: 'employment';
       status: 'available';
       cells: Record<string, DashboardTableCellFragment>;
+    }
+  | {
+      providerId: 'department';
+      status: 'available';
+      cells: Record<string, DashboardTableCellFragment>;
+    }
+  | {
+      providerId: 'idp';
+      status: 'available';
+      rows: DashboardIdpRowFragment[];
     }
   | {
       providerId: string;

@@ -94,7 +94,11 @@ interface DashboardConfigResponse {
 interface DashboardSummaryResponse {
   grouping: string;
   counters: Record<string, { value?: number; status: string }>;
-  rows: Array<{ employeeId: string }>;
+  rows: Array<{
+    employeeId: string;
+    departmentLabel?: string;
+    projectLabel?: string;
+  }>;
   pagination?: {
     page: number;
     pageSize: number;
@@ -106,6 +110,21 @@ interface DashboardSummaryResponse {
   }>;
   selectorProjects?: Array<{ projectId: string; projectName: string }>;
   resourcingRequests?: Array<{ id: string; projectId?: string | null }>;
+  idpDeadlines?: Array<{ id: string; employeeId: string; deadline: string }>;
+}
+
+async function setOpenDepartment(
+  testApp: TestApp,
+  employeeId: string,
+  value: string,
+): Promise<void> {
+  await testApp.prisma.departmentHistory.create({
+    data: {
+      employeeId,
+      value,
+      effectiveFrom: new Date('2020-01-01T00:00:00.000Z'),
+    },
+  });
 }
 
 describe('Dashboards (e2e)', () => {
@@ -825,5 +844,281 @@ describe('Dashboards (e2e)', () => {
 
     await agent.get('/api/v1/dashboards/config').expect(403);
     await agent.get('/api/v1/dashboards/summary').expect(403);
+  });
+
+  it('returns PP config with eight counters, idpDeadlines block, and no resourcing block', async () => {
+    const pp = await createEmployeeUser(testApp, 'dash-pp@example.com', 'PP');
+    await assignBuiltInRole(
+      testApp,
+      pp.employeeId,
+      BUILT_IN_ROLE_NAMES.PEOPLE_PARTNER,
+    );
+
+    const agent = await loginAs(testApp, pp.email);
+    const configRes = await agent.get('/api/v1/dashboards/config').expect(200);
+    const config = configRes.body as DashboardConfigResponse;
+
+    expect(config.variant).toBe('pp');
+    expect(config.counters.map((counter) => counter.id)).toEqual([
+      'headcount',
+      'need_attention',
+      'medium',
+      'high',
+      'leaver',
+      'openActionItems',
+      'overdueActionItems',
+      'openCampaigns',
+    ]);
+    expect(config.blocks).toContain('idpDeadlines');
+    expect(config.blocks).not.toContain('resourcingRequests');
+    expect(config.quickNav.some((link) => link.path === '/resourcing')).toBe(
+      false,
+    );
+    expect(config.quickNav.some((link) => link.path === '/mentorship')).toBe(
+      true,
+    );
+  });
+
+  it('scopes PP dashboard to direct and HR-line assignees with IDPs in the 30-day window', async () => {
+    const pp = await createEmployeeUser(
+      testApp,
+      'dash-pp-scope@example.com',
+      'PP',
+    );
+    const hrManager = await createEmployeeUser(
+      testApp,
+      'dash-pp-hr-mgr@example.com',
+      'HR Manager',
+    );
+    const ppAnchor = await createEmployeeUser(
+      testApp,
+      'dash-pp-anchor@example.com',
+      'PP Anchor',
+    );
+    const directAssignee = await createEmployeeUser(
+      testApp,
+      'dash-pp-direct@example.com',
+      'Direct Assignee',
+    );
+    const indirectAssignee = await createEmployeeUser(
+      testApp,
+      'dash-pp-indirect@example.com',
+      'Indirect Assignee',
+    );
+    const excludedAssignee = await createEmployeeUser(
+      testApp,
+      'dash-pp-excluded@example.com',
+      'Excluded Assignee',
+    );
+    const nonHrManager = await createEmployeeUser(
+      testApp,
+      'dash-pp-non-hr@example.com',
+      'Non HR Manager',
+    );
+    const blockedAnchor = await createEmployeeUser(
+      testApp,
+      'dash-pp-blocked@example.com',
+      'Blocked Anchor',
+    );
+
+    await setOpenDepartment(testApp, pp.employeeId, 'HR');
+    await setOpenDepartment(testApp, hrManager.employeeId, 'HR');
+    await setOpenDepartment(testApp, nonHrManager.employeeId, 'Engineering');
+
+    await testApp.prisma.employee.update({
+      where: { id: hrManager.employeeId },
+      data: { managerId: pp.employeeId },
+    });
+    await testApp.prisma.employee.update({
+      where: { id: ppAnchor.employeeId },
+      data: { managerId: hrManager.employeeId },
+    });
+    await testApp.prisma.employee.update({
+      where: { id: nonHrManager.employeeId },
+      data: { managerId: pp.employeeId },
+    });
+    await testApp.prisma.employee.update({
+      where: { id: blockedAnchor.employeeId },
+      data: { managerId: nonHrManager.employeeId },
+    });
+    await testApp.prisma.employee.update({
+      where: { id: directAssignee.employeeId },
+      data: { peoplePartnerId: pp.employeeId },
+    });
+    await testApp.prisma.employee.update({
+      where: { id: indirectAssignee.employeeId },
+      data: { peoplePartnerId: ppAnchor.employeeId },
+    });
+    await testApp.prisma.employee.update({
+      where: { id: excludedAssignee.employeeId },
+      data: { peoplePartnerId: blockedAnchor.employeeId },
+    });
+
+    await testApp.prisma.departmentHistory.create({
+      data: {
+        employeeId: directAssignee.employeeId,
+        value: 'HR',
+        effectiveFrom: new Date('2020-01-01T00:00:00.000Z'),
+      },
+    });
+    await testApp.prisma.departmentHistory.create({
+      data: {
+        employeeId: indirectAssignee.employeeId,
+        value: 'Sales',
+        effectiveFrom: new Date('2020-01-01T00:00:00.000Z'),
+      },
+    });
+
+    const inWindowIdp = await testApp.prisma.iDPRecord.create({
+      data: {
+        employeeId: directAssignee.employeeId,
+        description: 'Due soon',
+        deadline: new Date('2026-01-20T00:00:00.000Z'),
+        fileUrl: 'https://example.com/idp-soon.pdf',
+      },
+    });
+    await testApp.prisma.iDPRecord.create({
+      data: {
+        employeeId: indirectAssignee.employeeId,
+        description: 'Too far out',
+        deadline: new Date('2026-02-15T00:00:00.000Z'),
+        fileUrl: 'https://example.com/idp-later.pdf',
+      },
+    });
+
+    await assignBuiltInRole(
+      testApp,
+      pp.employeeId,
+      BUILT_IN_ROLE_NAMES.PEOPLE_PARTNER,
+    );
+
+    const agent = await loginAs(testApp, pp.email);
+    const summaryRes = await agent
+      .get('/api/v1/dashboards/summary')
+      .expect(200);
+    const summary = summaryRes.body as DashboardSummaryResponse;
+
+    expect(summary.counters.headcount.value).toBe(2);
+    expect(summary.rows?.map((row) => row.employeeId).sort()).toEqual(
+      [directAssignee.employeeId, indirectAssignee.employeeId].sort(),
+    );
+    expect(
+      summary.rows?.find((row) => row.employeeId === directAssignee.employeeId)
+        ?.departmentLabel,
+    ).toBe('HR');
+    expect(summary.idpDeadlines?.map((row) => row.id)).toEqual([
+      inWindowIdp.id,
+    ]);
+    expect(summary.resourcingRequests).toBeUndefined();
+  });
+
+  it('returns zero counters and empty PP table when the PP has no assignees', async () => {
+    const pp = await createEmployeeUser(
+      testApp,
+      'dash-pp-empty@example.com',
+      'Empty PP',
+    );
+    await assignBuiltInRole(
+      testApp,
+      pp.employeeId,
+      BUILT_IN_ROLE_NAMES.PEOPLE_PARTNER,
+    );
+
+    const agent = await loginAs(testApp, pp.email);
+    const summaryRes = await agent
+      .get('/api/v1/dashboards/summary')
+      .expect(200);
+    const summary = summaryRes.body as DashboardSummaryResponse;
+
+    expect(summary.counters.headcount.value).toBe(0);
+    expect(summary.rows).toEqual([]);
+    expect(summary.idpDeadlines).toEqual([]);
+  });
+
+  it('scopes non-HR PP viewers to direct peoplePartnerId assignees only', async () => {
+    const pp = await createEmployeeUser(
+      testApp,
+      'dash-pp-non-hr@example.com',
+      'Non HR PP',
+    );
+    const hrManager = await createEmployeeUser(
+      testApp,
+      'dash-pp-non-hr-mgr@example.com',
+      'HR Manager',
+    );
+    const directAssignee = await createEmployeeUser(
+      testApp,
+      'dash-pp-non-hr-direct@example.com',
+      'Direct Assignee',
+    );
+    const indirectAssignee = await createEmployeeUser(
+      testApp,
+      'dash-pp-non-hr-indirect@example.com',
+      'Indirect Assignee',
+    );
+    const ppAnchor = await createEmployeeUser(
+      testApp,
+      'dash-pp-non-hr-anchor@example.com',
+      'PP Anchor',
+    );
+
+    await setOpenDepartment(testApp, hrManager.employeeId, 'HR');
+    await testApp.prisma.employee.update({
+      where: { id: hrManager.employeeId },
+      data: { managerId: pp.employeeId },
+    });
+    await testApp.prisma.employee.update({
+      where: { id: ppAnchor.employeeId },
+      data: { managerId: hrManager.employeeId },
+    });
+    await testApp.prisma.employee.update({
+      where: { id: directAssignee.employeeId },
+      data: { peoplePartnerId: pp.employeeId },
+    });
+    await testApp.prisma.employee.update({
+      where: { id: indirectAssignee.employeeId },
+      data: { peoplePartnerId: ppAnchor.employeeId },
+    });
+
+    await assignBuiltInRole(
+      testApp,
+      pp.employeeId,
+      BUILT_IN_ROLE_NAMES.PEOPLE_PARTNER,
+    );
+
+    const agent = await loginAs(testApp, pp.email);
+    const summaryRes = await agent
+      .get('/api/v1/dashboards/summary')
+      .expect(200);
+    const summary = summaryRes.body as DashboardSummaryResponse;
+
+    expect(summary.counters.headcount.value).toBe(1);
+    expect(summary.rows?.map((row) => row.employeeId)).toEqual([
+      directAssignee.employeeId,
+    ]);
+  });
+
+  it('prefers DM variant when viewer holds both DM and PP roles', async () => {
+    const dualRole = await createEmployeeUser(
+      testApp,
+      'dash-dual-dm-pp@example.com',
+      'Dual DM/PP',
+    );
+
+    await assignBuiltInRole(
+      testApp,
+      dualRole.employeeId,
+      BUILT_IN_ROLE_NAMES.DELIVERY_MANAGER,
+    );
+    await assignBuiltInRole(
+      testApp,
+      dualRole.employeeId,
+      BUILT_IN_ROLE_NAMES.PEOPLE_PARTNER,
+    );
+
+    const agent = await loginAs(testApp, dualRole.email);
+    const configRes = await agent.get('/api/v1/dashboards/config').expect(200);
+    const config = configRes.body as DashboardConfigResponse;
+    expect(config.variant).toBe('dm');
   });
 });

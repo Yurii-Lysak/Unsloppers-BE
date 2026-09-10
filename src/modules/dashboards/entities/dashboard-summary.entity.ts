@@ -51,6 +51,15 @@ export class DashboardTableRowEntity {
 
   @ApiPropertyOptional()
   projectStale?: boolean;
+
+  @ApiPropertyOptional({ enum: ['available', 'unavailable'] })
+  departmentStatus?: 'available' | 'unavailable';
+
+  @ApiPropertyOptional()
+  departmentLabel?: string;
+
+  @ApiPropertyOptional()
+  departmentStale?: boolean;
 }
 
 export class DashboardProjectGroupEntity {
@@ -82,6 +91,23 @@ export class DashboardResourcingRequestEntity {
 
   @ApiProperty({ format: 'date-time' })
   createdAt!: string;
+}
+
+export class DashboardIdpRowEntity {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  employeeId!: string;
+
+  @ApiProperty()
+  employeeDisplayName!: string;
+
+  @ApiProperty()
+  description!: string;
+
+  @ApiProperty({ format: 'date' })
+  deadline!: string;
 }
 
 export class DashboardPaginationEntity {
@@ -119,4 +145,7 @@ export class DashboardSummaryEntity {
 
   @ApiPropertyOptional({ type: [DashboardResourcingRequestEntity] })
   resourcingRequests?: DashboardResourcingRequestEntity[];
+
+  @ApiPropertyOptional({ type: [DashboardIdpRowEntity] })
+  idpDeadlines?: DashboardIdpRowEntity[];
 }

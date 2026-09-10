@@ -21,6 +21,13 @@ export const DM_QUICK_NAV_LINKS: DashboardQuickNavLinkEntity[] = [
   { labelKey: 'dashboard.quickNav.campaigns', path: '/campaigns' },
 ];
 
+export const PP_QUICK_NAV_LINKS: DashboardQuickNavLinkEntity[] = [
+  { labelKey: 'dashboard.quickNav.employees', path: '/employees' },
+  { labelKey: 'dashboard.quickNav.risks', path: '/risks' },
+  { labelKey: 'dashboard.quickNav.mentorship', path: '/mentorship' },
+  { labelKey: 'dashboard.quickNav.campaigns', path: '/campaigns' },
+];
+
 const UM_COUNTERS: DashboardCounterSpecEntity[] = [
   {
     id: 'headcount',
@@ -68,6 +75,10 @@ const UM_COUNTERS: DashboardCounterSpecEntity[] = [
     labelKey: 'dashboard.counters.openCampaigns',
   },
 ];
+
+const PP_COUNTERS: DashboardCounterSpecEntity[] = UM_COUNTERS.filter(
+  (counter) => counter.id !== 'openResourcingRequests',
+);
 
 const DM_COUNTERS: DashboardCounterSpecEntity[] = [
   {
@@ -150,8 +161,8 @@ export const DASHBOARD_VARIANT_DEFINITIONS: Record<
   pp: {
     variant: 'pp',
     grouping: 'people',
-    blocks: ['counters', 'table', 'ownActionItems', 'quickNav'],
-    counters: [],
-    quickNav: UM_QUICK_NAV_LINKS,
+    blocks: ['counters', 'table', 'idpDeadlines', 'ownActionItems', 'quickNav'],
+    counters: PP_COUNTERS,
+    quickNav: PP_QUICK_NAV_LINKS,
   },
 };
