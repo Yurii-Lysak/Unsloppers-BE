@@ -24,6 +24,7 @@ import { CampaignsModule } from './modules/campaigns/campaigns.module';
 import { DashboardsModule } from './modules/dashboards/dashboards.module';
 import { ResourcingModule } from './modules/resourcing/resourcing.module';
 import { CdsModule } from './modules/cds/cds.module';
+import { PersonalContactsModule } from './modules/personal-contacts/personal-contacts.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { CdsModule } from './modules/cds/cds.module';
     DashboardsModule,
     ResourcingModule,
     CdsModule,
+    PersonalContactsModule,
     HealthModule,
     UsersModule,
   ],

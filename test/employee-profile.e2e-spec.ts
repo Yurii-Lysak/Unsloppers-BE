@@ -838,6 +838,11 @@ describe('Employee profile assembly (e2e)', () => {
         }
       ).sections.S1?.data?.manager?.id,
     ).toBe(mentorEmployeeId);
+
+    await testApp.prisma.employee.update({
+      where: { id: reportEmployeeId },
+      data: { managerId: managerEmployeeId },
+    });
   });
 
   it('reflects people partner reassignment on the next profile response', async () => {
@@ -1678,6 +1683,503 @@ describe('Employee profile assembly (e2e)', () => {
       .send({ conclusion: '   ' })
       .expect(400);
   });
+
+  it('EMPTY_STATE: S2 and S3 return empty lists and null address fields', async () => {
+    const res = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s2 = readS2Section(res.body as { sections: Record<string, unknown> });
+    const s3 = readS3Section(res.body as { sections: Record<string, unknown> });
+
+    expect(s2?.accessLevel).toBe('RW');
+    expect(s2?.data).toEqual({
+      contactMethods: [],
+      residentialAddress: null,
+      placeOfStay: null,
+    });
+    expect(s3?.accessLevel).toBe('RW');
+    expect(s3?.data).toEqual({ contacts: [] });
+  });
+
+  it('SELF_EDIT_S2: employee adds a contact method and patches address', async () => {
+    const createRes = await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/personal-contacts`)
+      .send({
+        type: 'MESSENGER',
+        label: 'Telegram',
+        value: '@profile_report',
+      })
+      .expect(201);
+
+    await reportAgent
+      .patch(`/api/v1/employees/${reportEmployeeId}/personal-contacts/address`)
+      .send({
+        residentialAddress: '123 Main St',
+        placeOfStay: 'Kyiv',
+      })
+      .expect(200);
+
+    const profileRes = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s2 = readS2Section(
+      profileRes.body as { sections: Record<string, unknown> },
+    );
+    expect(s2?.data.contactMethods).toEqual([
+      expect.objectContaining({
+        id: (createRes.body as { id: string }).id,
+        type: 'MESSENGER',
+        label: 'Telegram',
+        value: '@profile_report',
+      }),
+    ]);
+    expect(s2?.data.residentialAddress).toBe('123 Main St');
+    expect(s2?.data.placeOfStay).toBe('Kyiv');
+  });
+
+  it('PP_EDIT_S2: people partner adds a phone contact for their assignee', async () => {
+    const createRes = await ppAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/personal-contacts`)
+      .send({
+        type: 'PHONE',
+        label: 'Mobile',
+        value: '+12025550123',
+      })
+      .expect(201);
+
+    const profileRes = await ppAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s2 = readS2Section(
+      profileRes.body as { sections: Record<string, unknown> },
+    );
+    expect(s2?.accessLevel).toBe('RW');
+    expect(s2?.data.contactMethods).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: (createRes.body as { id: string }).id,
+          type: 'PHONE',
+          label: 'Mobile',
+          value: '+12025550123',
+        }),
+      ]),
+    );
+  });
+
+  it('SELF_EDIT_S3: employee adds an emergency contact', async () => {
+    const createRes = await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/emergency-contacts`)
+      .send({
+        contactPerson: 'Jane Doe',
+        relationship: 'Spouse',
+        phone: '+12025550999',
+      })
+      .expect(201);
+
+    const profileRes = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s3 = readS3Section(
+      profileRes.body as { sections: Record<string, unknown> },
+    );
+    expect(s3?.data.contacts).toEqual([
+      expect.objectContaining({
+        id: (createRes.body as { id: string }).id,
+        contactPerson: 'Jane Doe',
+        relationship: 'Spouse',
+        phone: '+12025550999',
+      }),
+    ]);
+  });
+
+  it('PP_EDIT_S3: people partner adds an emergency contact for their assignee', async () => {
+    const createRes = await ppAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/emergency-contacts`)
+      .send({
+        contactPerson: 'John Smith',
+        relationship: 'Parent',
+        phone: '+12025550888',
+      })
+      .expect(201);
+
+    const profileRes = await ppAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s3 = readS3Section(
+      profileRes.body as { sections: Record<string, unknown> },
+    );
+    expect(s3?.data.contacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: (createRes.body as { id: string }).id,
+          contactPerson: 'John Smith',
+        }),
+      ]),
+    );
+  });
+
+  it('REPORTING_LINE_WRITE_DENIED: manager cannot write S2 or S3', async () => {
+    await managerAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/personal-contacts`)
+      .send({
+        type: 'EMAIL',
+        label: 'Work',
+        value: 'blocked@example.com',
+      })
+      .expect(403);
+
+    await managerAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/emergency-contacts`)
+      .send({
+        contactPerson: 'Blocked',
+        relationship: 'Friend',
+        phone: '+12025550777',
+      })
+      .expect(403);
+  });
+
+  it('COLLEAGUE_WRITE_DENIED: colleague cannot write S2 or S3', async () => {
+    await colleagueAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/personal-contacts`)
+      .send({
+        type: 'EMAIL',
+        label: 'Work',
+        value: 'blocked@example.com',
+      })
+      .expect(403);
+
+    await colleagueAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/emergency-contacts`)
+      .send({
+        contactPerson: 'Blocked',
+        relationship: 'Friend',
+        phone: '+12025550777',
+      })
+      .expect(403);
+  });
+
+  it('PROJECT_LINE_WRITE_DENIED: project-line viewer cannot write S2 or S3', async () => {
+    await dmAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/personal-contacts`)
+      .send({
+        type: 'EMAIL',
+        label: 'Work',
+        value: 'blocked@example.com',
+      })
+      .expect(403);
+
+    await dmAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/emergency-contacts`)
+      .send({
+        contactPerson: 'Blocked',
+        relationship: 'Friend',
+        phone: '+12025550777',
+      })
+      .expect(403);
+  });
+
+  it('S2 validation rejects malformed email and phone values', async () => {
+    await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/personal-contacts`)
+      .send({
+        type: 'EMAIL',
+        label: 'Work',
+        value: 'not-an-email',
+      })
+      .expect(400);
+
+    await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/personal-contacts`)
+      .send({
+        type: 'PHONE',
+        label: 'Mobile',
+        value: '12345',
+      })
+      .expect(400);
+  });
+
+  it('SUBJECT_NOT_FOUND: personal and emergency contact routes return 404 for unknown employee', async () => {
+    const missingEmployeeId = '00000000-0000-4000-8000-000000000098';
+
+    await reportAgent
+      .post(`/api/v1/employees/${missingEmployeeId}/personal-contacts`)
+      .send({
+        type: 'MESSENGER',
+        label: 'Telegram',
+        value: '@missing',
+      })
+      .expect(404);
+
+    await reportAgent
+      .post(`/api/v1/employees/${missingEmployeeId}/emergency-contacts`)
+      .send({
+        contactPerson: 'Missing',
+        relationship: 'Friend',
+        phone: '+12025550666',
+      })
+      .expect(404);
+  });
+
+  it('ENTRY_NOT_FOUND: wrong-employee contact id returns 404 without leaking existence', async () => {
+    const otherGraph = await seedProfileGraph(testApp, {
+      emailSuffix: '-contacts-isolation',
+    });
+    const otherContact = await testApp.prisma.personalContactMethod.create({
+      data: {
+        employeeId: otherGraph.reportEmployeeId,
+        type: 'MESSENGER',
+        label: 'Other',
+        value: '@other',
+      },
+    });
+
+    await reportAgent
+      .patch(
+        `/api/v1/employees/${reportEmployeeId}/personal-contacts/${otherContact.id}`,
+      )
+      .send({ label: 'Hijack' })
+      .expect(404);
+
+    await reportAgent
+      .delete(
+        `/api/v1/employees/${reportEmployeeId}/personal-contacts/${otherContact.id}`,
+      )
+      .expect(404);
+  });
+
+  it('ENTRY_NOT_FOUND: wrong-employee emergency contact id returns 404 without leaking existence', async () => {
+    const otherGraph = await seedProfileGraph(testApp, {
+      emailSuffix: '-emergency-isolation',
+    });
+    const otherContact = await testApp.prisma.emergencyContact.create({
+      data: {
+        employeeId: otherGraph.reportEmployeeId,
+        contactPerson: 'Other Person',
+        relationship: 'Sibling',
+        phone: '+12025550444',
+      },
+    });
+
+    await reportAgent
+      .patch(
+        `/api/v1/employees/${reportEmployeeId}/emergency-contacts/${otherContact.id}`,
+      )
+      .send({ contactPerson: 'Hijack' })
+      .expect(404);
+
+    await reportAgent
+      .delete(
+        `/api/v1/employees/${reportEmployeeId}/emergency-contacts/${otherContact.id}`,
+      )
+      .expect(404);
+  });
+
+  it('returns 400 for malformed UUIDs on personal and emergency contact routes', async () => {
+    await reportAgent
+      .post('/api/v1/employees/not-a-uuid/personal-contacts')
+      .send({
+        type: 'MESSENGER',
+        label: 'Telegram',
+        value: '@profile_report',
+      })
+      .expect(400);
+
+    await reportAgent
+      .post('/api/v1/employees/not-a-uuid/emergency-contacts')
+      .send({
+        contactPerson: 'Jane Doe',
+        relationship: 'Spouse',
+        phone: '+12025550999',
+      })
+      .expect(400);
+
+    const contact = await testApp.prisma.personalContactMethod.create({
+      data: {
+        employeeId: reportEmployeeId,
+        type: 'MESSENGER',
+        label: 'Route check',
+        value: '@route',
+      },
+    });
+
+    await reportAgent
+      .patch(
+        `/api/v1/employees/${reportEmployeeId}/personal-contacts/not-a-uuid`,
+      )
+      .send({ label: 'Bad id' })
+      .expect(400);
+
+    await reportAgent
+      .patch(
+        `/api/v1/employees/${reportEmployeeId}/emergency-contacts/not-a-uuid`,
+      )
+      .send({ contactPerson: 'Bad id' })
+      .expect(400);
+
+    await reportAgent
+      .delete(
+        `/api/v1/employees/${reportEmployeeId}/personal-contacts/${contact.id}`,
+      )
+      .expect(204);
+  });
+
+  it('S3 validation rejects malformed emergency contact phone values', async () => {
+    await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/emergency-contacts`)
+      .send({
+        contactPerson: 'Jane Doe',
+        relationship: 'Spouse',
+        phone: '12345',
+      })
+      .expect(400);
+  });
+
+  it('revalidates contact method value when type changes on PATCH', async () => {
+    const createRes = await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/personal-contacts`)
+      .send({
+        type: 'MESSENGER',
+        label: 'Telegram',
+        value: '@type_change',
+      })
+      .expect(201);
+
+    const contactId = (createRes.body as { id: string }).id;
+
+    await reportAgent
+      .patch(
+        `/api/v1/employees/${reportEmployeeId}/personal-contacts/${contactId}`,
+      )
+      .send({ type: 'EMAIL' })
+      .expect(400);
+
+    await reportAgent
+      .patch(
+        `/api/v1/employees/${reportEmployeeId}/personal-contacts/${contactId}`,
+      )
+      .send({ type: 'EMAIL', value: 'valid@example.com' })
+      .expect(200);
+
+    const profileRes = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s2 = readS2Section(
+      profileRes.body as { sections: Record<string, unknown> },
+    );
+    expect(s2?.data.contactMethods).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: contactId,
+          type: 'EMAIL',
+          value: 'valid@example.com',
+        }),
+      ]),
+    );
+  });
+
+  it('REPORTING_LINE_READ: manager sees S2/S3 read-only after subject edits', async () => {
+    const createContactRes = await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/personal-contacts`)
+      .send({
+        type: 'MESSENGER',
+        label: 'Manager visibility',
+        value: '@manager_read',
+      })
+      .expect(201);
+
+    await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/emergency-contacts`)
+      .send({
+        contactPerson: 'Manager Read Contact',
+        relationship: 'Parent',
+        phone: '+12025550333',
+      })
+      .expect(201);
+
+    const managerProfileRes = await managerAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s2 = readS2Section(
+      managerProfileRes.body as { sections: Record<string, unknown> },
+    );
+    const s3 = readS3Section(
+      managerProfileRes.body as { sections: Record<string, unknown> },
+    );
+
+    expect(s2?.accessLevel).toBe('R');
+    expect(s2?.data.contactMethods).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: (createContactRes.body as { id: string }).id,
+          value: '@manager_read',
+        }),
+      ]),
+    );
+    expect(s3?.accessLevel).toBe('R');
+    expect(s3?.data.contacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          contactPerson: 'Manager Read Contact',
+        }),
+      ]),
+    );
+  });
+
+  it('PP_READ_S2_S3: people partner sees subject contact data with RW access', async () => {
+    const createContactRes = await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/personal-contacts`)
+      .send({
+        type: 'EMAIL',
+        label: 'PP visibility',
+        value: 'pp-read@example.com',
+      })
+      .expect(201);
+
+    await reportAgent
+      .post(`/api/v1/employees/${reportEmployeeId}/emergency-contacts`)
+      .send({
+        contactPerson: 'PP Read Contact',
+        relationship: 'Sibling',
+        phone: '+12025550222',
+      })
+      .expect(201);
+
+    const ppProfileRes = await ppAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .expect(200);
+
+    const s2 = readS2Section(
+      ppProfileRes.body as { sections: Record<string, unknown> },
+    );
+    const s3 = readS3Section(
+      ppProfileRes.body as { sections: Record<string, unknown> },
+    );
+
+    expect(s2?.accessLevel).toBe('RW');
+    expect(s2?.data.contactMethods).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: (createContactRes.body as { id: string }).id,
+          value: 'pp-read@example.com',
+        }),
+      ]),
+    );
+    expect(s3?.accessLevel).toBe('RW');
+    expect(s3?.data.contacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          contactPerson: 'PP Read Contact',
+        }),
+      ]),
+    );
+  });
 });
 
 const EXPECTED_S4_EMPLOYMENT_DATA = {
@@ -1695,6 +2197,28 @@ const readS4Section = (body: { sections: Record<string, unknown> }) =>
     | {
         accessLevel: string;
         data: Record<string, string | null>;
+      }
+    | undefined;
+
+const readS2Section = (body: { sections: Record<string, unknown> }) =>
+  body.sections.S2 as
+    | {
+        accessLevel: string;
+        data: {
+          contactMethods: Array<Record<string, unknown>>;
+          residentialAddress: string | null;
+          placeOfStay: string | null;
+        };
+      }
+    | undefined;
+
+const readS3Section = (body: { sections: Record<string, unknown> }) =>
+  body.sections.S3 as
+    | {
+        accessLevel: string;
+        data: {
+          contacts: Array<Record<string, unknown>>;
+        };
       }
     | undefined;
 

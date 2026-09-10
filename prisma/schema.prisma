@@ -52,6 +52,9 @@ model Employee {
   englishLevel    String?
   probationStatus String?
   contractType    String?
+  // Story 2.2 — optional scalar address fields on S2 (not repeatable).
+  residentialAddress String?
+  placeOfStay        String?
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
@@ -140,6 +143,9 @@ model Employee {
   cdsAssessments CDSAssessment[]
   // Story 8.2 — individual development plan records (flat FK to employee).
   idpRecords IDPRecord[]
+  // Story 2.2 — personal and emergency contact rows (Cascade on employee delete).
+  personalContactMethods PersonalContactMethod[]
+  emergencyContacts      EmergencyContact[]
 
   @@index([managerId])
   @@index([peoplePartnerId])
@@ -618,6 +624,44 @@ model IDPRecord {
 
   @@index([employeeId])
   @@map("idp_records")
+}
+
+enum PersonalContactMethodType {
+  PHONE
+  EMAIL
+  MESSENGER
+}
+
+// Story 2.2 — repeatable phone/email/messenger entries for S2.
+model PersonalContactMethod {
+  id         String                    @id @default(uuid())
+  employeeId String
+  type       PersonalContactMethodType
+  label      String
+  value      String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@map("personal_contact_methods")
+}
+
+// Story 2.2 — repeatable emergency contact persons for S3.
+model EmergencyContact {
+  id            String   @id @default(uuid())
+  employeeId    String
+  contactPerson String
+  relationship  String
+  phone         String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@map("emergency_contacts")
 }
 
 // Story 6.2 — a UM's attached candidate (internal or external-link) against a
