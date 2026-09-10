@@ -40,6 +40,9 @@ yarn-error.log*
 # temp
 .tmp
 
+# Story 2.3 — uploaded profile photos and documents
+/uploads
+
 # Prisma generated client (regenerated via postinstall)
 /src/generated
 

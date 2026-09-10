@@ -39,4 +39,6 @@ export const envValidationSchema = Joi.object({
     .positive()
     .default(60_000),
   THROTTLE_SHARED_LINK_LIMIT: Joi.number().integer().positive().default(30),
+  // Story 2.3 — local disk root for profile photos and S5 documents.
+  UPLOADS_DIR: Joi.string().default('./uploads'),
 });

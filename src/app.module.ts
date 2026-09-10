@@ -25,6 +25,7 @@ import { DashboardsModule } from './modules/dashboards/dashboards.module';
 import { ResourcingModule } from './modules/resourcing/resourcing.module';
 import { CdsModule } from './modules/cds/cds.module';
 import { PersonalContactsModule } from './modules/personal-contacts/personal-contacts.module';
+import { DocumentsModule } from './modules/documents/documents.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { PersonalContactsModule } from './modules/personal-contacts/personal-con
     ResourcingModule,
     CdsModule,
     PersonalContactsModule,
+    DocumentsModule,
     HealthModule,
     UsersModule,
   ],

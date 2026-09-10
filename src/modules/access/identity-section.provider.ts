@@ -8,6 +8,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SectionProvider } from '../contracts/section-provider.contract';
 import { RegisterProvider } from '../registry/register-provider.decorator';
 import { IdentitySectionDto } from './entities/identity-section.entity';
+import { IdentityService } from './identity.service';
 
 const MENTOR_VISIBLE_ROLES: ReadonlySet<AccessRole> = new Set([
   'Self',
@@ -17,10 +18,8 @@ const MENTOR_VISIBLE_ROLES: ReadonlySet<AccessRole> = new Set([
 ]);
 
 /**
- * S1 identity stub — bootcamp schema exposes User name/email plus manager and
- * people-partner links. Photo, position, and department are deferred until their
- * owning stories add Prisma columns. Mentor is resolved from active
- * `MentorshipPair` rows for D5-allowed audiences only (Story 1.7).
+ * S1 identity — User name/email, manager/PP links, profile photo, and mentor
+ * for D5-allowed audiences (Story 1.7).
  */
 @Injectable()
 @RegisterProvider('section', 'S1')
@@ -28,6 +27,7 @@ export class IdentitySectionProvider extends SectionProvider {
   constructor(
     private readonly prisma: PrismaService,
     private readonly activeMentorLookup: ActiveMentorLookup,
+    private readonly identity: IdentityService,
   ) {
     super();
   }
@@ -39,7 +39,8 @@ export class IdentitySectionProvider extends SectionProvider {
   ): Promise<IdentitySectionDto> {
     const employee = await this.prisma.employee.findUnique({
       where: { id: subjectId },
-      include: {
+      select: {
+        photoStorageKey: true,
         user: { select: { name: true, email: true } },
         manager: {
           include: { user: { select: { name: true, email: true } } },
@@ -56,6 +57,10 @@ export class IdentitySectionProvider extends SectionProvider {
 
     const section: IdentitySectionDto = {
       displayName: employee.user.name?.trim() || employee.user.email,
+      photoUrl: this.identity.buildPhotoUrl(
+        subjectId,
+        employee.photoStorageKey,
+      ),
       manager: employee.manager
         ? {
             id: employee.manager.id,

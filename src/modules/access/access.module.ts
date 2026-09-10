@@ -17,7 +17,10 @@ import {
 } from './functional-roles.controller';
 import { EmployeeFunctionalRolesController } from './employee-functional-roles.controller';
 import { ProfileController } from './profile.controller';
+import { IdentityController } from './identity.controller';
+import { IdentityService } from './identity.service';
 import { SharedLinkController } from './shared-link.controller';
+import { StorageModule } from '../storage/storage.module';
 import { ProfileAssemblerService } from './profile-assembler.service';
 import { SharedLinkService } from './shared-link.service';
 import { EmploymentSectionProvider } from './employment-section.provider';
@@ -49,11 +52,13 @@ import { RelationshipGraphGenerationService } from './relationship-graph-generat
  */
 @Global()
 @Module({
+  imports: [StorageModule],
   controllers: [
     FunctionalRolesController,
     PermissionsCatalogController,
     EmployeeFunctionalRolesController,
     ProfileController,
+    IdentityController,
     SharedLinkController,
   ],
   providers: [
@@ -65,6 +70,7 @@ import { RelationshipGraphGenerationService } from './relationship-graph-generat
     FunctionalRoleService,
     FunctionalRoleAssignmentService,
     ProfileAssemblerService,
+    IdentityService,
     SharedLinkService,
     { provide: RelationshipJournal, useClass: RelationshipJournalService },
     IdentitySectionProvider,
