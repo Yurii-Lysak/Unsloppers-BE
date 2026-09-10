@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Clock } from '../../clock/clock.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -12,17 +13,37 @@ const CONFIRMATION_FRESHNESS_WINDOW_MS = 4 * 60 * 60 * 1000;
 
 @Injectable()
 export class DashboardAudienceService extends DashboardAudience {
+  private readonly logger = new Logger(DashboardAudienceService.name);
+  private readonly hrDepartmentValue: string;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly clock: Clock,
+    configService: ConfigService,
   ) {
     super();
+    this.hrDepartmentValue =
+      configService.get<string>('HR_DEPARTMENT_VALUE') ?? 'HR';
   }
 
   async listManagerSubordinateIds(viewerEmployeeId: string): Promise<string[]> {
     const descendants =
       await this.listReportingLineDescendantIds(viewerEmployeeId);
     return descendants.filter((id) => id !== viewerEmployeeId);
+  }
+
+  async listPpAssignedIds(viewerEmployeeId: string): Promise<string[]> {
+    const anchors = await this.collectPpAnchorIds(viewerEmployeeId);
+    if (anchors.size === 0) {
+      return [];
+    }
+
+    const employees = await this.prisma.employee.findMany({
+      where: { peoplePartnerId: { in: [...anchors] } },
+      select: { id: true },
+    });
+
+    return employees.map((employee) => employee.id);
   }
 
   async listProjectGroups(
@@ -66,6 +87,60 @@ export class DashboardAudienceService extends DashboardAudience {
         projectName: projectId,
         subjectIds: [...subjectIds],
       }));
+  }
+
+  private async collectPpAnchorIds(
+    viewerEmployeeId: string,
+  ): Promise<Set<string>> {
+    const anchors = new Set<string>([viewerEmployeeId]);
+
+    if (!(await this.isHrDepartment(viewerEmployeeId))) {
+      return anchors;
+    }
+
+    const visited = new Set<string>([viewerEmployeeId]);
+    const queue = [viewerEmployeeId];
+
+    while (queue.length > 0) {
+      const currentManagerId = queue.shift()!;
+      const directReports = await this.prisma.employee.findMany({
+        where: { managerId: currentManagerId },
+        select: { id: true },
+      });
+
+      for (const report of directReports) {
+        if (visited.has(report.id)) {
+          this.logger.warn(
+            `Cycle detected while walking PP audience from viewerId=${viewerEmployeeId}`,
+          );
+          continue;
+        }
+
+        visited.add(report.id);
+        anchors.add(report.id);
+
+        if (await this.isHrDepartment(report.id)) {
+          queue.push(report.id);
+        }
+      }
+    }
+
+    return anchors;
+  }
+
+  private async isHrDepartment(employeeId: string): Promise<boolean> {
+    const departmentValue = await this.getOpenDepartmentValue(employeeId);
+    return departmentValue === this.hrDepartmentValue;
+  }
+
+  private async getOpenDepartmentValue(
+    employeeId: string,
+  ): Promise<string | null> {
+    const row = await this.prisma.departmentHistory.findFirst({
+      where: { employeeId, effectiveTo: null },
+      select: { value: true },
+    });
+    return row?.value ?? null;
   }
 
   private async listReportingLineDescendantIds(

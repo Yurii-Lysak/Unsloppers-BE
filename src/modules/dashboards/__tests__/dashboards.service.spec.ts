@@ -20,11 +20,14 @@ describe('DashboardsService', () => {
   let resourcingProvider: jest.Mocked<DashboardSummaryProvider>;
   let resourcingRequestsProvider: jest.Mocked<DashboardSummaryProvider>;
   let campaignsProvider: jest.Mocked<DashboardSummaryProvider>;
+  let departmentProvider: jest.Mocked<DashboardSummaryProvider>;
+  let idpProvider: jest.Mocked<DashboardSummaryProvider>;
 
   beforeEach(async () => {
     audience = {
       listManagerSubordinateIds: jest.fn(),
       listProjectGroups: jest.fn(),
+      listPpAssignedIds: jest.fn(),
     };
     variantResolver = {
       resolveVariant: jest.fn(),
@@ -36,6 +39,8 @@ describe('DashboardsService', () => {
     resourcingProvider = { getSummary: jest.fn() };
     resourcingRequestsProvider = { getSummary: jest.fn() };
     campaignsProvider = { getSummary: jest.fn() };
+    departmentProvider = { getSummary: jest.fn() };
+    idpProvider = { getSummary: jest.fn() };
     registry = {
       get: jest.fn(),
     } as unknown as jest.Mocked<ProviderRegistryService>;
@@ -80,6 +85,39 @@ describe('DashboardsService', () => {
       }
       if (providerId === 'campaigns') {
         return { status: 'available', provider: campaignsProvider };
+      }
+      if (providerId === 'department') {
+        return { status: 'available', provider: departmentProvider };
+      }
+      if (providerId === 'idp') {
+        return { status: 'available', provider: idpProvider };
+      }
+      return { status: 'unavailable' };
+    });
+  };
+
+  const mockPpProviders = () => {
+    registry.get.mockImplementation((_kind, providerId) => {
+      if (providerId === 'risks') {
+        return { status: 'available', provider: risksProvider };
+      }
+      if (providerId === 'action-items') {
+        return { status: 'available', provider: actionItemsProvider };
+      }
+      if (providerId === 'leave') {
+        return { status: 'available', provider: leaveProvider };
+      }
+      if (providerId === 'employment') {
+        return { status: 'available', provider: employmentProvider };
+      }
+      if (providerId === 'campaigns') {
+        return { status: 'available', provider: campaignsProvider };
+      }
+      if (providerId === 'department') {
+        return { status: 'available', provider: departmentProvider };
+      }
+      if (providerId === 'idp') {
+        return { status: 'available', provider: idpProvider };
       }
       return { status: 'unavailable' };
     });
@@ -879,5 +917,232 @@ describe('DashboardsService', () => {
     await expect(
       service.getSummary('dm-viewer', { projectId: '   ' }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('returns PP config with eight counters, idpDeadlines block, and PP quick nav', async () => {
+    variantResolver.resolveVariant.mockResolvedValue({
+      variant: 'pp',
+      resolvedBy: 'functional-role',
+    });
+
+    const config = await service.getConfig('pp-viewer');
+
+    expect(config.variant).toBe('pp');
+    expect(config.counters.map((counter) => counter.id)).toEqual([
+      'headcount',
+      'need_attention',
+      'medium',
+      'high',
+      'leaver',
+      'openActionItems',
+      'overdueActionItems',
+      'openCampaigns',
+    ]);
+    expect(config.blocks).toEqual([
+      'counters',
+      'table',
+      'idpDeadlines',
+      'ownActionItems',
+      'quickNav',
+    ]);
+    expect(config.quickNav.map((link) => link.labelKey)).toEqual([
+      'dashboard.quickNav.employees',
+      'dashboard.quickNav.risks',
+      'dashboard.quickNav.mentorship',
+      'dashboard.quickNav.campaigns',
+    ]);
+    expect(config.quickNav.some((link) => link.path === '/resourcing')).toBe(
+      false,
+    );
+  });
+
+  it('returns PP summary scoped to listPpAssignedIds with department and idp blocks', async () => {
+    variantResolver.resolveVariant.mockResolvedValue({
+      variant: 'pp',
+      resolvedBy: 'functional-role',
+    });
+    audience.listPpAssignedIds.mockResolvedValue(['assignee-1']);
+    mockPpProviders();
+    risksProvider.getSummary.mockResolvedValue({
+      providerId: 'risks',
+      status: 'available',
+      counts: {
+        need_attention: 0,
+        medium: 0,
+        high: 0,
+        leaver: 0,
+        totalActive: 0,
+      },
+      rows: [],
+    });
+    actionItemsProvider.getSummary.mockResolvedValue({
+      providerId: 'action-items',
+      status: 'available',
+      openCount: 1,
+      overdueCount: 0,
+    });
+    leaveProvider.getSummary.mockResolvedValue({
+      providerId: 'leave',
+      status: 'available',
+      cells: {},
+    });
+    employmentProvider.getSummary.mockResolvedValue({
+      providerId: 'employment',
+      status: 'available',
+      cells: {
+        'assignee-1': { value: 'proj-a', unavailable: false },
+      },
+    });
+    departmentProvider.getSummary.mockResolvedValue({
+      providerId: 'department',
+      status: 'available',
+      cells: {
+        'assignee-1': { value: 'HR', unavailable: false },
+      },
+    });
+    campaignsProvider.getSummary.mockResolvedValue({
+      providerId: 'campaigns',
+      status: 'available',
+      openCount: 2,
+    });
+    idpProvider.getSummary.mockResolvedValue({
+      providerId: 'idp',
+      status: 'available',
+      rows: [
+        {
+          id: 'idp-1',
+          employeeId: 'assignee-1',
+          employeeDisplayName: 'Assignee One',
+          description: 'Leadership plan',
+          deadline: '2026-09-20',
+        },
+      ],
+    });
+    prisma.employee.findMany.mockResolvedValue([
+      {
+        id: 'assignee-1',
+        user: { name: 'Assignee One', email: 'assignee1@example.com' },
+      },
+    ]);
+
+    const summary = await service.getSummary('pp-viewer');
+
+    expect(audience.listPpAssignedIds).toHaveBeenCalledWith('pp-viewer');
+    expect(summary.counters.headcount).toEqual({
+      status: 'available',
+      value: 1,
+    });
+    expect(summary.rows?.[0]?.departmentLabel).toBe('HR');
+    expect(summary.idpDeadlines).toHaveLength(1);
+    expect(summary.pagination).toBeUndefined();
+    expect(departmentProvider.getSummary.mock.calls[0]).toEqual([
+      'pp-viewer',
+      { subjectIds: ['assignee-1'], variant: 'pp' },
+    ]);
+  });
+
+  it('marks PP department cells unavailable when the department provider fails', async () => {
+    variantResolver.resolveVariant.mockResolvedValue({
+      variant: 'pp',
+      resolvedBy: 'functional-role',
+    });
+    audience.listPpAssignedIds.mockResolvedValue(['assignee-1']);
+    mockPpProviders();
+    departmentProvider.getSummary.mockResolvedValue({
+      providerId: 'department',
+      status: 'unavailable',
+    });
+    risksProvider.getSummary.mockResolvedValue({
+      providerId: 'risks',
+      status: 'available',
+      counts: {
+        need_attention: 0,
+        medium: 0,
+        high: 0,
+        leaver: 0,
+        totalActive: 0,
+      },
+      rows: [],
+    });
+    actionItemsProvider.getSummary.mockResolvedValue({
+      providerId: 'action-items',
+      status: 'available',
+      openCount: 0,
+      overdueCount: 0,
+    });
+    leaveProvider.getSummary.mockResolvedValue({
+      providerId: 'leave',
+      status: 'available',
+      cells: {},
+    });
+    employmentProvider.getSummary.mockResolvedValue({
+      providerId: 'employment',
+      status: 'available',
+      cells: {},
+    });
+    campaignsProvider.getSummary.mockResolvedValue({
+      providerId: 'campaigns',
+      status: 'available',
+      openCount: 0,
+    });
+    idpProvider.getSummary.mockResolvedValue({
+      providerId: 'idp',
+      status: 'available',
+      rows: [],
+    });
+    prisma.employee.findMany.mockResolvedValue([
+      {
+        id: 'assignee-1',
+        user: { name: 'Assignee One', email: 'assignee1@example.com' },
+      },
+    ]);
+
+    const summary = await service.getSummary('pp-viewer');
+
+    expect(summary.rows?.[0]?.departmentStatus).toBe('unavailable');
+  });
+
+  it('omits PP idpDeadlines when the idp provider is unavailable', async () => {
+    variantResolver.resolveVariant.mockResolvedValue({
+      variant: 'pp',
+      resolvedBy: 'functional-role',
+    });
+    audience.listPpAssignedIds.mockResolvedValue([]);
+    mockPpProviders();
+    risksProvider.getSummary.mockResolvedValue({
+      providerId: 'risks',
+      status: 'available',
+      counts: {
+        need_attention: 0,
+        medium: 0,
+        high: 0,
+        leaver: 0,
+        totalActive: 0,
+      },
+      rows: [],
+    });
+    actionItemsProvider.getSummary.mockResolvedValue({
+      providerId: 'action-items',
+      status: 'available',
+      openCount: 0,
+      overdueCount: 0,
+    });
+    campaignsProvider.getSummary.mockResolvedValue({
+      providerId: 'campaigns',
+      status: 'available',
+      openCount: 0,
+    });
+    idpProvider.getSummary.mockResolvedValue({
+      providerId: 'idp',
+      status: 'unavailable',
+    });
+
+    const summary = await service.getSummary('pp-viewer');
+
+    expect(summary.idpDeadlines).toBeUndefined();
+    expect(summary.counters.headcount).toEqual({
+      status: 'available',
+      value: 0,
+    });
   });
 });
