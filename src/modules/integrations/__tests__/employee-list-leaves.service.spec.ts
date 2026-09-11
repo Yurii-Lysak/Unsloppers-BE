@@ -10,6 +10,7 @@ describe('EmployeeListLeavesService', () => {
   beforeEach(async () => {
     leavesSync = {
       getLeavesForEmployee: jest.fn(),
+      getLeavesForEmployees: jest.fn(),
     } as unknown as jest.Mocked<LeavesSyncService>;
 
     const module: TestingModule = await Test.createTestingModule({
@@ -40,5 +41,36 @@ describe('EmployeeListLeavesService', () => {
     expect(cell.unavailable).toBe(false);
     expect(cell.stale).toBe(true);
     expect(cell.value).toContain('2026-09-01');
+  });
+
+  it('batches leave lookups across a page in a single sync call', async () => {
+    leavesSync.getLeavesForEmployees.mockResolvedValue(
+      new Map([
+        [
+          'emp-1',
+          {
+            availability: 'ok',
+            leaves: [{ startDate: '2026-09-01', endDate: '2026-09-10' }],
+          },
+        ],
+        ['emp-2', { availability: 'unavailable', leaves: [] }],
+      ]),
+    );
+
+    const cells = await service.formatListCells([
+      { subjectEmployeeId: 'emp-1', hideLeaveType: false },
+      { subjectEmployeeId: 'emp-2', hideLeaveType: true },
+    ]);
+
+    expect(leavesSync.getLeavesForEmployees.mock.calls).toHaveLength(1);
+    expect(leavesSync.getLeavesForEmployees.mock.calls[0][0]).toEqual([
+      'emp-1',
+      'emp-2',
+    ]);
+    expect(cells.get('emp-1')?.value).toContain('2026-09-01');
+    expect(cells.get('emp-2')).toEqual({
+      value: 'Temporarily unavailable',
+      unavailable: true,
+    });
   });
 });

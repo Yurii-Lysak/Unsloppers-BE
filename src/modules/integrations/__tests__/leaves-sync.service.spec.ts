@@ -91,4 +91,72 @@ describe('LeavesSyncService', () => {
     expect(stale.stale).toBe(true);
     expect(stale.leaves.length).toBeGreaterThanOrEqual(0);
   });
+
+  it('fetches leaves for many employees with one accounting call per month, not one per employee', async () => {
+    identityMapping.findTimetrackerExternalId.mockImplementation(
+      (employeeId: string) =>
+        Promise.resolve(
+          employeeId === 'emp-1' ? '42' : employeeId === 'emp-2' ? '43' : null,
+        ),
+    );
+    timetracker.fetchAccountingReport.mockResolvedValue({
+      startDate: '2026-09-01',
+      endDate: '2026-09-30',
+      employees: [
+        {
+          id: 42,
+          email: 'a@example.com',
+          name: 'A',
+          hash: 'h',
+          countryCode: 'US',
+          days: [
+            {
+              date: '2026-09-05',
+              projectId: 1,
+              projectUniqueName: 'proj',
+              project: 'Project',
+              hours: 0,
+              hoursForCustomer: 0,
+              overtime: 0,
+              overtimeRate: 0,
+              outOfScope: 0,
+              dayStatus: DayStatus.Vacation,
+            },
+          ],
+        },
+        {
+          id: 43,
+          email: 'b@example.com',
+          name: 'B',
+          hash: 'h',
+          countryCode: 'US',
+          days: [],
+        },
+      ],
+      dayStatuses: {},
+      reportStates: {},
+      dayApprovalStates: {},
+    });
+
+    const results = await service.getLeavesForEmployees([
+      'emp-1',
+      'emp-2',
+      'emp-3',
+    ]);
+
+    // 3 months queried (prev/current/next), each in a single batched call
+    // covering both mapped employees — not 3 calls per employee.
+    expect(timetracker.fetchAccountingReport.mock.calls).toHaveLength(3);
+    for (const [call] of timetracker.fetchAccountingReport.mock.calls) {
+      expect(call.employeeIds).toEqual(expect.arrayContaining([42, 43]));
+    }
+    expect(results.get('emp-1')?.availability).toBe('ok');
+    expect(results.get('emp-1')?.leaves[0]?.startDate).toBe('2026-09-05');
+    expect(results.get('emp-2')).toEqual({
+      availability: 'ok',
+      leaves: [],
+      stale: false,
+    });
+    expect(results.get('emp-3')).toEqual({ availability: 'ok', leaves: [] });
+  });
 });

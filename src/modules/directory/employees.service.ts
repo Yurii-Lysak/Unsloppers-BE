@@ -34,7 +34,10 @@ import { CustomFieldVisibilityService } from './custom-field-visibility.service'
 import { MANAGE_CUSTOM_FIELDS_PERMISSION } from './directory.constants';
 import { FieldRegistryService } from './field-registry.service';
 import { ListCatalogAccessService } from './list-catalog-access.service';
-import { EmployeeListLeavesReader } from '../contracts/employee-list-leaves.contract';
+import {
+  EmployeeListLeaveCell,
+  EmployeeListLeavesReader,
+} from '../contracts/employee-list-leaves.contract';
 import { ProjectAssignment } from '../contracts/project-assignment.contract';
 import { ExportEmployeesQueryDto } from './dto/export-employees-query.dto';
 import {
@@ -699,45 +702,59 @@ export class EmployeesService extends EmployeeDirectory {
       return rows;
     }
 
-    // Each row's leave/project lookup is an independent external/DB read —
-    // run the whole page concurrently rather than one row at a time. This is
-    // what turned a 24-row page into ~24x a single row's latency in
-    // production (each TimeTracker leave lookup alone can take several
-    // seconds) — see the fix for backend defect #05's live-incident follow-up.
-    return Promise.all(
-      rows.map(async (row) => {
-        const audience = await this.resolveRowAudience(
+    const wantsLeaveField = integratedFieldIds.includes(
+      BUILTIN_FIELD_IDS.current_leave_dates,
+    );
+    const wantsProjectField = integratedFieldIds.includes(
+      BUILTIN_FIELD_IDS.project_names,
+    );
+
+    const rowAudiences = await Promise.all(
+      rows.map(async (row) => ({
+        row,
+        audience: await this.resolveRowAudience(
           viewerEmployeeId,
           row.employeeId,
           audienceCache,
-        );
+        ),
+      })),
+    );
+
+    // Leave data is fetched once for the whole page in a single batched
+    // TimeTracker call (per month) instead of one call per row. Even after
+    // per-row calls were parallelized, N rows meant up to 3N concurrent
+    // external HTTP calls, and the external API's own latency under that
+    // load — not our DB or access resolution — was the remaining ~12s floor
+    // on page load. Project names stay per-row: that lookup reads the local
+    // ProjectAssignment table (populated by a background TimeTracker sync),
+    // not a live external call.
+    const leaveRows = wantsLeaveField
+      ? rowAudiences
+          .filter(({ audience }) => audience.sections.S10 !== 'none')
+          .map(({ row, audience }) => ({
+            subjectEmployeeId: row.employeeId,
+            hideLeaveType: audience.role === 'Colleague',
+          }))
+      : [];
+    const leaveCells: Map<string, EmployeeListLeaveCell> =
+      leaveRows.length > 0
+        ? await this.leavesReader.formatListCells(leaveRows)
+        : new Map<string, EmployeeListLeaveCell>();
+
+    return Promise.all(
+      rowAudiences.map(async ({ row, audience }) => {
         const cells = { ...row.cells };
 
-        const leavePromise =
-          integratedFieldIds.includes(BUILTIN_FIELD_IDS.current_leave_dates) &&
-          audience.sections.S10 !== 'none'
-            ? this.leavesReader.formatListCell(
-                row.employeeId,
-                audience.role === 'Colleague',
-              )
-            : null;
-
-        const projectNamesPromise =
-          integratedFieldIds.includes(BUILTIN_FIELD_IDS.project_names) &&
-          audience.sections.S11 !== 'none'
-            ? this.formatProjectNames(row.employeeId)
-            : null;
-
-        const [leaveCell, projectNames] = await Promise.all([
-          leavePromise,
-          projectNamesPromise,
-        ]);
-
-        if (leaveCell) {
-          cells[BUILTIN_FIELD_IDS.current_leave_dates] = leaveCell.value;
+        if (wantsLeaveField && audience.sections.S10 !== 'none') {
+          const leaveCell = leaveCells.get(row.employeeId);
+          if (leaveCell) {
+            cells[BUILTIN_FIELD_IDS.current_leave_dates] = leaveCell.value;
+          }
         }
-        if (projectNames !== null) {
-          cells[BUILTIN_FIELD_IDS.project_names] = projectNames;
+
+        if (wantsProjectField && audience.sections.S11 !== 'none') {
+          cells[BUILTIN_FIELD_IDS.project_names] =
+            await this.formatProjectNames(row.employeeId);
         }
 
         return { employeeId: row.employeeId, cells };
