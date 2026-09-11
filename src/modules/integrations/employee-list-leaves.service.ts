@@ -60,4 +60,47 @@ export class EmployeeListLeavesService extends EmployeeListLeavesReader {
       stale: result.stale ?? false,
     };
   }
+
+  async formatListCells(
+    rows: Array<{ subjectEmployeeId: string; hideLeaveType: boolean }>,
+  ): Promise<Map<string, EmployeeListLeaveCell>> {
+    const results = new Map<string, EmployeeListLeaveCell>();
+    if (rows.length === 0) {
+      return results;
+    }
+
+    const leavesByEmployee = await this.leavesSync.getLeavesForEmployees(
+      rows.map((row) => row.subjectEmployeeId),
+    );
+    const asOfIsoDate = this.clock.now().toISOString().slice(0, 10);
+
+    for (const { subjectEmployeeId } of rows) {
+      const result = leavesByEmployee.get(subjectEmployeeId) ?? {
+        availability: 'ok' as const,
+        leaves: [],
+      };
+      if (result.availability === 'unavailable') {
+        results.set(subjectEmployeeId, {
+          value: LIST_CELL_UNAVAILABLE,
+          unavailable: true,
+        });
+        continue;
+      }
+
+      const currentLeaves = result.leaves
+        .filter((period) => isActiveOnDate(period, asOfIsoDate))
+        .map((period) => ({
+          startDate: period.startDate,
+          endDate: period.endDate,
+        }));
+
+      results.set(subjectEmployeeId, {
+        value: formatLeaveRanges(currentLeaves),
+        unavailable: false,
+        stale: result.stale ?? false,
+      });
+    }
+
+    return results;
+  }
 }

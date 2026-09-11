@@ -94,22 +94,36 @@ export class ProfileAssemblerService {
       throw new NotFoundException('Employee not found');
     }
 
+    // Section providers are independent (own DB reads, some own external
+    // TimeTracker calls) — loading them one at a time serialized the whole
+    // profile behind every section's latency. Run them concurrently instead;
+    // loadSection() already catches provider errors into an 'unavailable'
+    // envelope, so a failing section can't reject this Promise.all.
+    const loadedSections = await Promise.all(
+      ALL_SECTION_IDS.map(async (sectionId) => {
+        const accessLevel = responseAudience.sections[sectionId];
+        if (accessLevel === 'none') {
+          return null;
+        }
+        const envelope = await this.loadSection(
+          sectionId,
+          accessLevel,
+          viewerEmployeeId,
+          subjectEmployeeId,
+          responseAudience,
+        );
+        return { sectionId, envelope };
+      }),
+    );
+
     const sections: Record<string, AssembledProfileSection> = {};
     let displayName = subject.user.name?.trim() || subject.user.email;
 
-    for (const sectionId of ALL_SECTION_IDS) {
-      const accessLevel = responseAudience.sections[sectionId];
-      if (accessLevel === 'none') {
+    for (const loaded of loadedSections) {
+      if (!loaded) {
         continue;
       }
-
-      const envelope = await this.loadSection(
-        sectionId,
-        accessLevel,
-        viewerEmployeeId,
-        subjectEmployeeId,
-        responseAudience,
-      );
+      const { sectionId, envelope } = loaded;
       sections[sectionId] = envelope;
 
       if (sectionId === 'S1' && envelope && 'data' in envelope) {

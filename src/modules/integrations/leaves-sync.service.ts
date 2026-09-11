@@ -25,6 +25,7 @@ interface MonthCacheEntry {
 export class LeavesSyncService {
   private readonly logger = new Logger(LeavesSyncService.name);
   private readonly monthCache = new Map<string, MonthCacheEntry>();
+  private readonly batchMonthCache = new Map<string, MonthCacheEntry>();
 
   constructor(
     private readonly timetracker: TimetrackerClient,
@@ -93,6 +94,113 @@ export class LeavesSyncService {
     }
   }
 
+  /**
+   * Batched variant of `getLeavesForEmployee` for a full list page. A page of
+   * N rows previously fired N x 3 (one per month queried) independent
+   * TimeTracker HTTP calls even after those calls were parallelized across
+   * rows — the external API's own latency under that many concurrent
+   * requests became the floor for page load time. This fetches each of the
+   * three months once, for every requested employee at once, and fans the
+   * result back out per employee.
+   */
+  async getLeavesForEmployees(
+    employeeIds: string[],
+  ): Promise<Map<string, LeavesFetchResult>> {
+    const results = new Map<string, LeavesFetchResult>();
+    if (employeeIds.length === 0) {
+      return results;
+    }
+
+    if (!this.config.get<string>('TIMETRACKER_ACCOUNTING_API_KEY')?.trim()) {
+      this.logger.warn(
+        'TIMETRACKER_ACCOUNTING_API_KEY is unset; S10 unavailable.',
+      );
+      for (const employeeId of employeeIds) {
+        results.set(employeeId, { availability: 'unavailable', leaves: [] });
+      }
+      return results;
+    }
+
+    const externalIdEntries = await Promise.all(
+      employeeIds.map(async (employeeId) => ({
+        employeeId,
+        externalId:
+          await this.identityMapping.findTimetrackerExternalId(employeeId),
+      })),
+    );
+
+    const employeeIdByExternalId = new Map<number, string>();
+    for (const { employeeId, externalId } of externalIdEntries) {
+      if (!externalId) {
+        this.logger.debug(
+          `No timetracker mapping for employeeId=${employeeId}; returning empty S10.`,
+        );
+        results.set(employeeId, { availability: 'ok', leaves: [] });
+        continue;
+      }
+      const timetrackerEmployeeId = Number(externalId);
+      if (!Number.isFinite(timetrackerEmployeeId)) {
+        this.logger.warn(
+          `Invalid timetracker externalId="${externalId}" for employeeId=${employeeId}.`,
+        );
+        results.set(employeeId, { availability: 'ok', leaves: [] });
+        continue;
+      }
+      employeeIdByExternalId.set(timetrackerEmployeeId, employeeId);
+    }
+
+    const externalIds = [...employeeIdByExternalId.keys()];
+    if (externalIds.length === 0) {
+      return results;
+    }
+
+    try {
+      const now = this.clock.now();
+      const monthResults = await Promise.all(
+        monthsToQuery(now).map(({ month, year }) =>
+          this.loadBatchMonthDays(month, year, externalIds),
+        ),
+      );
+
+      const stale = monthResults.some((monthResult) => monthResult.stale);
+      const daysByExternalId = new Map<number, WorkingDay[]>();
+      for (const monthResult of monthResults) {
+        for (const externalId of externalIds) {
+          const days = monthResult.daysByEmployeeId.get(externalId) ?? [];
+          if (days.length === 0) {
+            continue;
+          }
+          daysByExternalId.set(externalId, [
+            ...(daysByExternalId.get(externalId) ?? []),
+            ...days,
+          ]);
+        }
+      }
+
+      for (const [externalId, employeeId] of employeeIdByExternalId) {
+        results.set(employeeId, {
+          availability: 'ok',
+          leaves: groupLeavePeriods(
+            dedupeWorkingDaysByDate(daysByExternalId.get(externalId) ?? []),
+          ),
+          stale,
+        });
+      }
+      return results;
+    } catch (error) {
+      if (error instanceof TimetrackerApiError) {
+        this.logger.warn(
+          `TimeTracker leaves batch fetch failed for ${externalIds.length} employees: ${error.message}`,
+        );
+        for (const employeeId of employeeIdByExternalId.values()) {
+          results.set(employeeId, { availability: 'unavailable', leaves: [] });
+        }
+        return results;
+      }
+      throw error;
+    }
+  }
+
   getManageLeaveUrl(): string | null {
     const url = this.config.get<string>('TIMETRACKER_MANAGE_LEAVE_URL');
     return url?.trim() ? url : null;
@@ -101,6 +209,7 @@ export class LeavesSyncService {
   /** Visible for tests that need to prime or inspect the month cache. */
   clearCache(): void {
     this.monthCache.clear();
+    this.batchMonthCache.clear();
   }
 
   private async loadMonthDays(
@@ -132,6 +241,53 @@ export class LeavesSyncService {
 
       this.monthCache.set(cacheKey, {
         fetchedAt: nowMs,
+        daysByEmployeeId,
+      });
+
+      return { daysByEmployeeId, stale: false };
+    } catch (error) {
+      if (error instanceof TimetrackerApiError && cached) {
+        return { daysByEmployeeId: cached.daysByEmployeeId, stale: true };
+      }
+      throw error;
+    }
+  }
+
+  private async loadBatchMonthDays(
+    month: number,
+    year: number,
+    timetrackerEmployeeIds: number[],
+  ): Promise<{
+    daysByEmployeeId: Map<number, WorkingDay[]>;
+    stale: boolean;
+  }> {
+    const cacheKey = `${year}-${month}`;
+    const nowMs = this.clock.now().getTime();
+    const cached = this.batchMonthCache.get(cacheKey);
+    const isFresh = !!cached && nowMs - cached.fetchedAt < LEAVES_CACHE_TTL_MS;
+    const missingIds = isFresh
+      ? timetrackerEmployeeIds.filter((id) => !cached.daysByEmployeeId.has(id))
+      : timetrackerEmployeeIds;
+
+    if (isFresh && missingIds.length === 0) {
+      return { daysByEmployeeId: cached.daysByEmployeeId, stale: false };
+    }
+
+    try {
+      const report = await this.timetracker.fetchAccountingReport({
+        month,
+        year,
+        employeeIds: missingIds,
+      });
+      const daysByEmployeeId = isFresh
+        ? cached.daysByEmployeeId
+        : new Map<number, WorkingDay[]>();
+      for (const employee of report.employees) {
+        daysByEmployeeId.set(employee.id, employee.days ?? []);
+      }
+
+      this.batchMonthCache.set(cacheKey, {
+        fetchedAt: isFresh ? cached.fetchedAt : nowMs,
         daysByEmployeeId,
       });
 

@@ -55,6 +55,7 @@ describe('EmployeesService', () => {
   };
   const leavesReader = {
     formatListCell: jest.fn(),
+    formatListCells: jest.fn(),
   };
   const prisma = {
     employee: {
@@ -145,6 +146,7 @@ describe('EmployeesService', () => {
       value: '',
       unavailable: false,
     });
+    leavesReader.formatListCells.mockResolvedValue(new Map());
     projectAssignment.listByEmployee.mockResolvedValue([]);
 
     const module: TestingModule = await Test.createTestingModule({
@@ -877,10 +879,11 @@ describe('EmployeesService', () => {
         S16: 'none',
       },
     });
-    leavesReader.formatListCell.mockResolvedValue({
-      value: '2026-09-01 – 2026-09-05',
-      unavailable: false,
-    });
+    leavesReader.formatListCells.mockResolvedValue(
+      new Map([
+        ['peer-1', { value: '2026-09-01 – 2026-09-05', unavailable: false }],
+      ]),
+    );
     projectAssignment.listByEmployee.mockResolvedValue([
       {
         employeeId: 'peer-1',
@@ -896,7 +899,9 @@ describe('EmployeesService', () => {
 
     const result = await service.listEmployees('viewer-1', {});
 
-    expect(leavesReader.formatListCell).toHaveBeenCalledWith('peer-1', true);
+    expect(leavesReader.formatListCells).toHaveBeenCalledWith([
+      { subjectEmployeeId: 'peer-1', hideLeaveType: true },
+    ]);
     expect(result.rows[0]?.cells[BUILTIN_FIELD_IDS.current_leave_dates]).toBe(
       '2026-09-01 – 2026-09-05',
     );
