@@ -180,27 +180,20 @@ describe('Matrix flag-gated leak cases (e2e)', () => {
   });
 
   it('narrows S10 leave type fields for Colleague viewers', async () => {
+    // The profile endpoint no longer resolves S10 synchronously (it defers
+    // to 'pending' so the page doesn't block on TimeTracker) — the narrowing
+    // this test guards now happens on the parallel leaves route instead,
+    // which is what the client calls to fill S10 in.
     const res = await actors.colleagueAgent
-      .get(`/api/v1/employees/${actors.subjectEmployeeId}/profile`)
+      .get(`/api/v1/employees/${actors.subjectEmployeeId}/leaves`)
       .expect(200);
 
-    const s10 = (
-      res.body as {
-        sections?: {
-          S10?: {
-            data?: {
-              leaves?: Array<{
-                type: string | null;
-                approvalState: string | null;
-              }>;
-            };
-          };
-        };
-      }
-    ).sections?.S10;
+    const body = res.body as {
+      leaves?: Array<{ type: string | null; approvalState: string | null }>;
+    };
 
-    expect(s10?.data?.leaves?.[0]?.type).toBeNull();
-    expect(s10?.data?.leaves?.[0]?.approvalState).toBeNull();
+    expect(body.leaves?.[0]?.type).toBeNull();
+    expect(body.leaves?.[0]?.approvalState).toBeNull();
 
     recordFlagGatedCoverage({
       section: 'S10',
