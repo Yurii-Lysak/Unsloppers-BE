@@ -821,7 +821,7 @@ describe('EmployeesService', () => {
     expect(employmentField?.sortable).toBe(false);
   });
 
-  it('enriches S10 and S11 integrated list cells when visible (Story 3.6)', async () => {
+  it('enriches the S11 project-names list cell, leaving S10 leave dates for the client to fetch separately (Story 3.6)', async () => {
     const integratedFields: FieldSpec[] = [
       {
         id: BUILTIN_FIELD_IDS.current_leave_dates,
@@ -879,11 +879,6 @@ describe('EmployeesService', () => {
         S16: 'none',
       },
     });
-    leavesReader.formatListCells.mockResolvedValue(
-      new Map([
-        ['peer-1', { value: '2026-09-01 – 2026-09-05', unavailable: false }],
-      ]),
-    );
     projectAssignment.listByEmployee.mockResolvedValue([
       {
         employeeId: 'peer-1',
@@ -899,15 +894,51 @@ describe('EmployeesService', () => {
 
     const result = await service.listEmployees('viewer-1', {});
 
-    expect(leavesReader.formatListCells).toHaveBeenCalledWith([
-      { subjectEmployeeId: 'peer-1', hideLeaveType: true },
-    ]);
+    expect(leavesReader.formatListCells).not.toHaveBeenCalled();
     expect(result.rows[0]?.cells[BUILTIN_FIELD_IDS.current_leave_dates]).toBe(
-      '2026-09-01 – 2026-09-05',
+      null,
     );
     expect(result.rows[0]?.cells[BUILTIN_FIELD_IDS.project_names]).toBe(
       'Project Alpha',
     );
+  });
+
+  it('getLeaveCells batches leave data for the given employee ids, dropping ids without S10 access', async () => {
+    prisma.employee.findUnique.mockResolvedValue({ id: 'viewer-1' });
+    accessResolver.resolveAudience.mockImplementation(
+      (_viewerEmployeeId: string, subjectEmployeeId: string) =>
+        Promise.resolve({
+          role: subjectEmployeeId === 'peer-2' ? 'ReportingLine' : 'Colleague',
+          sections: {
+            S1: 'R',
+            S4: 'none',
+            S10: subjectEmployeeId === 'peer-3' ? 'none' : 'R',
+            S11: 'none',
+            S16: 'none',
+          },
+        }),
+    );
+    leavesReader.formatListCells.mockResolvedValue(
+      new Map([
+        ['peer-1', { value: '2026-09-01 – 2026-09-05', unavailable: false }],
+        ['peer-2', { value: '', unavailable: false }],
+      ]),
+    );
+
+    const result = await service.getLeaveCells('viewer-1', [
+      'peer-1',
+      'peer-2',
+      'peer-3',
+    ]);
+
+    expect(leavesReader.formatListCells).toHaveBeenCalledWith([
+      { subjectEmployeeId: 'peer-1', hideLeaveType: true },
+      { subjectEmployeeId: 'peer-2', hideLeaveType: false },
+    ]);
+    expect(result).toEqual({
+      'peer-1': { value: '2026-09-01 – 2026-09-05', unavailable: false },
+      'peer-2': { value: '', unavailable: false },
+    });
   });
 
   it('lists lookup options with id and display name, sorted by name', async () => {

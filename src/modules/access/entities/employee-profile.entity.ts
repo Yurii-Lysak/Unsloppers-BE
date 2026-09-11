@@ -36,6 +36,19 @@ export class ProfileSectionUnavailableEntity {
   status!: 'unavailable';
 }
 
+/**
+ * S10 (leaves) only. The main profile read never waits on TimeTracker — this
+ * marks the section as granted-but-not-fetched-yet so the client knows to
+ * call `GET /employees/:id/leaves` separately and fill it in.
+ */
+export class ProfileSectionPendingEntity {
+  @ApiProperty({ enum: ['R', 'RW'] })
+  accessLevel!: 'R' | 'RW';
+
+  @ApiProperty({ enum: ['pending'] })
+  status!: 'pending';
+}
+
 export class ProfileSectionDataEntity {
   @ApiProperty({ enum: ['R', 'RW'] })
   accessLevel!: 'R' | 'RW';
@@ -60,9 +73,13 @@ export class EmployeeProfileEntity {
   })
   sections!: Record<
     string,
-    ProfileSectionUnavailableEntity | ProfileSectionDataEntity
+    | ProfileSectionUnavailableEntity
+    | ProfileSectionDataEntity
+    | ProfileSectionPendingEntity
   >;
 }
 
 export type AssembledProfileSection =
-  ProfileSectionUnavailableEntity | ProfileSectionDataEntity;
+  | ProfileSectionUnavailableEntity
+  | ProfileSectionDataEntity
+  | ProfileSectionPendingEntity;
