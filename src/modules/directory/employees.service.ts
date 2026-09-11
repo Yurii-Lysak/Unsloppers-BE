@@ -621,6 +621,46 @@ export class EmployeesService extends EmployeeDirectory {
     return cache;
   }
 
+  /**
+   * Backs `GET /employees/leaves` (Story 3.6 list-performance follow-up):
+   * the list's own response never blocks on TimeTracker (see
+   * enrichIntegratedFields) — the client calls this separately with the
+   * current page's employee ids and fills the leave column in once it
+   * resolves.
+   */
+  async getLeaveCells(
+    viewerId: string,
+    employeeIds: string[],
+  ): Promise<Record<string, EmployeeListLeaveCell>> {
+    const viewerEmployeeId = await this.resolveViewerEmployeeId(viewerId);
+    const audienceCache = await this.buildAudienceCache(
+      viewerEmployeeId,
+      employeeIds,
+    );
+
+    const rows = employeeIds
+      .map((employeeId) => ({
+        employeeId,
+        audience: audienceCache.get(employeeId),
+      }))
+      .filter(
+        (entry): entry is { employeeId: string; audience: ResolvedAudience } =>
+          entry.audience !== undefined &&
+          entry.audience.sections.S10 !== 'none',
+      )
+      .map(({ employeeId, audience }) => ({
+        subjectEmployeeId: employeeId,
+        hideLeaveType: audience.role === 'Colleague',
+      }));
+
+    if (rows.length === 0) {
+      return {};
+    }
+
+    const cells = await this.leavesReader.formatListCells(rows);
+    return Object.fromEntries(cells);
+  }
+
   private async resolveRowAudience(
     viewerEmployeeId: string,
     employeeId: string,
@@ -702,55 +742,28 @@ export class EmployeesService extends EmployeeDirectory {
       return rows;
     }
 
-    const wantsLeaveField = integratedFieldIds.includes(
-      BUILTIN_FIELD_IDS.current_leave_dates,
-    );
     const wantsProjectField = integratedFieldIds.includes(
       BUILTIN_FIELD_IDS.project_names,
     );
 
-    const rowAudiences = await Promise.all(
-      rows.map(async (row) => ({
-        row,
-        audience: await this.resolveRowAudience(
+    // Leave dates are intentionally left unset here (stay null, rendered as
+    // "Loading..." by the client) rather than fetched inline. TimeTracker is
+    // an external, sometimes slow or unreachable dependency — blocking the
+    // whole page load on it is what caused the original hang, and even
+    // batched across the page it's still a live external call best kept off
+    // the request path. The client fetches GET /employees/leaves separately
+    // (see EmployeesService.getLeaveCells) and fills the column in once that
+    // resolves, showing "Temporarily unavailable" if it doesn't. Project
+    // names stay inline here: that lookup reads the local ProjectAssignment
+    // table (populated by a background TimeTracker sync), not a live call.
+    return Promise.all(
+      rows.map(async (row) => {
+        const audience = await this.resolveRowAudience(
           viewerEmployeeId,
           row.employeeId,
           audienceCache,
-        ),
-      })),
-    );
-
-    // Leave data is fetched once for the whole page in a single batched
-    // TimeTracker call (per month) instead of one call per row. Even after
-    // per-row calls were parallelized, N rows meant up to 3N concurrent
-    // external HTTP calls, and the external API's own latency under that
-    // load — not our DB or access resolution — was the remaining ~12s floor
-    // on page load. Project names stay per-row: that lookup reads the local
-    // ProjectAssignment table (populated by a background TimeTracker sync),
-    // not a live external call.
-    const leaveRows = wantsLeaveField
-      ? rowAudiences
-          .filter(({ audience }) => audience.sections.S10 !== 'none')
-          .map(({ row, audience }) => ({
-            subjectEmployeeId: row.employeeId,
-            hideLeaveType: audience.role === 'Colleague',
-          }))
-      : [];
-    const leaveCells: Map<string, EmployeeListLeaveCell> =
-      leaveRows.length > 0
-        ? await this.leavesReader.formatListCells(leaveRows)
-        : new Map<string, EmployeeListLeaveCell>();
-
-    return Promise.all(
-      rowAudiences.map(async ({ row, audience }) => {
+        );
         const cells = { ...row.cells };
-
-        if (wantsLeaveField && audience.sections.S10 !== 'none') {
-          const leaveCell = leaveCells.get(row.employeeId);
-          if (leaveCell) {
-            cells[BUILTIN_FIELD_IDS.current_leave_dates] = leaveCell.value;
-          }
-        }
 
         if (wantsProjectField && audience.sections.S11 !== 'none') {
           cells[BUILTIN_FIELD_IDS.project_names] =

@@ -64,6 +64,7 @@ export class ProfileAssemblerService {
       viewerEmployeeId,
       subjectEmployeeId,
       audience,
+      true,
     );
   }
 
@@ -85,6 +86,7 @@ export class ProfileAssemblerService {
     viewerEmployeeId: string,
     subjectEmployeeId: string,
     responseAudience: ResolvedAudience,
+    deferLeaveSection = false,
   ): Promise<EmployeeProfileEntity> {
     const subject = await this.prisma.employee.findUnique({
       where: { id: subjectEmployeeId },
@@ -99,11 +101,25 @@ export class ProfileAssemblerService {
     // profile behind every section's latency. Run them concurrently instead;
     // loadSection() already catches provider errors into an 'unavailable'
     // envelope, so a failing section can't reject this Promise.all.
+    //
+    // S10 (leaves) is the one section backed by a live, sometimes slow or
+    // unreachable external call (TimeTracker), so on the main authenticated
+    // profile read (deferLeaveSection) it's never awaited here at all — it
+    // comes back 'pending' immediately and the client fetches
+    // GET /employees/:id/leaves separately to fill it in. Shared-link reads
+    // don't defer: that flow isn't authenticated as a normal viewer, so it
+    // can't call the separate leaves endpoint itself.
     const loadedSections = await Promise.all(
       ALL_SECTION_IDS.map(async (sectionId) => {
         const accessLevel = responseAudience.sections[sectionId];
         if (accessLevel === 'none') {
           return null;
+        }
+        if (deferLeaveSection && sectionId === 'S10') {
+          return {
+            sectionId,
+            envelope: { accessLevel, status: 'pending' as const },
+          };
         }
         const envelope = await this.loadSection(
           sectionId,

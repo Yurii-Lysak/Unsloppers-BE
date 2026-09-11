@@ -142,39 +142,37 @@ describe('ProfileAssemblerService', () => {
     });
   });
 
-  it('surfaces S10 integration unavailability in section data', async () => {
+  it('defers S10 to pending on the main profile read, without calling its provider', async () => {
     accessResolver.resolveAudience.mockResolvedValue({
       role: 'ReportingLine',
       sections: { ...ALL_SECTIONS_NONE, S10: 'R' },
     } satisfies ResolvedAudience);
 
-    registry.get.mockReturnValue({
-      status: 'available',
-      provider: {
-        getSection: jest.fn().mockResolvedValue({
-          availability: 'unavailable',
-          leaves: [],
-          manageLeaveUrl: null,
-        }),
-      },
+    const getSection = jest.fn().mockResolvedValue({
+      availability: 'ok',
+      leaves: [],
+      manageLeaveUrl: null,
+    });
+    registry.get.mockImplementation((_family: string, id: string) => {
+      if (id === 'S10') {
+        return { status: 'available', provider: { getSection } };
+      }
+      return { status: 'unavailable' };
     });
 
     const profile = await service.assembleProfile('manager-1', 'subject-1');
 
     expect(profile.sections.S10).toEqual({
       accessLevel: 'R',
-      data: {
-        availability: 'unavailable',
-        leaves: [],
-        manageLeaveUrl: null,
-      },
+      status: 'pending',
     });
+    expect(getSection).not.toHaveBeenCalled();
   });
 
   it('maps provider throws to unavailable without failing the whole profile', async () => {
     accessResolver.resolveAudience.mockResolvedValue({
       role: 'ReportingLine',
-      sections: { ...ALL_SECTIONS_NONE, S10: 'R', S1: 'RW' },
+      sections: { ...ALL_SECTIONS_NONE, S9: 'RW', S1: 'RW' },
     } satisfies ResolvedAudience);
 
     registry.get.mockImplementation((_family: string, id: string) => {
@@ -188,7 +186,7 @@ describe('ProfileAssemblerService', () => {
           },
         };
       }
-      if (id === 'S10') {
+      if (id === 'S9') {
         return {
           status: 'available',
           provider: {
@@ -201,8 +199,8 @@ describe('ProfileAssemblerService', () => {
 
     const profile = await service.assembleProfile('manager-1', 'subject-1');
 
-    expect(profile.sections.S10).toEqual({
-      accessLevel: 'R',
+    expect(profile.sections.S9).toEqual({
+      accessLevel: 'RW',
       status: 'unavailable',
     });
     expect(profile.sections.S1).toBeDefined();
@@ -258,11 +256,19 @@ describe('ProfileAssemblerService', () => {
     });
   });
 
-  it('includes availability in successful S10 section data for non-Colleague viewers', async () => {
-    accessResolver.resolveAudience.mockResolvedValue({
-      role: 'ReportingLine',
+  // S10's own loadSection() handling (availability shape, Colleague masking)
+  // is only still reachable via shared links now — the main profile read
+  // always defers S10 to 'pending' (see the deferral test above), and a
+  // shared-link viewer's role is always 'SharedLink', never 'Colleague', so
+  // Colleague-specific S10 masking has moved entirely to
+  // LeavesSectionProvider / GET /employees/:id/leaves (covered in
+  // leaves-section.provider.spec.ts).
+  it('includes availability in successful S10 section data via a shared link', async () => {
+    sharedLinks.computeClampedSectionIds.mockResolvedValue(['S10']);
+    sharedLinks.buildSharedLinkAudience.mockReturnValue({
+      role: 'SharedLink',
       sections: { ...ALL_SECTIONS_NONE, S10: 'R' },
-    } satisfies ResolvedAudience);
+    });
 
     registry.get.mockReturnValue({
       status: 'available',
@@ -282,7 +288,14 @@ describe('ProfileAssemblerService', () => {
       },
     });
 
-    const profile = await service.assembleProfile('manager-1', 'subject-1');
+    const profile = await service.assembleProfileViaSharedLink({
+      id: 'link-1',
+      token: 'a'.repeat(43),
+      subjectEmployeeId: 'subject-1',
+      creatorEmployeeId: 'creator-1',
+      recipientEmployeeId: 'recipient-1',
+      sectionIds: ['S10'],
+    });
 
     expect(profile.sections.S10).toMatchObject({
       accessLevel: 'R',
@@ -299,55 +312,6 @@ describe('ProfileAssemblerService', () => {
         manageLeaveUrl: null,
       },
     });
-  });
-
-  it('normalizes S10 integration unavailability to section unavailable for Colleague viewers', async () => {
-    accessResolver.resolveAudience.mockResolvedValue({
-      role: 'Colleague',
-      sections: { ...ALL_SECTIONS_NONE, S10: 'R' },
-    } satisfies ResolvedAudience);
-
-    registry.get.mockReturnValue({
-      status: 'available',
-      provider: {
-        getSection: jest.fn().mockResolvedValue({
-          availability: 'unavailable',
-          leaves: [],
-          manageLeaveUrl: null,
-        }),
-      },
-    });
-
-    const profile = await service.assembleProfile('colleague-1', 'subject-1');
-
-    expect(profile.sections.S10).toEqual({
-      accessLevel: 'R',
-      status: 'unavailable',
-    });
-  });
-
-  it('strips availability from successful S10 section data for Colleague viewers', async () => {
-    accessResolver.resolveAudience.mockResolvedValue({
-      role: 'Colleague',
-      sections: { ...ALL_SECTIONS_NONE, S10: 'R' },
-    } satisfies ResolvedAudience);
-
-    registry.get.mockReturnValue({
-      status: 'available',
-      provider: {
-        getSection: jest.fn().mockResolvedValue({
-          availability: 'ok',
-          leaves: [],
-          manageLeaveUrl: null,
-        }),
-      },
-    });
-
-    const profile = await service.assembleProfile('colleague-1', 'subject-1');
-
-    if (profile.sections.S10 && 'data' in profile.sections.S10) {
-      expect(profile.sections.S10.data).not.toHaveProperty('availability');
-    }
   });
 
   it('includes unioned section keys from multi-audience C1 resolution', async () => {

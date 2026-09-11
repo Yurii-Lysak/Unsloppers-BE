@@ -16,16 +16,19 @@ import { UpdateEmployeeFieldDto } from './dto/update-employee-field.dto';
 import { EmployeeFieldUpdateEntity } from './entities/employee-field-update.entity';
 import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
 import { ExportEmployeesQueryDto } from './dto/export-employees-query.dto';
+import { ListEmployeeLeavesQueryDto } from './dto/list-employee-leaves-query.dto';
 import { EmployeeLookupEntity } from './entities/employee-lookup.entity';
 import { EmployeeSummaryEntity } from './entities/employee-summary.entity';
 import { EmployeesService } from './employees.service';
 import {
   SwaggerExportEmployees,
   SwaggerGetEmployee,
+  SwaggerGetEmployeeLeaveCells,
   SwaggerListEmployees,
   SwaggerLookupEmployees,
   SwaggerUpdateEmployeeField,
 } from './employees.swagger';
+import { EmployeeListLeaveCell } from '../contracts/employee-list-leaves.contract';
 
 @ApiTags('employees')
 @Controller('employees')
@@ -66,6 +69,17 @@ export class EmployeesController {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       disposition: `attachment; filename="${filename}"`,
     });
+  }
+
+  // Must stay before `:employeeId` — same ordering reason as `lookup`.
+  @Get('leaves')
+  @SwaggerGetEmployeeLeaveCells()
+  async getLeaveCells(
+    @Req() request: Request,
+    @Query() query: ListEmployeeLeavesQueryDto,
+  ): Promise<Record<string, EmployeeListLeaveCell>> {
+    const { userId } = await this.currentUser.getCurrentUser(request);
+    return this.employees.getLeaveCells(userId, query.employeeIds);
   }
 
   @Get(':employeeId')

@@ -130,32 +130,31 @@ describe('Employee profile assembly (e2e)', () => {
     ]);
   });
 
-  it('masks S10 leave type for Colleague viewers on the profile endpoint', async () => {
+  it('defers S10 to pending on the profile endpoint instead of blocking on TimeTracker', async () => {
     const res = await colleagueAgent
       .get(`/api/v1/employees/${reportEmployeeId}/profile`)
       .expect(200);
 
     const s10 = (
       res.body as {
-        sections: {
-          S10?: {
-            data?: {
-              leaves?: Array<{
-                type: string | null;
-                approvalState: string | null;
-              }>;
-              availability?: string;
-            };
-          };
-        };
+        sections: { S10?: { accessLevel: string; status?: string } };
       }
     ).sections.S10;
 
-    expect(s10).toBeDefined();
-    expect(s10).toHaveProperty('data');
-    expect(s10?.data).not.toHaveProperty('availability');
-    expect(s10?.data?.leaves?.[0]?.type).toBeNull();
-    expect(s10?.data?.leaves?.[0]?.approvalState).toBeNull();
+    expect(s10).toEqual({ accessLevel: 'R', status: 'pending' });
+  });
+
+  it('masks S10 leave type for Colleague viewers on the parallel leaves route', async () => {
+    const res = await colleagueAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/leaves`)
+      .expect(200);
+
+    const body = res.body as {
+      leaves: Array<{ type: string | null; approvalState: string | null }>;
+    };
+
+    expect(body.leaves[0]?.type).toBeNull();
+    expect(body.leaves[0]?.approvalState).toBeNull();
   });
 
   it('returns S12 with matrix link and assessments for ReportingLine viewers', async () => {
@@ -259,63 +258,59 @@ describe('Employee profile assembly (e2e)', () => {
     ).toBe(true);
   });
 
-  it('SELF_VIEW_LEAVES_OK: Self viewer receives S10 leaves and manageLeaveUrl', async () => {
+  it('SELF_VIEW_LEAVES_PENDING: Self viewer profile defers S10 instead of blocking on TimeTracker', async () => {
     const res = await reportAgent
       .get(`/api/v1/employees/${reportEmployeeId}/profile`)
       .expect(200);
 
     const s10 = (
       res.body as {
-        sections: {
-          S10?: {
-            accessLevel: string;
-            data: {
-              availability: string;
-              manageLeaveUrl: string | null;
-              leaves: Array<{ startDate: string; endDate: string }>;
-            };
-          };
-        };
+        sections: { S10?: { accessLevel: string; status?: string } };
       }
     ).sections.S10;
 
-    expect(s10?.accessLevel).toBe('R');
-    expect(s10?.data.availability).toBe('ok');
-    expect(s10?.data.manageLeaveUrl).toBe(MANAGE_LEAVE_URL);
-    expect(s10?.data.leaves).toHaveLength(1);
-    expect(s10?.data.leaves[0]).toMatchObject({
+    expect(s10).toEqual({ accessLevel: 'R', status: 'pending' });
+  });
+
+  it('SELF_VIEW_LEAVES_OK: Self viewer receives S10 leaves and manageLeaveUrl via the parallel leaves route', async () => {
+    const res = await reportAgent
+      .get(`/api/v1/employees/${reportEmployeeId}/leaves`)
+      .expect(200);
+
+    const body = res.body as {
+      availability: string;
+      manageLeaveUrl: string | null;
+      leaves: Array<{ startDate: string; endDate: string }>;
+    };
+
+    expect(body.availability).toBe('ok');
+    expect(body.manageLeaveUrl).toBe(MANAGE_LEAVE_URL);
+    expect(body.leaves).toHaveLength(1);
+    expect(body.leaves[0]).toMatchObject({
       startDate: '2026-08-25',
       endDate: '2026-08-29',
     });
   });
 
-  it('SELF_VIEW_LEAVES_DEGRADED: Self viewer receives unavailable S10 state', async () => {
+  it('SELF_VIEW_LEAVES_DEGRADED: Self viewer receives unavailable S10 state via the parallel leaves route', async () => {
     leavesSyncMock.getLeavesForEmployee.mockResolvedValueOnce({
       availability: 'unavailable',
       leaves: [],
     });
 
     const res = await reportAgent
-      .get(`/api/v1/employees/${reportEmployeeId}/profile`)
+      .get(`/api/v1/employees/${reportEmployeeId}/leaves`)
       .expect(200);
 
-    const s10 = (
-      res.body as {
-        sections: {
-          S10?: {
-            data: {
-              availability: string;
-              leaves: unknown[];
-              manageLeaveUrl: string | null;
-            };
-          };
-        };
-      }
-    ).sections.S10;
+    const body = res.body as {
+      availability: string;
+      leaves: unknown[];
+      manageLeaveUrl: string | null;
+    };
 
-    expect(s10?.data.availability).toBe('unavailable');
-    expect(s10?.data.leaves).toEqual([]);
-    expect(s10?.data.manageLeaveUrl).toBe(MANAGE_LEAVE_URL);
+    expect(body.availability).toBe('unavailable');
+    expect(body.leaves).toEqual([]);
+    expect(body.manageLeaveUrl).toBe(MANAGE_LEAVE_URL);
   });
 
   it('SELF_VIEW_PROJECTS_ENRICHED: Self viewer receives S11 PM/DM/period', async () => {
