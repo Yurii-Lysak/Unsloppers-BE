@@ -144,18 +144,33 @@ export class EmployeesService extends EmployeeDirectory {
       suppressProviderValuesForEmployeeIds,
     });
 
+    // Resolve every page row's audience exactly once, in parallel, up front.
+    // maskRowCells/enrichIntegratedFields/resolveWritableFieldIds each used to
+    // call resolveAudience independently per row (mask: 1x, enrich: 1x,
+    // writability: 1x per editable field) — for a 3-editable-field row that
+    // was up to 5 sequential AccessResolver walks per row, run one row at a
+    // time. Building one shared cache up front, resolved concurrently, cuts
+    // that to exactly one walk per row and lets the 24-row page resolve in
+    // parallel instead of serially (see backend defect #05's follow-up).
+    const pageAudienceCache = await this.buildAudienceCache(
+      viewerEmployeeId,
+      result.rows.map((row) => row.employeeId),
+      audienceCache,
+    );
+
     const maskedRows = await this.maskRowCells(
       viewerEmployeeId,
       viewerId,
       result.rows,
       visibleFields,
-      audienceCache,
+      pageAudienceCache,
     );
 
     const enrichedRows = await this.enrichIntegratedFields(
       viewerEmployeeId,
       maskedRows,
       visibleFields,
+      pageAudienceCache,
     );
 
     const rowsWithWritability = await Promise.all(
@@ -165,6 +180,7 @@ export class EmployeesService extends EmployeeDirectory {
           viewerEmployeeId,
           row.employeeId,
           visibleFields,
+          pageAudienceCache,
         ),
       })),
     );
@@ -345,14 +361,10 @@ export class EmployeesService extends EmployeeDirectory {
         select: { id: true },
         orderBy: { id: 'asc' },
       });
-      audienceCache = new Map();
-      for (const employee of roster) {
-        const audience = await this.accessResolver.resolveAudience(
-          viewerEmployeeId,
-          employee.id,
-        );
-        audienceCache.set(employee.id, audience);
-      }
+      audienceCache = await this.buildAudienceCache(
+        viewerEmployeeId,
+        roster.map((employee) => employee.id),
+      );
     }
 
     const s12VisibleEmployeeIds = hasCdsFilter
@@ -581,6 +593,48 @@ export class EmployeesService extends EmployeeDirectory {
     return visible;
   }
 
+  /**
+   * Resolves every id not already present in `cache`, concurrently, and
+   * writes the results into it (mutating and returning the same map when one
+   * is passed in, so callers building on top of an existing — e.g. CDS —
+   * cache keep sharing it). One AccessResolver walk per unique employeeId,
+   * regardless of how many downstream consumers need that row's audience.
+   */
+  private async buildAudienceCache(
+    viewerEmployeeId: string,
+    employeeIds: string[],
+    cache: Map<string, ResolvedAudience> = new Map(),
+  ): Promise<Map<string, ResolvedAudience>> {
+    const missingIds = [...new Set(employeeIds)].filter((id) => !cache.has(id));
+    if (missingIds.length === 0) {
+      return cache;
+    }
+    const resolved = await Promise.all(
+      missingIds.map((id) =>
+        this.accessResolver.resolveAudience(viewerEmployeeId, id),
+      ),
+    );
+    missingIds.forEach((id, index) => cache.set(id, resolved[index]));
+    return cache;
+  }
+
+  private async resolveRowAudience(
+    viewerEmployeeId: string,
+    employeeId: string,
+    cache?: Map<string, ResolvedAudience>,
+  ): Promise<ResolvedAudience> {
+    const cached = cache?.get(employeeId);
+    if (cached) {
+      return cached;
+    }
+    const audience = await this.accessResolver.resolveAudience(
+      viewerEmployeeId,
+      employeeId,
+    );
+    cache?.set(employeeId, audience);
+    return audience;
+  }
+
   private async maskRowCells(
     viewerEmployeeId: string,
     viewerId: string,
@@ -593,47 +647,50 @@ export class EmployeesService extends EmployeeDirectory {
       MANAGE_CUSTOM_FIELDS_PERMISSION,
     );
 
-    const maskedRows: EmployeeDirectoryRowDto[] = [];
-    for (const row of rows) {
-      const audience =
-        audienceCache?.get(row.employeeId) ??
-        (await this.accessResolver.resolveAudience(
+    return Promise.all(
+      rows.map(async (row) => {
+        const audience = await this.resolveRowAudience(
           viewerEmployeeId,
           row.employeeId,
-        ));
-      const cells = { ...row.cells };
+          audienceCache,
+        );
+        const cells = { ...row.cells };
 
-      for (const field of visibleFields) {
-        if (field.source === 'custom' && field.visibility) {
-          if (canManage) {
+        for (const field of visibleFields) {
+          if (field.source === 'custom' && field.visibility) {
+            if (canManage) {
+              continue;
+            }
+            if (
+              !(await this.visibility.canViewFieldForSubject(
+                viewerEmployeeId,
+                row.employeeId,
+                field.visibility,
+              ))
+            ) {
+              delete cells[field.id];
+            }
             continue;
           }
+
           if (
-            !(await this.visibility.canViewFieldForSubject(
-              viewerEmployeeId,
-              row.employeeId,
-              field.visibility,
-            ))
+            field.sectionId &&
+            audience.sections[field.sectionId] === 'none'
           ) {
             delete cells[field.id];
           }
-          continue;
         }
 
-        if (field.sectionId && audience.sections[field.sectionId] === 'none') {
-          delete cells[field.id];
-        }
-      }
-
-      maskedRows.push({ employeeId: row.employeeId, cells });
-    }
-    return maskedRows;
+        return { employeeId: row.employeeId, cells };
+      }),
+    );
   }
 
   private async enrichIntegratedFields(
     viewerEmployeeId: string,
     rows: EmployeeDirectoryRowDto[],
     visibleFields: FieldSpec[],
+    audienceCache?: Map<string, ResolvedAudience>,
   ): Promise<EmployeeDirectoryRowDto[]> {
     const integratedFieldIds = visibleFields
       .map((field) => field.id)
@@ -642,38 +699,50 @@ export class EmployeesService extends EmployeeDirectory {
       return rows;
     }
 
-    const enrichedRows: EmployeeDirectoryRowDto[] = [];
-    for (const row of rows) {
-      const audience = await this.accessResolver.resolveAudience(
-        viewerEmployeeId,
-        row.employeeId,
-      );
-      const cells = { ...row.cells };
-
-      if (
-        integratedFieldIds.includes(BUILTIN_FIELD_IDS.current_leave_dates) &&
-        audience.sections.S10 !== 'none'
-      ) {
-        const leaveCell = await this.leavesReader.formatListCell(
+    // Each row's leave/project lookup is an independent external/DB read —
+    // run the whole page concurrently rather than one row at a time. This is
+    // what turned a 24-row page into ~24x a single row's latency in
+    // production (each TimeTracker leave lookup alone can take several
+    // seconds) — see the fix for backend defect #05's live-incident follow-up.
+    return Promise.all(
+      rows.map(async (row) => {
+        const audience = await this.resolveRowAudience(
+          viewerEmployeeId,
           row.employeeId,
-          audience.role === 'Colleague',
+          audienceCache,
         );
-        cells[BUILTIN_FIELD_IDS.current_leave_dates] = leaveCell.value;
-      }
+        const cells = { ...row.cells };
 
-      if (
-        integratedFieldIds.includes(BUILTIN_FIELD_IDS.project_names) &&
-        audience.sections.S11 !== 'none'
-      ) {
-        cells[BUILTIN_FIELD_IDS.project_names] = await this.formatProjectNames(
-          row.employeeId,
-        );
-      }
+        const leavePromise =
+          integratedFieldIds.includes(BUILTIN_FIELD_IDS.current_leave_dates) &&
+          audience.sections.S10 !== 'none'
+            ? this.leavesReader.formatListCell(
+                row.employeeId,
+                audience.role === 'Colleague',
+              )
+            : null;
 
-      enrichedRows.push({ employeeId: row.employeeId, cells });
-    }
+        const projectNamesPromise =
+          integratedFieldIds.includes(BUILTIN_FIELD_IDS.project_names) &&
+          audience.sections.S11 !== 'none'
+            ? this.formatProjectNames(row.employeeId)
+            : null;
 
-    return enrichedRows;
+        const [leaveCell, projectNames] = await Promise.all([
+          leavePromise,
+          projectNamesPromise,
+        ]);
+
+        if (leaveCell) {
+          cells[BUILTIN_FIELD_IDS.current_leave_dates] = leaveCell.value;
+        }
+        if (projectNames !== null) {
+          cells[BUILTIN_FIELD_IDS.project_names] = projectNames;
+        }
+
+        return { employeeId: row.employeeId, cells };
+      }),
+    );
   }
 
   private async formatProjectNames(subjectEmployeeId: string): Promise<string> {
@@ -689,8 +758,15 @@ export class EmployeesService extends EmployeeDirectory {
     viewerEmployeeId: string,
     employeeId: string,
     visibleFields: FieldSpec[],
+    audienceCache?: Map<string, ResolvedAudience>,
   ): Promise<string[]> {
     const writable: string[] = [];
+    // All builtin-editable fields (grade/position/employment_type) gate on
+    // the same S4 access level, so every row needs at most one audience
+    // resolution here regardless of how many such fields are visible —
+    // resolved lazily so rows with no builtin-editable field visible skip it
+    // entirely, and cached so it's shared with mask/enrich for this row.
+    let builtinAudience: ResolvedAudience | undefined;
 
     for (const field of visibleFields) {
       if (!field.editable) {
@@ -714,11 +790,12 @@ export class EmployeesService extends EmployeeDirectory {
         field.source === 'builtin' &&
         BUILTIN_EDITABLE_FIELD_IDS.has(field.id)
       ) {
-        const audience = await this.accessResolver.resolveAudience(
+        builtinAudience ??= await this.resolveRowAudience(
           viewerEmployeeId,
           employeeId,
+          audienceCache,
         );
-        if (audience.sections.S4 === 'RW') {
+        if (builtinAudience.sections.S4 === 'RW') {
           writable.push(field.id);
         }
       }
