@@ -341,6 +341,33 @@ describe('ProjectsSyncService', () => {
     expect(rows).toEqual(before);
   });
 
+  it('merges the directory across prev/current/next month, deduped by employee id', async () => {
+    // TT's accounting report only lists employees with submitted hours for
+    // that month, so a project member who only logged hours in August
+    // (relative to the fixed clock's September "now") would be invisible
+    // to a current-month-only directory fetch.
+    timetracker.fetchAccountingReport.mockImplementation(
+      ({ month }: { month: number }) =>
+        Promise.resolve({
+          employees:
+            month === 8 ? [{ id: 10, email: 'august-only@example.test' }] : [],
+        }),
+    );
+    const projectRows = [{ id: 100 }];
+    timetracker.fetchTalentsProjects.mockResolvedValue({
+      projects: projectRows,
+      statuses: [],
+      types: [],
+    });
+    mapper.map.mockResolvedValue(mapping([]));
+
+    await service.sync();
+
+    expect(mapper.map).toHaveBeenCalledWith(projectRows, [
+      { id: 10, email: 'august-only@example.test' },
+    ]);
+  });
+
   it('skips an overlapping run without making duplicate requests', async () => {
     const pendingDirectory = deferred<{ employees: [] }>();
     timetracker.fetchAccountingReport.mockReturnValue(pendingDirectory.promise);
@@ -350,7 +377,8 @@ describe('ProjectsSyncService', () => {
     pendingDirectory.resolve({ employees: [] });
     await expect(first).resolves.toMatchObject({ status: 'succeeded' });
 
-    expect(timetracker.fetchAccountingReport).toHaveBeenCalledTimes(1);
+    // One call per queried month (prev/current/next) — not one per sync.
+    expect(timetracker.fetchAccountingReport).toHaveBeenCalledTimes(3);
     expect(timetracker.fetchTalentsProjects).toHaveBeenCalledTimes(1);
   });
 
@@ -366,7 +394,7 @@ describe('ProjectsSyncService', () => {
     pendingDirectory.resolve({ employees: [] });
     await expect(first).resolves.toEqual({ status: 'failed' });
 
-    expect(timetracker.fetchAccountingReport).toHaveBeenCalledTimes(1);
+    expect(timetracker.fetchAccountingReport).toHaveBeenCalledTimes(3);
   });
 });
 

@@ -781,7 +781,9 @@ export class EmployeesService extends EmployeeDirectory {
     if (assignments.length === 0) {
       return '';
     }
-    return assignments.map((row) => row.projectId).join(', ');
+    return assignments
+      .map((row) => row.projectName ?? row.projectId)
+      .join(', ');
   }
 
   private async resolveWritableFieldIds(

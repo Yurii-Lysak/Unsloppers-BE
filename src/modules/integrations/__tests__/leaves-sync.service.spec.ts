@@ -159,4 +159,62 @@ describe('LeavesSyncService', () => {
     });
     expect(results.get('emp-3')).toEqual({ availability: 'ok', leaves: [] });
   });
+
+  it('normalizes TimeTracker date-time WorkingDay.date values instead of throwing', async () => {
+    identityMapping.findTimetrackerExternalId.mockResolvedValue('42');
+    timetracker.fetchAccountingReport.mockResolvedValue({
+      startDate: '2026-09-01',
+      endDate: '2026-09-30',
+      employees: [
+        {
+          id: 42,
+          email: 'emp@example.com',
+          name: 'Employee',
+          hash: 'hash',
+          countryCode: 'US',
+          days: [
+            {
+              // TT's External API declares `date` as `date-time`, not a
+              // plain calendar date (docs/api-external-openapi.json).
+              date: '2026-09-05T00:00:00Z',
+              projectId: 1,
+              projectUniqueName: 'proj',
+              project: 'Project',
+              hours: 0,
+              hoursForCustomer: 0,
+              overtime: 0,
+              overtimeRate: 0,
+              outOfScope: 0,
+              dayStatus: DayStatus.Vacation,
+            },
+            {
+              date: '2026-09-06T00:00:00Z',
+              projectId: 1,
+              projectUniqueName: 'proj',
+              project: 'Project',
+              hours: 0,
+              hoursForCustomer: 0,
+              overtime: 0,
+              overtimeRate: 0,
+              outOfScope: 0,
+              dayStatus: DayStatus.Vacation,
+            },
+          ],
+        },
+      ],
+      dayStatuses: {},
+      reportStates: {},
+      dayApprovalStates: {},
+    });
+
+    const result = await service.getLeavesForEmployee('emp-1');
+
+    expect(result.availability).toBe('ok');
+    expect(result.leaves).toEqual([
+      expect.objectContaining({
+        startDate: '2026-09-05',
+        endDate: '2026-09-06',
+      }),
+    ]);
+  });
 });

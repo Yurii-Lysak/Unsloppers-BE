@@ -5,6 +5,8 @@ import { createTestApp, TestApp } from './support/app-harness';
 
 interface SessionBody {
   userId: string;
+  name: string;
+  employeeId: string | null;
   token?: unknown;
 }
 
@@ -61,7 +63,11 @@ describe('Authentication (e2e)', () => {
 
     const loginBody = login.body as unknown as SessionBody;
     expect(typeof loginBody.userId).toBe('string');
-    expect(Object.keys(loginBody)).toEqual(['userId']);
+    expect(Object.keys(loginBody).sort()).toEqual(
+      ['userId', 'name', 'employeeId'].sort(),
+    );
+    expect(loginBody.name).toBe('Authentication E2E');
+    expect(loginBody.employeeId).toBeNull();
     expect(loginBody).not.toHaveProperty('token');
     const cookie = getSessionCookie(login);
     expect(cookie).toContain('session=');
@@ -81,7 +87,11 @@ describe('Authentication (e2e)', () => {
       .get('/api/v1/auth/session')
       .set('Cookie', cookie)
       .expect(200);
-    expect(session.body).toEqual({ userId: loginBody.userId });
+    expect(session.body).toEqual({
+      userId: loginBody.userId,
+      name: loginBody.name,
+      employeeId: loginBody.employeeId,
+    });
 
     await request(testApp.server)
       .get('/api/v1/users')

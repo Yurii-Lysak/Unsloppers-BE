@@ -6,6 +6,7 @@ import { ProjectsSectionProvider } from '../projects-section.provider';
 const fullAssignment = {
   employeeId: 'emp-1',
   projectId: 'proj-1',
+  projectName: null as string | null,
   pmId: 'pm-1',
   dmId: 'dm-1',
   startDate: '2026-01-01',
@@ -161,6 +162,41 @@ describe('ProjectsSectionProvider', () => {
       pm: null,
       dm: null,
     });
+  });
+
+  it('displays TimeTracker projectName instead of the raw project id when present', async () => {
+    projectAssignment.listByEmployee.mockResolvedValue([
+      { ...fullAssignment, projectName: 'Customer Portal Modernization' },
+    ]);
+
+    const colleagueSection = await provider.getSection('viewer', 'subject', {
+      role: 'Colleague',
+      sections: { S11: 'R' } as never,
+    });
+    expect(colleagueSection.projects[0]).toEqual({
+      name: 'Customer Portal Modernization',
+    });
+
+    const enrichedSection = await provider.getSection('viewer', 'subject', {
+      role: 'Self',
+      sections: { S11: 'R' } as never,
+    });
+    expect(enrichedSection.projects[0]).toMatchObject({
+      name: 'Customer Portal Modernization',
+    });
+  });
+
+  it('falls back to the raw project id for legacy rows with no stored name', async () => {
+    projectAssignment.listByEmployee.mockResolvedValue([
+      { ...fullAssignment, projectName: null },
+    ]);
+
+    const section = await provider.getSection('viewer', 'subject', {
+      role: 'Self',
+      sections: { S11: 'R' } as never,
+    });
+
+    expect(section.projects[0]).toMatchObject({ name: 'proj-1' });
   });
 
   it('omits unconfirmed and ended assignments', async () => {

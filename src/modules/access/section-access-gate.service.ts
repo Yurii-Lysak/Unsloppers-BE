@@ -181,6 +181,7 @@ export class SectionAccessGateService extends SectionAccessGate {
   private toProjectAssignmentDto(row: {
     employeeId: string;
     projectId: string;
+    projectName: string | null;
     pmId: string;
     dmId: string;
     startDate: Date;
@@ -191,6 +192,7 @@ export class SectionAccessGateService extends SectionAccessGate {
     return {
       employeeId: row.employeeId,
       projectId: row.projectId,
+      projectName: row.projectName,
       pmId: row.pmId,
       dmId: row.dmId,
       startDate: row.startDate.toISOString(),

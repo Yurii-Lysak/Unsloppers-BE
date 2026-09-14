@@ -9,6 +9,7 @@ import {
   NormalizedLeavePeriod,
   groupLeavePeriods,
 } from './leave-period.mapper';
+import { monthsToQuery } from './month-window';
 
 const LEAVES_CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -236,7 +237,7 @@ export class LeavesSyncService {
       });
       const daysByEmployeeId = new Map<number, WorkingDay[]>();
       for (const employee of report.employees) {
-        daysByEmployeeId.set(employee.id, employee.days ?? []);
+        daysByEmployeeId.set(employee.id, normalizeWorkingDays(employee.days));
       }
 
       this.monthCache.set(cacheKey, {
@@ -283,7 +284,7 @@ export class LeavesSyncService {
         ? cached.daysByEmployeeId
         : new Map<number, WorkingDay[]>();
       for (const employee of report.employees) {
-        daysByEmployeeId.set(employee.id, employee.days ?? []);
+        daysByEmployeeId.set(employee.id, normalizeWorkingDays(employee.days));
       }
 
       this.batchMonthCache.set(cacheKey, {
@@ -301,14 +302,16 @@ export class LeavesSyncService {
   }
 }
 
-function monthsToQuery(now: Date): Array<{ month: number; year: number }> {
-  const month = now.getUTCMonth() + 1;
-  const year = now.getUTCFullYear();
-  const previous =
-    month === 1 ? { month: 12, year: year - 1 } : { month: month - 1, year };
-  const next =
-    month === 12 ? { month: 1, year: year + 1 } : { month: month + 1, year };
-  return [previous, { month, year }, next];
+/**
+ * TimeTracker's `WorkingDay.date` is a `date-time` field per the External
+ * API's own OpenAPI spec (`docs/api-external-openapi.json`), not the plain
+ * `YYYY-MM-DD` string every consumer here assumes (`leave-period.mapper.ts`,
+ * `isActiveOnDate`). Slicing to the date portion at ingestion — rather than
+ * parsing into a `Date` and reading it back — avoids any timezone-offset
+ * shift changing which calendar day a leave falls on.
+ */
+function normalizeWorkingDays(days: WorkingDay[] | undefined): WorkingDay[] {
+  return (days ?? []).map((day) => ({ ...day, date: day.date.slice(0, 10) }));
 }
 
 function dedupeWorkingDaysByDate(days: WorkingDay[]): WorkingDay[] {

@@ -4,7 +4,11 @@ import { ProjectAssignmentSource } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TimetrackerClient } from '../contracts/timetracker-client.contract';
 import { TimetrackerApiError } from '../contracts/timetracker.errors';
-import { ProjectStatus } from '../contracts/timetracker.types';
+import {
+  ProjectStatus,
+  TimetrackerEmployee,
+} from '../contracts/timetracker.types';
+import { monthsToQuery } from './month-window';
 import {
   ProjectAssignmentMapper,
   TimetrackerProjectsPayloadError,
@@ -38,32 +42,45 @@ export class ProjectsSyncService {
     this.running = true;
     try {
       const confirmedAt = this.clock.now();
-      const month = confirmedAt.getUTCMonth() + 1;
-      const year = confirmedAt.getUTCFullYear();
-      const [directoryResult, projectsResult] = await Promise.allSettled([
-        this.timetracker.fetchAccountingReport({ month, year }),
-        this.timetracker.fetchTalentsProjects([
-          ProjectStatus.Active,
-          ProjectStatus.Support,
-        ]),
-      ]);
-      if (directoryResult.status === 'rejected') {
-        throw directoryResult.reason;
+      const [directoryReportsResult, projectsResult] = await Promise.allSettled(
+        [
+          // TT's accounting report only lists employees with submitted hours
+          // for that month, so a single month can leave most people invisible
+          // to the directory (spec-13-2 froze "current-month accounting
+          // report" as the source, but not "current month only" — querying
+          // the adjacent months too, like LeavesSyncService already does,
+          // stays within that boundary).
+          Promise.all(
+            monthsToQuery(confirmedAt).map(({ month, year }) =>
+              this.timetracker.fetchAccountingReport({ month, year }),
+            ),
+          ),
+          this.timetracker.fetchTalentsProjects([
+            ProjectStatus.Active,
+            ProjectStatus.Support,
+          ]),
+        ],
+      );
+      if (directoryReportsResult.status === 'rejected') {
+        throw directoryReportsResult.reason;
       }
       if (projectsResult.status === 'rejected') {
         throw projectsResult.reason;
       }
-      const directory = directoryResult.value;
+      const directoryReports = directoryReportsResult.value;
       const projects = projectsResult.value;
       if (
-        !Array.isArray(directory.employees) ||
+        directoryReports.some((report) => !Array.isArray(report.employees)) ||
         !Array.isArray(projects.projects)
       ) {
         throw new TimetrackerProjectsPayloadError();
       }
+      const directoryEmployees = mergeDirectoryEmployees(
+        directoryReports.flatMap((report) => report.employees),
+      );
       const mapped = await this.mapper.map(
         projects.projects,
-        directory.employees,
+        directoryEmployees,
       );
       const sourceKeys = mapped.assignments.map(
         (assignment) => assignment.sourceKey,
@@ -82,6 +99,7 @@ export class ProjectsSyncService {
             update: {
               employeeId: assignment.employeeId,
               projectId: assignment.projectId,
+              projectName: assignment.projectName,
               pmId: assignment.pmId,
               dmId: assignment.dmId,
               startDate: assignment.startDate,
@@ -130,6 +148,19 @@ export class ProjectsSyncService {
       this.running = false;
     }
   }
+}
+
+/** Dedupes by TT employee id, keeping whichever month's entry was seen first. */
+function mergeDirectoryEmployees(
+  employees: TimetrackerEmployee[],
+): TimetrackerEmployee[] {
+  const byId = new Map<number, TimetrackerEmployee>();
+  for (const employee of employees) {
+    if (!byId.has(employee.id)) {
+      byId.set(employee.id, employee);
+    }
+  }
+  return [...byId.values()];
 }
 
 function describeFailure(error: unknown): string {

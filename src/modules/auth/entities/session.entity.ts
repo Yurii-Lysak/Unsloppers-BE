@@ -4,4 +4,10 @@ import { CurrentUserDto } from '../../contracts/current-user-provider.contract';
 export class SessionEntity implements CurrentUserDto {
   @ApiProperty({ format: 'uuid' })
   userId!: string;
+
+  @ApiProperty()
+  name!: string;
+
+  @ApiProperty({ format: 'uuid', nullable: true })
+  employeeId!: string | null;
 }

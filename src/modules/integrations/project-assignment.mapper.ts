@@ -11,6 +11,7 @@ export interface NormalizedProjectAssignment {
   sourceKey: string;
   employeeId: string;
   projectId: string;
+  projectName: string;
   pmId: string;
   dmId: string;
   startDate: Date;
@@ -118,6 +119,7 @@ export class ProjectAssignmentMapper {
           sourceKey,
           employeeId,
           projectId: String(project.id),
+          projectName: project.name,
           pmId,
           dmId,
           startDate,
@@ -172,8 +174,13 @@ function normalizeEmail(value: string): string {
 }
 
 function parseUtcDate(value: string): Date | null {
+  // TT's `date-time` fields (`ProjectTalentDto.startDate`,
+  // `AccountTalentDto.dateStart`/`dateEnd`) come back with no timezone
+  // designator (e.g. "2026-08-25T00:00:00", not "...Z") despite the format
+  // name — the offset was never used below (only Y/M/D via `Date.UTC`), so
+  // requiring one just rejected every real payload. Kept optional here.
   const match =
-    /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.exec(
+    /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?$/.exec(
       value,
     );
   if (!match || Number.isNaN(Date.parse(value))) {
@@ -336,6 +343,7 @@ function sameAssignment(
     left.sourceKey === right.sourceKey &&
     left.employeeId === right.employeeId &&
     left.projectId === right.projectId &&
+    left.projectName === right.projectName &&
     left.pmId === right.pmId &&
     left.dmId === right.dmId &&
     left.startDate.getTime() === right.startDate.getTime() &&
