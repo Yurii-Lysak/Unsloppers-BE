@@ -17,6 +17,7 @@ import { UpdateTimelineEventDto } from './dto/update-timeline-event.dto';
 import { TimelineEventEntity } from './entities/timeline-event.entity';
 
 const TIMELINE_WRITE_ROLES: readonly AccessRole[] = ['ReportingLine', 'PP'];
+const MENTORSHIP_EVENT_TYPES = new Set(['mentorshipStart', 'mentorshipEnd']);
 
 @Injectable()
 export class TimelineService {
@@ -45,7 +46,8 @@ export class TimelineService {
       orderBy: [{ effectiveDate: 'asc' }, { createdAt: 'asc' }],
     });
 
-    return rows.map((row) => this.toEntity(row));
+    const mentorshipNameById = await this.loadMentorshipEmployeeNames(rows);
+    return rows.map((row) => this.toEntity(row, mentorshipNameById));
   }
 
   async createManualEvent(
@@ -208,14 +210,63 @@ export class TimelineService {
     }
   }
 
-  private toEntity(row: TimelineEvent): TimelineEventEntity {
+  /**
+   * mentorshipStart/mentorshipEnd store the counterpart employee's id as
+   * old/newValue (Story 9.2/9.3) — resolve those ids to display names in one
+   * batched lookup so the timeline reads as a person's name, not a raw uuid.
+   */
+  private async loadMentorshipEmployeeNames(
+    rows: TimelineEvent[],
+  ): Promise<Map<string, string>> {
+    const employeeIds = new Set<string>();
+    for (const row of rows) {
+      if (!MENTORSHIP_EVENT_TYPES.has(row.type)) {
+        continue;
+      }
+      for (const value of [row.oldValue, row.newValue]) {
+        if (typeof value === 'string') {
+          employeeIds.add(value);
+        }
+      }
+    }
+
+    if (employeeIds.size === 0) {
+      return new Map();
+    }
+
+    const employees = await this.prisma.employee.findMany({
+      where: { id: { in: [...employeeIds] } },
+      select: { id: true, user: { select: { name: true, email: true } } },
+    });
+
+    return new Map(
+      employees.map((employee) => [
+        employee.id,
+        employee.user?.name?.trim() || employee.user?.email || employee.id,
+      ]),
+    );
+  }
+
+  private toEntity(
+    row: TimelineEvent,
+    mentorshipNameById: Map<string, string> = new Map(),
+  ): TimelineEventEntity {
+    const resolveMentorshipValue = (
+      value: Prisma.JsonValue,
+    ): Prisma.JsonValue =>
+      MENTORSHIP_EVENT_TYPES.has(row.type) &&
+      typeof value === 'string' &&
+      mentorshipNameById.has(value)
+        ? (mentorshipNameById.get(value) as string)
+        : value;
+
     return {
       id: row.id,
       employeeId: row.employeeId,
       type: row.type,
       effectiveDate: row.effectiveDate,
-      oldValue: row.oldValue,
-      newValue: row.newValue,
+      oldValue: resolveMentorshipValue(row.oldValue),
+      newValue: resolveMentorshipValue(row.newValue),
       source: row.source,
       authorId: row.authorId,
       systemWriteSkippedAt: row.systemWriteSkippedAt,

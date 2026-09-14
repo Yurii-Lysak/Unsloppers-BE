@@ -882,7 +882,8 @@ describe('EmployeesService', () => {
     projectAssignment.listByEmployee.mockResolvedValue([
       {
         employeeId: 'peer-1',
-        projectId: 'Project Alpha',
+        projectId: '100',
+        projectName: 'Project Alpha',
         pmId: 'pm-1',
         dmId: 'dm-1',
         startDate: '2026-01-01',

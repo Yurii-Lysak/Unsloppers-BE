@@ -13,6 +13,7 @@ import { ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { Public } from '../../common/decorators/public.decorator';
 import { ThrottleLogin } from '../../common/throttling/throttle.decorators';
+import { PrismaService } from '../../prisma/prisma.service';
 import { CurrentUserProvider } from '../contracts/current-user-provider.contract';
 import { clearSessionCookie, setSessionCookie } from './auth-cookie';
 import { AuthService } from './auth.service';
@@ -27,6 +28,7 @@ export class AuthController {
     private readonly auth: AuthService,
     private readonly currentUser: CurrentUserProvider,
     private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Public()
@@ -41,7 +43,7 @@ export class AuthController {
     try {
       const session = await this.auth.login(credentials);
       setSessionCookie(response, session.token, this.config);
-      return { userId: session.userId };
+      return await this.buildSession(session.userId);
     } catch (error) {
       clearSessionCookie(response, this.config);
       throw error;
@@ -51,7 +53,10 @@ export class AuthController {
   @Get('session')
   @SwaggerSession()
   async session(@Req() request: Request): Promise<SessionEntity> {
-    return await this.currentUser.getCurrentUser(request);
+    const { userId } = await Promise.resolve(
+      this.currentUser.getCurrentUser(request),
+    );
+    return await this.buildSession(userId);
   }
 
   @Post('logout')
@@ -59,5 +64,18 @@ export class AuthController {
   @SwaggerLogout()
   logout(@Res({ passthrough: true }) response: Response): void {
     clearSessionCookie(response, this.config);
+  }
+
+  private async buildSession(userId: string): Promise<SessionEntity> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, email: true, employee: { select: { id: true } } },
+    });
+
+    return {
+      userId,
+      name: user?.name ?? user?.email ?? '',
+      employeeId: user?.employee?.id ?? null,
+    };
   }
 }

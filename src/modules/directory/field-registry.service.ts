@@ -33,6 +33,7 @@ import { ProviderRegistryService } from '../registry/provider-registry.service';
 import {
   BUILTIN_FIELD_SPECS,
   DEFAULT_PAGE_SIZE,
+  EMPLOYMENT_TYPE_OPTIONS,
   MAX_PAGE_SIZE,
   MIN_PAGE,
 } from './field-catalog';
@@ -174,6 +175,11 @@ export class FieldRegistryService extends FieldRegistry {
         });
         return;
       case BUILTIN_FIELD_IDS.employment_type:
+        if (!(EMPLOYMENT_TYPE_OPTIONS as readonly string[]).includes(trimmed)) {
+          throw new BadRequestException(
+            `Employment type must be one of: ${EMPLOYMENT_TYPE_OPTIONS.join(', ')}`,
+          );
+        }
         await this.prisma.employmentTypeHistory.create({
           data: { employeeId, value: trimmed, effectiveFrom },
         });

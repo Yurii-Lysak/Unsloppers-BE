@@ -34,7 +34,9 @@ export class ProjectsSectionProvider extends SectionProvider {
 
     if (!audience || audience.role === 'Colleague') {
       return {
-        projects: activeRows.map((row) => ({ name: row.projectId })),
+        projects: activeRows.map((row) => ({
+          name: row.projectName ?? row.projectId,
+        })),
       };
     }
 
@@ -96,7 +98,7 @@ export class ProjectsSectionProvider extends SectionProvider {
     displayNames: Map<string, string | null>,
   ): ProjectNameEntryEntity {
     return {
-      name: row.projectId,
+      name: row.projectName ?? row.projectId,
       pm: displayNames.get(row.pmId) ?? null,
       dm: displayNames.get(row.dmId) ?? null,
       startDate: row.startDate,

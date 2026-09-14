@@ -4,6 +4,9 @@ import {
 } from '../contracts/field-registry.contract';
 import { MENTOR_STATUS_VALUES } from '../contracts/mentor-status.contract';
 
+/** Closed set per project-requirements-v2.md 4.9/S4 — "Employee type (FTE / Subcontractor)". */
+export const EMPLOYMENT_TYPE_OPTIONS = ['FTE', 'Subcontractor'] as const;
+
 export const BUILTIN_FIELD_SPECS: FieldSpec[] = [
   {
     id: BUILTIN_FIELD_IDS.name,
@@ -46,12 +49,13 @@ export const BUILTIN_FIELD_SPECS: FieldSpec[] = [
   {
     id: BUILTIN_FIELD_IDS.employment_type,
     name: 'Employment type',
-    type: 'text',
+    type: 'select',
     source: 'builtin',
     sectionId: 'S4',
     sortable: true,
     filterable: true,
     editable: true,
+    options: [...EMPLOYMENT_TYPE_OPTIONS],
   },
   {
     id: BUILTIN_FIELD_IDS.years_with_company,

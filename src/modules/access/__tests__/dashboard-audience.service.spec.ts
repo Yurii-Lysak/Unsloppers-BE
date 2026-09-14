@@ -121,6 +121,7 @@ describe('DashboardAudienceService', () => {
       where: { pmId: 'pm-1' },
       select: {
         projectId: true,
+        projectName: true,
         employeeId: true,
         pmId: true,
         dmId: true,

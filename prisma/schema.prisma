@@ -171,6 +171,9 @@ model ProjectAssignment {
   id          String                  @id @default(uuid())
   employeeId  String
   projectId   String
+  /// TimeTracker's project display name. Nullable: pre-existing
+  /// manual/legacy rows predate this column and have no name to backfill.
+  projectName String?
   pmId        String
   dmId        String
   startDate   DateTime                @db.Date
@@ -332,7 +335,11 @@ model EmploymentTypeHistory {
 
 // Story 7.1/7.2 — C4 persists system/manual rows; soft-delete + partial unique
 // index (active rows only) live in migration SQL — see
-// `timeline_events_active_key` WHERE deleted_at IS NULL.
+// `timeline_events_active_key` WHERE deleted_at IS NULL AND type NOT IN
+// ('mentorshipStart', 'mentorshipEnd') — the "one active event per
+// employee/type/day" guarantee only holds for the four history-table types;
+// mentorship start/end events are per-pair, not per-employee current values
+// (Story 9.4 bugfix).
 model TimelineEvent {
   id                   String    @id @default(uuid())
   employeeId           String

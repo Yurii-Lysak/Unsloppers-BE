@@ -15,6 +15,7 @@ import {
 export interface CreateProjectAssignmentInput {
   employeeId: string;
   projectId: string;
+  projectName?: string | null;
   pmId: string;
   dmId: string;
   startDate: Date;
@@ -63,6 +64,7 @@ export class ProjectAssignmentService extends ProjectAssignment {
       data: {
         employeeId: input.employeeId,
         projectId: input.projectId,
+        projectName: input.projectName ?? null,
         pmId: input.pmId,
         dmId: input.dmId,
         startDate: input.startDate,
@@ -101,6 +103,7 @@ export class ProjectAssignmentService extends ProjectAssignment {
     return {
       employeeId: row.employeeId,
       projectId: row.projectId,
+      projectName: row.projectName,
       pmId: row.pmId,
       dmId: row.dmId,
       startDate: this.toIsoDate(row.startDate),

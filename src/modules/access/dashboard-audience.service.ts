@@ -57,6 +57,7 @@ export class DashboardAudienceService extends DashboardAudience {
           : { pmId: viewerEmployeeId },
       select: {
         projectId: true,
+        projectName: true,
         employeeId: true,
         pmId: true,
         dmId: true,
@@ -167,6 +168,7 @@ export class DashboardAudienceService extends DashboardAudience {
   private toProjectAssignmentDto(row: {
     employeeId: string;
     projectId: string;
+    projectName: string | null;
     pmId: string;
     dmId: string;
     startDate: Date;
@@ -177,6 +179,7 @@ export class DashboardAudienceService extends DashboardAudience {
     return {
       employeeId: row.employeeId,
       projectId: row.projectId,
+      projectName: row.projectName,
       pmId: row.pmId,
       dmId: row.dmId,
       startDate: row.startDate.toISOString(),

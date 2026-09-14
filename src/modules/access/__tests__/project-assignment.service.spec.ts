@@ -23,6 +23,7 @@ describe('ProjectAssignmentService', () => {
     id: 'row-1',
     employeeId: 'B',
     projectId: 'proj-1',
+    projectName: 'Project One',
     pmId: 'P',
     dmId: 'D',
     startDate: new Date('2026-01-01T00:00:00.000Z'),
@@ -62,6 +63,7 @@ describe('ProjectAssignmentService', () => {
         {
           employeeId: 'B',
           projectId: 'proj-1',
+          projectName: 'Project One',
           pmId: 'P',
           dmId: 'D',
           startDate: '2026-01-01',
@@ -114,6 +116,7 @@ describe('ProjectAssignmentService', () => {
         data: {
           employeeId: 'B',
           projectId: 'proj-1',
+          projectName: null,
           pmId: 'P',
           dmId: 'D',
           startDate: new Date('2026-01-01T00:00:00.000Z'),
@@ -146,6 +149,7 @@ describe('ProjectAssignmentService', () => {
         data: {
           employeeId: 'B',
           projectId: 'proj-1',
+          projectName: null,
           pmId: 'P',
           dmId: 'D',
           startDate: new Date('2026-01-01T00:00:00.000Z'),

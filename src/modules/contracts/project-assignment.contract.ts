@@ -17,6 +17,7 @@
 export interface ProjectAssignmentDto {
   employeeId: string;
   projectId: string;
+  projectName: string | null;
   pmId: string;
   dmId: string;
   startDate: string; // ISO date

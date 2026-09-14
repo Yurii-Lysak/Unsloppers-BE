@@ -43,6 +43,7 @@ describe('ProjectAssignmentMapper', () => {
         sourceKey: 'timetracker:100:10',
         employeeId: 'platform-10',
         projectId: '100',
+        projectName: 'Synthetic Project',
         pmId: 'platform-20',
         dmId: 'platform-30',
         startDate: new Date('2026-08-01T00:00:00.000Z'),
@@ -284,6 +285,37 @@ describe('ProjectAssignmentMapper', () => {
       directory(),
     );
 
+    expect(result.assignments[0].startDate).toEqual(
+      new Date('2026-08-01T00:00:00.000Z'),
+    );
+  });
+
+  it('accepts a date-time with no timezone designator, as TT actually sends it', async () => {
+    identityMapping.findByExternalId.mockImplementation(
+      (_system: string, externalId: string) =>
+        Promise.resolve({
+          system: 'timetracker',
+          externalId,
+          employeeId: `platform-${externalId}`,
+        }),
+    );
+
+    const result = await mapper.map(
+      [
+        project({
+          // Real TT payloads omit the offset entirely (e.g.
+          // "2026-08-25T00:00:00"), despite the field being declared
+          // `date-time` — see docs/api-external-openapi.json.
+          startDate: '2026-08-01T00:00:00',
+          members: [
+            { ...project().members[0], dateStart: '2026-08-01T00:00:00' },
+          ],
+        }),
+      ],
+      directory(),
+    );
+
+    expect(result.assignments).toHaveLength(1);
     expect(result.assignments[0].startDate).toEqual(
       new Date('2026-08-01T00:00:00.000Z'),
     );
